@@ -55,4 +55,8 @@ urlpatterns = [
     path('boms/<int:pk>/delete/', views.BOMDeleteView.as_view(), name='bom_delete'),
     path('boms/<int:bom_pk>/items/add/', views.BOMItemCreateView.as_view(), name='bom_item_create'),
     path('bom-items/<int:pk>/delete/', views.BOMItemDeleteView.as_view(), name='bom_item_delete'),
+
+    # Inventory Count Sheet & Audit
+    path('inventory/count-sheet/', views.InventoryCountSheetView.as_view(), name='inventory_count_sheet'),
+    path('inventory/count-sheet/export/csv/', views.inventory_count_sheet_export_csv, name='inventory_count_sheet_csv'),
 ]

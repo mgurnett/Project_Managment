@@ -251,6 +251,13 @@ class Part(models.Model):
         verbose_name="Link",
         help_text="Direct product page or datasheet URL"
     )
+    document = models.FileField(
+        upload_to='parts/documents/%Y/%m/',
+        blank=True,
+        null=True,
+        verbose_name="Document / Datasheet",
+        help_text="Upload component datasheet, drawing, schematic, or PDF manual"
+    )
     notes = CKEditor5Field(
         'Notes',
         config_name='notes',
@@ -359,6 +366,42 @@ class Part(models.Model):
             self.price_per = round(self.price / self.quantity, 2)
 
         super().save(*args, **kwargs)
+
+    @property
+    def document_filename(self):
+        if self.document and self.document.name:
+            return os.path.basename(self.document.name)
+        return ""
+
+    @property
+    def document_extension(self):
+        if self.document and self.document.name:
+            _, ext = os.path.splitext(self.document.name)
+            return ext.lstrip('.').lower()
+        return ""
+
+    @property
+    def is_document_pdf(self):
+        return self.document_extension == 'pdf'
+
+    @property
+    def is_document_image(self):
+        return self.document_extension in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']
+
+    @property
+    def document_size_display(self):
+        try:
+            if self.document and hasattr(self.document, 'size') and self.document.size:
+                size = self.document.size
+                if size < 1024:
+                    return f"{size} B"
+                elif size < 1024 * 1024:
+                    return f"{size / 1024:.1f} KB"
+                else:
+                    return f"{size / (1024 * 1024):.1f} MB"
+        except Exception:
+            pass
+        return ""
 
 
 class PartDocument(models.Model):

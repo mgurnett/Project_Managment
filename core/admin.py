@@ -81,6 +81,7 @@ class PartAdmin(admin.ModelAdmin):
         'price',
         'confirmed',
         'link_button',
+        'document_button',
     )
     list_display_links = ('name', 'description')
     list_editable = ('part_number', 'category', 'confirmed', 'price_per', 'price')
@@ -114,7 +115,10 @@ class PartAdmin(admin.ModelAdmin):
             )
         }),
         ('Documentation & Notes', {
-            'fields': ('link', 'notes')
+            'fields': (
+                ('link', 'document'),
+                'notes',
+            )
         }),
     )
 
@@ -126,6 +130,24 @@ class PartAdmin(admin.ModelAdmin):
             )
         return "-"
     link_button.short_description = "Link"
+
+    def document_button(self, obj):
+        if obj.document:
+            return format_html(
+                '<a href="{}" target="_blank" rel="noopener" class="button" style="padding: 2px 8px; font-size: 11px; background: #0284c7; color: #fff;">📄 {}</a>',
+                obj.document.url,
+                obj.document_extension.upper() or 'File'
+            )
+        elif obj.documents.exists():
+            first_doc = obj.documents.first()
+            if first_doc.file:
+                return format_html(
+                    '<a href="{}" target="_blank" rel="noopener" class="button" style="padding: 2px 8px; font-size: 11px; background: #0284c7; color: #fff;">📄 {}</a>',
+                    first_doc.file.url,
+                    first_doc.file_extension.upper() or 'File'
+                )
+        return "-"
+    document_button.short_description = "Doc / Scan"
 
 
 @admin.register(PartDocument)

@@ -24,6 +24,7 @@ class PartForm(forms.ModelForm):
             'price',
             'confirmed',
             'link',
+            'document',
             'notes',
         ]
         widgets = {
@@ -45,6 +46,7 @@ class PartForm(forms.ModelForm):
             'price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '0.00'}),
             'confirmed': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'link': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://...'}),
+            'document': forms.FileInput(attrs={'class': 'form-control', 'accept': '.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv'}),
         }
 
     def __init__(self, *args, **kwargs):

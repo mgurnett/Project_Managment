@@ -32,6 +32,12 @@
         </div>
 
         <div class="d-flex align-items-center gap-2">
+            {% if part.document %}
+                <a href="{{ part.document.url }}" target="_blank" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 shadow-sm" title="Open Datasheet / Document">
+                    <i class="bi bi-file-earmark-arrow-down"></i>
+                    <span>Datasheet ({{ part.document_extension|upper }})</span>
+                </a>
+            {% endif %}
             <a href="{% url 'part_list' %}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1">
                 <i class="bi bi-arrow-left"></i>
                 <span>Back to Parts</span>
@@ -159,6 +165,36 @@
                     </a>
                 </div>
                 <div class="card-body p-4 pt-2">
+                    {% if part.document %}
+                        <!-- Primary Uploaded Document -->
+                        <div class="p-3 mb-3 border rounded-3 bg-primary-subtle border-primary-subtle d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-3 p-2 bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0" style="width: 46px; height: 46px;">
+                                    <i class="bi {% if part.is_document_pdf %}bi-file-earmark-pdf{% elif part.is_document_image %}bi-file-earmark-image{% else %}bi-file-earmark-text{% endif %} fs-4"></i>
+                                </div>
+                                <div>
+                                    <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                                        <span class="fw-bold text-body">{{ part.document_filename }}</span>
+                                        <span class="badge bg-primary text-white px-2 py-0.5 text-uppercase" style="font-size: 0.65rem;">
+                                            Primary Document ({{ part.document_extension|upper }})
+                                        </span>
+                                    </div>
+                                    <div class="text-muted small">
+                                        <span><i class="bi bi-hdd me-1"></i>{{ part.document_size_display }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2 flex-shrink-0 ms-auto ms-md-0">
+                                <a href="{{ part.document.url }}" target="_blank" class="btn btn-sm btn-primary">
+                                    <i class="bi bi-eye me-1"></i> Open File
+                                </a>
+                                <a href="{{ part.document.url }}" target="_blank" download class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-download me-1"></i> Download
+                                </a>
+                            </div>
+                        </div>
+                    {% endif %}
+
                     {% if documents %}
                         <div class="row g-3">
                             {% for doc in documents %}
@@ -229,7 +265,7 @@
                             </div>
                             {% endfor %}
                         </div>
-                    {% else %}
+                    {% elif not part.document %}
                         <div class="text-center py-4 border rounded-3 bg-body-tertiary">
                             <i class="bi bi-file-earmark-arrow-up text-muted" style="font-size: 2.2rem;"></i>
                             <h6 class="fw-semibold mt-2 mb-1">No Documents, Scans, or Pinouts Attached</h6>

@@ -5,7 +5,7 @@ from django.http import HttpResponse
 from django.urls import reverse_lazy, reverse
 from django.contrib import messages
 from django.utils import timezone
-from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
+from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView, TemplateView
 from django.db.models import Q, Count, Sum, Case, When, Value, IntegerField
 from .models import Part, Company, Manufacturer, Category, Location, PartDocument, BOM, BOMItem
 from .forms import (
@@ -128,6 +128,7 @@ def generate_parts_csv(queryset):
         'Confirmed',
         'Superseded By',
         'Product URL',
+        'Document URL',
         'Notes',
     ])
 
@@ -156,6 +157,7 @@ def generate_parts_csv(queryset):
             'Yes' if part.confirmed else 'No',
             part.superseded_by.part_number if part.superseded_by else '',
             part.link or '',
+            part.document.url if part.document else '',
             notes_text,
         ])
 
@@ -708,3 +710,138 @@ class BOMItemDeleteView(DeleteView):
 
     def get_success_url(self):
         return reverse('bom_detail', kwargs={'pk': self.object.bom.pk})
+
+
+# ==============================================================================
+# INVENTORY COUNT SHEET & AUDIT VIEWS
+# ==============================================================================
+
+def get_count_sheet_queryset(request):
+    """
+    Returns filtered Part queryset for the Inventory Count Sheet:
+    Grouped by Category (by category prefix/name) and sorted by part_number.
+    """
+    qs = Part.objects.select_related('category', 'location', 'company', 'manufacturer').order_by(
+        'category__prefix', 'category__name', 'part_number'
+    )
+
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(
+            Q(part_number__icontains=q) |
+            Q(name__icontains=q) |
+            Q(description__icontains=q) |
+            Q(supplier_part_number__icontains=q)
+        )
+
+    category_id = request.GET.get('category', '').strip()
+    if category_id:
+        if category_id == 'none':
+            qs = qs.filter(category__isnull=True)
+        else:
+            qs = qs.filter(category_id=category_id)
+
+    location_id = request.GET.get('location', '').strip()
+    if location_id:
+        if location_id == 'none':
+            qs = qs.filter(location__isnull=True)
+        else:
+            qs = qs.filter(location_id=location_id)
+
+    stock = request.GET.get('stock', '').strip()
+    if stock == 'in_stock':
+        qs = qs.filter(quantity_on_hand__gt=0)
+    elif stock == 'zero_stock':
+        qs = qs.filter(quantity_on_hand=0)
+    elif stock == 'negative':
+        qs = qs.filter(quantity_on_hand__lt=0)
+
+    return qs
+
+
+class InventoryCountSheetView(TemplateView):
+    template_name = 'core/inventory_count_sheet.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = get_count_sheet_queryset(self.request)
+
+        # Group parts by category while maintaining sort order
+        category_map = {}
+        for part in qs:
+            cat = part.category
+            cat_id = cat.pk if cat else 'none'
+            if cat_id not in category_map:
+                category_map[cat_id] = {
+                    'category': cat,
+                    'category_name': cat.name if cat else 'Uncategorized / General Components',
+                    'prefix': cat.get_prefix() if cat else '',
+                    'parts': [],
+                    'total_on_hand': 0,
+                    'total_items': 0,
+                }
+            category_map[cat_id]['parts'].append(part)
+            category_map[cat_id]['total_on_hand'] += (part.quantity_on_hand or 0)
+            category_map[cat_id]['total_items'] += 1
+
+        groups = list(category_map.values())
+
+        ctx['groups'] = groups
+        ctx['total_parts'] = qs.count()
+        ctx['total_categories'] = len(groups)
+        ctx['total_on_hand'] = sum(g['total_on_hand'] for g in groups)
+        ctx['categories'] = Category.objects.all().order_by('prefix', 'name')
+        ctx['locations'] = Location.objects.all().order_by('name')
+        ctx['current_category'] = self.request.GET.get('category', '')
+        ctx['current_location'] = self.request.GET.get('location', '')
+        ctx['current_stock'] = self.request.GET.get('stock', '')
+        ctx['current_q'] = self.request.GET.get('q', '')
+        ctx['generated_at'] = timezone.now()
+        return ctx
+
+
+def inventory_count_sheet_export_csv(request):
+    """
+    Exports the inventory count sheet to CSV, grouped by category and sorted by part number.
+    """
+    qs = get_count_sheet_queryset(request)
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+    response['Content-Disposition'] = f'attachment; filename="inventory_count_sheet_{timestamp}.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow([
+        'Category Prefix',
+        'Category Name',
+        'Part Number',
+        'Component Name',
+        'Description',
+        'Location Name',
+        'Location Code',
+        'System On Hand',
+        'Physical Count',
+        'Discrepancy (+/-)',
+        'Auditor Notes',
+    ])
+
+    for part in qs:
+        cat_prefix = part.category.get_prefix() if part.category else ''
+        cat_name = part.category.name if part.category else 'Uncategorized'
+        loc_name = part.location.name if part.location else ''
+        loc_code = part.location.code if part.location else ''
+
+        writer.writerow([
+            cat_prefix,
+            cat_name,
+            part.part_number,
+            part.name or '',
+            part.description or '',
+            loc_name,
+            loc_code,
+            part.quantity_on_hand,
+            '',  # Physical Count
+            '',  # Discrepancy
+            '',  # Notes
+        ])
+
+    return response
