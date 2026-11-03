@@ -535,7 +535,7 @@ class BOMDetailView(DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['items'] = self.object.items.select_related('part', 'part__company').all()
-        ctx['item_form'] = BOMItemForm()
+        ctx['item_form'] = BOMItemForm(bom=self.object)
         return ctx
 
 
@@ -580,6 +580,11 @@ class BOMItemCreateView(CreateView):
     def get_bom(self):
         return get_object_or_404(BOM, pk=self.kwargs['bom_pk'])
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['bom'] = self.get_bom()
+        return kwargs
+
     def form_valid(self, form):
         form.instance.bom = self.get_bom()
         response = super().form_valid(form)
@@ -587,7 +592,9 @@ class BOMItemCreateView(CreateView):
         return response
 
     def form_invalid(self, form):
-        messages.error(self.request, "Could not add item to BOM. Please check your inputs.")
+        for field, errs in form.errors.items():
+            for err in errs:
+                messages.error(self.request, f"{err}")
         return redirect('bom_detail', pk=self.kwargs['bom_pk'])
 
     def get_success_url(self):

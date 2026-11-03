@@ -76,6 +76,33 @@ class PartForm(forms.ModelForm):
     def clean_quantity(self):
         return self.cleaned_data.get('quantity') or 0
 
+    def clean(self):
+        cleaned_data = super().clean()
+        part_number = cleaned_data.get('part_number')
+        category = cleaned_data.get('category')
+
+        if part_number:
+            raw_pn = part_number.strip()
+            # If user entered digits only and category has prefix, resolve full target
+            if category:
+                prefix = category.get_prefix()
+                if prefix and raw_pn.isdigit():
+                    raw_pn = f"{prefix}-{raw_pn}"
+
+            # Case-insensitive uniqueness check
+            qs = Part.objects.filter(part_number__iexact=raw_pn)
+            if self.instance and self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                self.add_error(
+                    'part_number',
+                    f"A component with part number '{raw_pn}' already exists. Component numbers must be unique."
+                )
+            else:
+                cleaned_data['part_number'] = raw_pn
+
+        return cleaned_data
+
 
 class CompanyForm(forms.ModelForm):
     class Meta:
@@ -186,7 +213,29 @@ class BOMItemForm(forms.ModelForm):
             'notes': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Optional assembly notes or placement instructions'}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, bom=None, **kwargs):
+        self.bom = bom
         super().__init__(*args, **kwargs)
         if 'part' in self.fields:
             self.fields['part'].empty_label = "-- Select Component Part --"
+            if self.bom:
+                # Exclude parts that are already in this BOM assembly
+                existing_part_ids = self.bom.items.values_list('part_id', flat=True)
+                if self.instance and self.instance.pk and self.instance.part_id:
+                    existing_part_ids = existing_part_ids.exclude(part_id=self.instance.part_id)
+                self.fields['part'].queryset = Part.objects.exclude(id__in=existing_part_ids)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        part = cleaned_data.get('part')
+        bom = self.bom or (self.instance.bom if self.instance and self.instance.pk else None)
+        if bom and part:
+            qs = BOMItem.objects.filter(bom=bom, part=part)
+            if self.instance and self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                self.add_error(
+                    'part',
+                    f"Component '{part.part_number}' is already included in '{bom.name}'. Each component can only appear once per BOM assembly."
+                )
+        return cleaned_data

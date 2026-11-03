@@ -1,5 +1,5 @@
 =============  Bug fixes =================
-TODO: 
+[COMPLETED] component numbers must be unique. (Enforced case-insensitive part number uniqueness with prefix formatting in PartForm, and UniqueConstraint on BOM components)
 
 ==============  Priority HIGH
 TODO: Make a order action - can scan in an order

@@ -1,5 +1,6 @@
 import os
 from decimal import Decimal
+from django.core.exceptions import ValidationError
 from django.db import models
 from django_ckeditor_5.fields import CKEditor5Field
 
@@ -259,6 +260,25 @@ class Part(models.Model):
         verbose_name_plural = "Parts"
         ordering = ['part_number', 'description']
 
+    def clean(self):
+        super().clean()
+        if self.part_number:
+            raw_pn = self.part_number.strip()
+            # If user entered digits only and category has prefix, resolve full target
+            if self.category:
+                prefix = self.category.get_prefix()
+                if prefix and raw_pn.isdigit():
+                    raw_pn = f"{prefix}-{raw_pn}"
+
+            # Case-insensitive uniqueness check across all parts
+            existing = Part.objects.filter(part_number__iexact=raw_pn)
+            if self.pk:
+                existing = existing.exclude(pk=self.pk)
+            if existing.exists():
+                raise ValidationError({
+                    'part_number': f"A component with part number '{raw_pn}' already exists. Component numbers must be unique."
+                })
+
     def __str__(self):
         if self.part_number:
             return f"{self.part_number} - {self.description}"
@@ -498,6 +518,23 @@ class BOMItem(models.Model):
         verbose_name = "BOM Item"
         verbose_name_plural = "BOM Items"
         ordering = ['reference', 'part__part_number']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['bom', 'part'],
+                name='unique_bom_component'
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if hasattr(self, 'bom') and hasattr(self, 'part') and self.bom_id and self.part_id:
+            qs = BOMItem.objects.filter(bom=self.bom, part=self.part)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError({
+                    'part': f"Component '{self.part.part_number}' is already in '{self.bom.name}'. Each component can only appear once per BOM assembly."
+                })
 
     def __str__(self):
         ref_str = f"[{self.reference}] " if self.reference else ""
