@@ -216,10 +216,27 @@
 
                 <div class="sidebar-heading">Assets & Inventory</div>
 
-                <a href="{% url 'home' %}#inventory" class="nav-link-custom">
-                    <i class="bi bi-box-seam"></i>
-                    <span>Stock & Supplies</span>
+                <a href="{% url 'admin:core_part_changelist' %}" class="nav-link-custom">
+                    <i class="bi bi-cpu"></i>
+                    <span>Parts & BOM</span>
                 </a>
+
+                <a href="{% url 'admin:core_company_changelist' %}" class="nav-link-custom">
+                    <i class="bi bi-building"></i>
+                    <span>Companies / Suppliers</span>
+                </a>
+
+                <a href="{% url 'admin:core_category_changelist' %}" class="nav-link-custom">
+                    <i class="bi bi-tags"></i>
+                    <span>Categories</span>
+                </a>
+
+                <a href="{% url 'admin:core_location_changelist' %}" class="nav-link-custom">
+                    <i class="bi bi-geo-alt"></i>
+                    <span>Storage Locations</span>
+                </a>
+
+
 
                 <a href="{% url 'home' %}#reports" class="nav-link-custom">
                     <i class="bi bi-graph-up-arrow"></i>
