@@ -25,6 +25,10 @@ ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['*'])
 if 'testserver' not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append('testserver')
 
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[
+    'https://inventory.edmontonflyfishing.com',
+])
+
 
 # Application definition
 

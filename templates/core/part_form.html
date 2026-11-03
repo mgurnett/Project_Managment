@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}
-    {% if form.instance.pk %}Edit {{ form.instance.name|default:form.instance.part_number }}{% else %}Add New Part{% endif %} | Project Manager
+    {% if is_duplicate %}Duplicate {{ source_part.name|default:source_part.part_number }}{% elif form.instance.pk %}Edit {{ form.instance.name|default:form.instance.part_number }}{% else %}Add New Part{% endif %} | Project Manager
 {% endblock %}
 
 {% block extra_head %}
@@ -11,7 +11,7 @@
 {% block breadcrumb %}
     <a href="{% url 'part_list' %}" class="text-decoration-none text-muted">Parts</a>
     <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
-    <span>{% if form.instance.pk %}Edit {{ form.instance.name|default:"Part" }}{% else %}New Part{% endif %}</span>
+    <span>{% if is_duplicate %}Duplicate {{ source_part.name|default:"Part" }}{% elif form.instance.pk %}Edit {{ form.instance.name|default:"Part" }}{% else %}New Part{% endif %}</span>
 {% endblock %}
 
 {% block content %}
@@ -21,7 +21,7 @@
     <div class="d-flex justify-content-between align-items-center mb-4 pb-2">
         <div>
             <h1 class="h3 fw-bold mb-1 text-custom">
-                {% if form.instance.pk %}Edit Component: {{ form.instance.name|default:form.instance.part_number }}{% else %}Add New Component{% endif %}
+                {% if is_duplicate %}Duplicate Component: {{ source_part.name|default:source_part.part_number }}{% elif form.instance.pk %}Edit Component: {{ form.instance.name|default:form.instance.part_number }}{% else %}Add New Component{% endif %}
             </h1>
             <p class="text-muted small mb-0">Fill in the technical specifications, supplier links, stock levels, and pricing.</p>
         </div>
@@ -30,8 +30,18 @@
         </a>
     </div>
 
-    <form method="post" novalidate>
+    <form method="post" enctype="multipart/form-data" novalidate>
         {% csrf_token %}
+
+        {% if is_duplicate and source_part %}
+            <div class="alert alert-info shadow-sm mb-4 d-flex align-items-center gap-3">
+                <i class="bi bi-copy fs-4 text-primary"></i>
+                <div>
+                    <h6 class="fw-bold mb-1">Duplicating Component Details</h6>
+                    <span class="small">Pre-filled from <strong>{{ source_part.part_number|default:"(No Part #)" }}</strong> &mdash; <em>{{ source_part.name|default:source_part.description }}</em>. Update the part number, name, or description below, then save.</span>
+                </div>
+            </div>
+        {% endif %}
 
         {% if form.errors %}
             <div class="alert alert-danger shadow-sm mb-4">
@@ -211,7 +221,13 @@
                 Cancel
             </a>
             <button type="submit" class="btn btn-custom px-4 fw-semibold">
-                <i class="bi bi-check2-circle me-1"></i> Save Component
+                {% if is_duplicate %}
+                    <i class="bi bi-copy me-1"></i> Save Duplicate Component
+                {% elif form.instance.pk %}
+                    <i class="bi bi-check2-circle me-1"></i> Save Changes
+                {% else %}
+                    <i class="bi bi-check2-circle me-1"></i> Save Component
+                {% endif %}
             </button>
         </div>
 

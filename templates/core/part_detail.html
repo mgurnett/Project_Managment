@@ -46,6 +46,10 @@
                 <i class="bi bi-arrow-left"></i>
                 <span>Back to Parts</span>
             </a>
+            <a href="{% url 'part_duplicate' part.pk %}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" title="Duplicate this component">
+                <i class="bi bi-copy"></i>
+                <span>Duplicate</span>
+            </a>
             <a href="{% url 'part_update' part.pk %}" class="btn btn-outline-custom btn-sm d-flex align-items-center gap-1">
                 <i class="bi bi-pencil"></i>
                 <span>Edit Part</span>

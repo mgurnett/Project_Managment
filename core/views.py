@@ -2,7 +2,7 @@ import csv
 import re
 from django.shortcuts import render, get_object_or_404, redirect
 from django.template.loader import render_to_string
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse_lazy, reverse
 from django.contrib import messages
 from django.utils import timezone
@@ -226,10 +226,110 @@ class PartCreateView(CreateView):
     template_name = 'core/part_form.html'
     success_url = reverse_lazy('part_list')
 
+    def get_initial(self):
+        initial = super().get_initial()
+        duplicate_id = self.request.GET.get('duplicate') or self.request.GET.get('from')
+        if duplicate_id:
+            try:
+                source = Part.objects.get(pk=duplicate_id)
+                initial.update({
+                    'part_number': source.part_number,
+                    'name': source.name,
+                    'description': source.description,
+                    'company': source.company_id,
+                    'manufacturer': source.manufacturer_id,
+                    'category': source.category_id,
+                    'location': source.location_id,
+                    'supplier_part_number': source.supplier_part_number,
+                    'superseded_by': source.superseded_by_id,
+                    'quantity_on_hand': source.quantity_on_hand,
+                    'quantity_on_order': source.quantity_on_order,
+                    'quantity_committed': source.quantity_committed,
+                    'quantity_availible': source.quantity_availible,
+                    'quantity': source.quantity,
+                    'price_per': source.price_per,
+                    'price': source.price,
+                    'confirmed': source.confirmed,
+                    'link': source.link,
+                    'notes': source.notes,
+                })
+            except (Part.DoesNotExist, ValueError):
+                pass
+        return initial
+
     def form_valid(self, form):
         response = super().form_valid(form)
         messages.success(self.request, f"Part '{self.object}' was created successfully!")
         return response
+
+
+class PartDuplicateView(CreateView):
+    """
+    Creates a new part pre-filled with all specifications and details
+    from an existing part, ready to be customized (e.g. name, part number, description).
+    """
+    model = Part
+    form_class = PartForm
+    template_name = 'core/part_form.html'
+    success_url = reverse_lazy('part_list')
+
+    def get_source_part(self):
+        return get_object_or_404(Part, pk=self.kwargs['pk'])
+
+    def get_initial(self):
+        initial = super().get_initial()
+        source = self.get_source_part()
+        initial.update({
+            'part_number': source.part_number,
+            'name': source.name,
+            'description': source.description,
+            'company': source.company_id,
+            'manufacturer': source.manufacturer_id,
+            'category': source.category_id,
+            'location': source.location_id,
+            'supplier_part_number': source.supplier_part_number,
+            'superseded_by': source.superseded_by_id,
+            'quantity_on_hand': source.quantity_on_hand,
+            'quantity_on_order': source.quantity_on_order,
+            'quantity_committed': source.quantity_committed,
+            'quantity_availible': source.quantity_availible,
+            'quantity': source.quantity,
+            'price_per': source.price_per,
+            'price': source.price,
+            'confirmed': source.confirmed,
+            'link': source.link,
+            'notes': source.notes,
+        })
+        return initial
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['source_part'] = self.get_source_part()
+        ctx['is_duplicate'] = True
+        return ctx
+
+    def form_valid(self, form):
+        source = self.get_source_part()
+        self.object = form.save(commit=False)
+        # If no new document uploaded, inherit document from source part if available
+        if not form.cleaned_data.get('document') and source.document:
+            self.object.document = source.document
+        self.object.save()
+        form.save_m2m()
+
+        # Clone associated PartDocuments if any
+        for doc in source.documents.all():
+            PartDocument.objects.create(
+                part=self.object,
+                title=doc.title,
+                document_type=doc.document_type,
+                file=doc.file,
+                external_url=doc.external_url,
+                notes=doc.notes,
+            )
+
+        messages.success(self.request, f"Part '{self.object}' was successfully duplicated from '{source}'!")
+        return HttpResponseRedirect(self.get_success_url())
 
 
 class PartUpdateView(UpdateView):

@@ -192,3 +192,70 @@ class OrderActionTestCase(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertContains(res, 'PO-VIEW-001')
         self.assertContains(res, '100-001')
+
+
+class PartDuplicateTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.supplier = Company.objects.create(name="Molex", contact_name="Support")
+        self.category = Category.objects.create(name="Connectors", prefix="300")
+        self.female_part = Part.objects.create(
+            part_number="PART-001",
+            name="Quick Disconnect plug",
+            description='Nylon Full 22-18ga Female .250"',
+            company=self.supplier,
+            category=self.category,
+            supplier_part_number="TEC-761354",
+            quantity=50,
+            price_per=Decimal("0.40"),
+            price=Decimal("20.20"),
+            confirmed=False,
+        )
+
+    def test_duplicate_view_renders_prefilled_form(self):
+        url = reverse('part_duplicate', kwargs={'pk': self.female_part.pk})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Duplicate Component')
+        self.assertContains(response, 'Quick Disconnect plug')
+        self.assertContains(response, 'Nylon Full 22-18ga Female .250&quot;')
+        self.assertContains(response, 'TEC-761354')
+
+    def test_duplicate_submission_creates_new_male_part(self):
+        url = reverse('part_duplicate', kwargs={'pk': self.female_part.pk})
+        post_data = {
+            'part_number': 'PART-002',
+            'name': 'Quick Disconnect plug Male',
+            'description': 'Nylon Full 22-18ga Male .250"',
+            'supplier_part_number': 'TEC-761355',
+            'company': self.supplier.pk,
+            'category': self.category.pk,
+            'quantity': 50,
+            'price_per': '0.40',
+            'price': '20.20',
+            'quantity_on_hand': 0,
+            'quantity_on_order': 0,
+            'quantity_committed': 0,
+            'quantity_availible': 0,
+        }
+        response = self.client.post(url, post_data)
+        self.assertEqual(response.status_code, 302)
+
+        male_part = Part.objects.get(part_number='PART-002')
+        self.assertEqual(male_part.name, 'Quick Disconnect plug Male')
+        self.assertEqual(male_part.description, 'Nylon Full 22-18ga Male .250"')
+        self.assertEqual(male_part.company, self.supplier)
+        self.assertEqual(male_part.category, self.category)
+        self.assertEqual(male_part.price_per, Decimal('0.40'))
+
+    def test_duplicate_button_present_in_part_list_and_detail(self):
+        # Part list
+        res_list = self.client.get(reverse('part_list'))
+        self.assertEqual(res_list.status_code, 200)
+        duplicate_url = reverse('part_duplicate', kwargs={'pk': self.female_part.pk})
+        self.assertContains(res_list, duplicate_url)
+
+        # Part detail
+        res_detail = self.client.get(reverse('part_detail', kwargs={'pk': self.female_part.pk}))
+        self.assertEqual(res_detail.status_code, 200)
+        self.assertContains(res_detail, duplicate_url)
