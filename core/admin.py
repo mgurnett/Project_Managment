@@ -72,6 +72,7 @@ class PartDocumentInline(admin.TabularInline):
 class PartAdmin(admin.ModelAdmin):
     list_display = (
         'part_number',
+        'name',
         'description',
         'company',
         'category',
@@ -81,10 +82,10 @@ class PartAdmin(admin.ModelAdmin):
         'confirmed',
         'link_button',
     )
-    list_display_links = ('description',)
+    list_display_links = ('name', 'description')
     list_editable = ('part_number', 'category', 'confirmed', 'price_per', 'price')
     list_filter = ('confirmed', 'company', 'manufacturer', 'category', 'location')
-    search_fields = ('part_number', 'supplier_part_number', 'description', 'notes')
+    search_fields = ('part_number', 'name', 'supplier_part_number', 'description', 'notes')
     autocomplete_fields = ('company', 'manufacturer', 'category', 'location', 'superseded_by')
     inlines = [PartDocumentInline]
     list_per_page = 25
@@ -92,7 +93,8 @@ class PartAdmin(admin.ModelAdmin):
     fieldsets = (
         ('Part Identification', {
             'fields': (
-                ('part_number', 'supplier_part_number'),
+                ('part_number', 'name'),
+                'supplier_part_number',
                 'description',
                 ('company', 'manufacturer'),
                 ('category', 'location'),

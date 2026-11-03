@@ -7,6 +7,7 @@ class PartForm(forms.ModelForm):
         model = Part
         fields = [
             'part_number',
+            'name',
             'supplier_part_number',
             'description',
             'company',
@@ -27,8 +28,9 @@ class PartForm(forms.ModelForm):
         ]
         widgets = {
             'part_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 100-001 (or enter 001, or leave blank to auto-generate)'}),
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Saft LS33600, Aircraft cable'}),
             'supplier_part_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 296-1389-5-ND'}),
-            'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Component description or specs'}),
+            'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Detailed specifications or package details'}),
             'company': forms.Select(attrs={'class': 'form-select'}),
             'manufacturer': forms.Select(attrs={'class': 'form-select'}),
             'category': forms.Select(attrs={'class': 'form-select', 'id': 'id_category'}),

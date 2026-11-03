@@ -80,6 +80,7 @@ def get_parts_filtered_queryset(request):
     if q:
         qs = qs.filter(
             Q(part_number__icontains=q) |
+            Q(name__icontains=q) |
             Q(supplier_part_number__icontains=q) |
             Q(description__icontains=q) |
             Q(company__name__icontains=q)
@@ -109,6 +110,7 @@ def generate_parts_csv(queryset):
     writer = csv.writer(response)
     writer.writerow([
         'Part Number',
+        'Name',
         'Description',
         'Supplier Part Number',
         'Company / Supplier',
@@ -136,7 +138,8 @@ def generate_parts_csv(queryset):
 
         writer.writerow([
             part.part_number,
-            part.description,
+            part.name or '',
+            part.description or '',
             part.supplier_part_number or '',
             part.company.name if part.company else '',
             part.manufacturer.name if part.manufacturer else '',

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}{{ part.part_number|default:part.description }} | Project Manager{% endblock %}
+{% block title %}{{ part.name|default:part.part_number }} | Project Manager{% endblock %}
 {% block breadcrumb %}
     <a href="{% url 'part_list' %}" class="text-decoration-none text-muted">Parts</a>
     <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
-    <span>{{ part.part_number|default:part.description|truncatechars:25 }}</span>
+    <span>{{ part.name|default:part.part_number|truncatechars:25 }}</span>
 {% endblock %}
 
 {% block content %}
@@ -14,7 +14,10 @@
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
         <div>
             <div class="d-flex align-items-center gap-2 flex-wrap">
-                <h1 class="h3 fw-bold mb-0 text-custom">{{ part.part_number|default:"(No Part Number)" }}</h1>
+                <h1 class="h3 fw-bold mb-0 text-custom">{{ part.name|default:part.description }}</h1>
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill font-monospace px-2.5 py-1">
+                    {{ part.part_number|default:"(No Part Number)" }}
+                </span>
                 {% if part.confirmed %}
                     <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1">
                         <i class="bi bi-check-circle-fill me-1"></i> Confirmed

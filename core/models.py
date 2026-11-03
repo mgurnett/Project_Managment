@@ -138,7 +138,13 @@ class Part(models.Model):
         verbose_name="Part Number",
         help_text="Manufacturer/vendor part #, or leave blank to auto-generate"
     )
-    description = models.CharField(max_length=255, verbose_name="Description")
+    name = models.CharField(
+        max_length=150,
+        blank=True,
+        verbose_name="Part Name",
+        help_text="Short component name or title"
+    )
+    description = models.CharField(max_length=255, blank=True, verbose_name="Description")
     
     # Relationships (One-to-Many)
     company = models.ForeignKey(
@@ -258,7 +264,7 @@ class Part(models.Model):
     class Meta:
         verbose_name = "Part"
         verbose_name_plural = "Parts"
-        ordering = ['part_number', 'description']
+        ordering = ['part_number', 'name']
 
     def clean(self):
         super().clean()
@@ -280,9 +286,10 @@ class Part(models.Model):
                 })
 
     def __str__(self):
+        label = self.name or self.description
         if self.part_number:
-            return f"{self.part_number} - {self.description}"
-        return self.description
+            return f"{self.part_number} - {label}"
+        return label
 
     @classmethod
     def generate_next_part_number(cls, category):

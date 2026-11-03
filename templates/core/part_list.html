@@ -104,7 +104,8 @@
                 <thead class="table-light border-bottom small text-uppercase text-muted">
                     <tr>
                         <th scope="col" class="ps-4 py-3">Part Number</th>
-                        <th scope="col" class="py-3">Description</th>
+                        <th scope="col" class="py-3">Component Name</th>
+                        <th scope="col" class="py-3">Description / Specs</th>
                         <th scope="col" class="py-3">Company / Supplier</th>
                         <th scope="col" class="py-3">Category</th>
                         <th scope="col" class="py-3">Location</th>
@@ -129,14 +130,19 @@
                             {% endif %}
                         </td>
                         <td class="py-3">
-                            <div class="text-body fw-medium text-truncate" style="max-width: 280px;" title="{{ part.description }}">
-                                {{ part.description }}
+                            <div class="text-body fw-bold">
+                                {{ part.name|default:part.description }}
                             </div>
                             {% if part.manufacturer %}
                                 <span class="badge bg-secondary-subtle text-secondary small" style="font-size: 0.7rem;">
                                     Mfg: {{ part.manufacturer.name }}
                                 </span>
                             {% endif %}
+                        </td>
+                        <td class="py-3">
+                            <div class="text-muted small text-truncate" style="max-width: 250px;" title="{{ part.description }}">
+                                {{ part.description|default:"&mdash;" }}
+                            </div>
                         </td>
                         <td class="py-3">
                             {% if part.company %}
@@ -211,7 +217,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="10" class="text-center py-5">
+                        <td colspan="11" class="text-center py-5">
                             <div class="text-muted my-3">
                                 <i class="bi bi-cpu display-4 d-block mb-3 text-secondary opacity-50"></i>
                                 <h5>No parts found matching your criteria</h5>

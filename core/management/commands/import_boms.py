@@ -114,6 +114,7 @@ class Command(BaseCommand):
                 else:
                     part = Part.objects.create(
                         part_number=part_num,
+                        name=desc or f"Part {part_num}",
                         description=desc or f"Part {part_num}",
                         company=company,
                         category=cat,
@@ -195,7 +196,8 @@ class Command(BaseCommand):
                         cat = cat_hardware
 
                     new_part = Part.objects.create(
-                        description=full_desc,
+                        name=spec or full_desc,
+                        description=pkg or full_desc,
                         supplier_part_number=dk_part_num,
                         company=digikey,
                         category=cat,
