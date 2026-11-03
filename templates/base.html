@@ -1,0 +1,409 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Project Manager{% endblock %}</title>
+
+    <!-- Early theme init script to prevent theme flash -->
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 
+                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-bs-theme', savedTheme);
+        })();
+    </script>
+
+    <!-- Bootstrap 5.3 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Custom Theme Colors (Bootstrap Colors) -->
+    <link rel="stylesheet" href="{% static 'css/bootstrapcolors-custom.css' %}">
+
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bs-body-bg);
+            color: var(--bs-body-color);
+        }
+
+        /* Sidebar Styling */
+        .sidebar {
+            width: 270px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--bs-border-color);
+            background-color: var(--bs-body-bg);
+            transition: all 0.25s ease-in-out;
+            z-index: 1045;
+        }
+
+        @media (min-width: 992px) {
+            .sidebar {
+                position: sticky;
+                top: 0;
+                height: 100vh;
+                overflow-y: auto;
+            }
+        }
+
+        .sidebar-brand {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--bs-border-color);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .sidebar-brand .brand-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: var(--bct-theme-gradient, linear-gradient(135deg, #006D24, #29442A));
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            box-shadow: 0 4px 10px rgba(0, 109, 36, 0.25);
+        }
+
+        .sidebar-heading {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--bs-secondary-color);
+            padding: 1.2rem 1.5rem 0.4rem;
+        }
+
+        .nav-link-custom {
+            display: flex;
+            align-items: center;
+            padding: 0.65rem 1.25rem;
+            margin: 0.15rem 0.75rem;
+            border-radius: 0.5rem;
+            color: var(--bs-body-color);
+            font-weight: 500;
+            font-size: 0.92rem;
+            text-decoration: none;
+            transition: all 0.15s ease-in-out;
+        }
+
+        .nav-link-custom i {
+            font-size: 1.15rem;
+            width: 24px;
+            margin-right: 0.75rem;
+            color: var(--bs-secondary-color);
+            transition: color 0.15s ease-in-out;
+        }
+
+        .nav-link-custom:hover {
+            background-color: var(--bs-secondary-bg);
+            color: var(--bs-primary);
+        }
+
+        .nav-link-custom:hover i {
+            color: var(--bs-primary);
+        }
+
+        .nav-link-custom.active {
+            background: rgba(0, 109, 36, 0.12);
+            color: var(--bs-primary);
+            font-weight: 600;
+        }
+
+        [data-bs-theme="dark"] .nav-link-custom.active {
+            background: rgba(26, 124, 58, 0.22);
+            color: #5ac77d;
+        }
+
+        .nav-link-custom.active i {
+            color: var(--bs-primary);
+        }
+
+        [data-bs-theme="dark"] .nav-link-custom.active i {
+            color: #5ac77d;
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding: 1rem 1.25rem;
+            border-top: 1px solid var(--bs-border-color);
+            background-color: var(--bs-tertiary-bg);
+        }
+
+        /* Top Navbar */
+        .top-navbar {
+            padding: 0.75rem 1.5rem;
+            border-bottom: 1px solid var(--bs-border-color);
+            background-color: var(--bs-body-bg);
+        }
+
+        /* Content Wrapper */
+        .content-wrapper {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bs-tertiary-bg);
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 1.5rem;
+        }
+
+        @media (min-width: 992px) {
+            .main-content {
+                padding: 2rem 2.25rem;
+            }
+        }
+    </style>
+
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+    <div class="d-flex min-vh-100">
+
+        <!-- ================= SIDEBAR (Offcanvas on Mobile, Permanent on lg+) ================= -->
+        <aside class="sidebar offcanvas-lg offcanvas-start" tabindex="-1" id="sidebarMenu" aria-labelledby="sidebarMenuLabel">
+            
+            <!-- Sidebar Header / Brand -->
+            <div class="sidebar-brand">
+                <div class="brand-icon">
+                    <i class="bi bi-kanban"></i>
+                </div>
+                <div class="d-flex flex-column">
+                    <span class="fw-bold fs-5 lh-1 text-custom">Project Manager</span>
+                    <span class="text-muted small mt-1" style="font-size: 0.72rem;">Operations & Inventory</span>
+                </div>
+                <button type="button" class="btn-close d-lg-none ms-auto" data-bs-dismiss="offcanvas" data-bs-target="#sidebarMenu" aria-label="Close"></button>
+            </div>
+
+            <!-- Sidebar Navigation Links -->
+            <div class="flex-grow-1 py-2">
+                
+                <div class="sidebar-heading">Core</div>
+                
+                <a href="{% url 'home' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'home' %}active{% endif %}">
+                    <i class="bi bi-grid-1x2-fill"></i>
+                    <span>Dashboard</span>
+                </a>
+                
+                <a href="{% url 'home' %}#projects" class="nav-link-custom">
+                    <i class="bi bi-folder-check"></i>
+                    <span>Projects</span>
+                    <span class="badge bg-secondary-subtle text-secondary ms-auto rounded-pill px-2">8</span>
+                </a>
+
+                <a href="{% url 'home' %}#tasks" class="nav-link-custom">
+                    <i class="bi bi-check2-square"></i>
+                    <span>Tasks & Milestones</span>
+                    <span class="badge bg-danger-subtle text-danger ms-auto rounded-pill px-2">4 Due</span>
+                </a>
+
+                <div class="sidebar-heading">Assets & Inventory</div>
+
+                <a href="{% url 'home' %}#inventory" class="nav-link-custom">
+                    <i class="bi bi-box-seam"></i>
+                    <span>Stock & Supplies</span>
+                </a>
+
+                <a href="{% url 'home' %}#reports" class="nav-link-custom">
+                    <i class="bi bi-graph-up-arrow"></i>
+                    <span>Analytics & Reports</span>
+                </a>
+
+                <div class="sidebar-heading">System & Admin</div>
+
+                <a href="{% url 'admin:index' %}" class="nav-link-custom" target="_blank" rel="noopener">
+                    <i class="bi bi-shield-lock"></i>
+                    <span>Django Admin</span>
+                    <i class="bi bi-box-arrow-up-right ms-auto small text-muted"></i>
+                </a>
+
+                <a href="{% url 'home' %}#settings" class="nav-link-custom">
+                    <i class="bi bi-gear"></i>
+                    <span>Settings</span>
+                </a>
+
+            </div>
+
+            <!-- Sidebar Footer: User & Theme Switcher -->
+            <div class="sidebar-footer">
+                
+                <!-- Theme Switcher Pill -->
+                <div class="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom">
+                    <span class="small text-muted fw-semibold d-flex align-items-center gap-2">
+                        <i id="themeIcon" class="bi bi-moon-stars-fill text-custom"></i>
+                        <span id="themeText">Dark Mode</span>
+                    </span>
+                    <div class="form-check form-switch m-0 p-0">
+                        <button class="btn btn-sm btn-outline-custom py-0 px-2 rounded-pill" id="themeToggleBtn" type="button" aria-label="Toggle Theme">
+                            <span id="themeToggleLabel" class="small fw-semibold">Switch</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- User Info Profile -->
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-circle bg-success-subtle text-success fw-bold d-flex align-items-center justify-content-center" style="width: 36px; height: 36px; font-size: 0.9rem;">
+                        {{ user.username|default:"MG"|slice:":2"|upper }}
+                    </div>
+                    <div class="d-flex flex-column flex-grow-1 overflow-hidden">
+                        <span class="fw-semibold small text-truncate">{{ user.username|default:"Michael G." }}</span>
+                        <span class="text-muted text-truncate" style="font-size: 0.72rem;">
+                            {% if user.is_superuser %}Superuser{% elif user.is_staff %}Staff{% else %}Administrator{% endif %}
+                        </span>
+                    </div>
+                    {% if user.is_authenticated %}
+                        <form method="post" action="{% url 'admin:logout' %}" class="m-0">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-secondary border-0 p-1" title="Sign Out">
+                                <i class="bi bi-box-arrow-right fs-6"></i>
+                            </button>
+                        </form>
+                    {% else %}
+                        <a href="{% url 'admin:login' %}" class="btn btn-sm btn-outline-custom border-0 p-1" title="Sign In">
+                            <i class="bi bi-box-arrow-in-right fs-6"></i>
+                        </a>
+                    {% endif %}
+                </div>
+
+            </div>
+
+        </aside>
+
+        <!-- ================= MAIN CONTENT WRAPPER ================= -->
+        <div class="content-wrapper">
+
+            <!-- Top Header Bar -->
+            <header class="top-navbar sticky-top shadow-sm d-flex align-items-center justify-content-between">
+                
+                <div class="d-flex align-items-center gap-3">
+                    <!-- Mobile Hamburger Toggle -->
+                    <button class="btn btn-sm btn-outline-secondary d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebarMenu" aria-controls="sidebarMenu" aria-label="Toggle navigation">
+                        <i class="bi bi-list fs-5"></i>
+                    </button>
+
+                    <!-- Page Breadcrumb / Title -->
+                    <div class="d-none d-sm-flex align-items-center gap-2 text-muted small">
+                        <a href="{% url 'home' %}" class="text-decoration-none text-muted">Project Manager</a>
+                        <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+                        <span class="text-body fw-semibold">{% block breadcrumb %}Dashboard{% endblock %}</span>
+                    </div>
+                </div>
+
+                <!-- Top Right Quick Actions -->
+                <div class="d-flex align-items-center gap-2">
+                    
+                    <!-- Search input -->
+                    <div class="input-group input-group-sm d-none d-md-flex" style="width: 220px;">
+                        <span class="input-group-text bg-body border-end-0"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" class="form-control bg-body border-start-0" placeholder="Search projects, tasks..." aria-label="Search">
+                    </div>
+
+                    <!-- Quick Notifications / Alerts icon -->
+                    <button class="btn btn-sm btn-outline-secondary position-relative rounded-circle p-2" type="button" title="Notifications" style="width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;">
+                        <i class="bi bi-bell"></i>
+                        <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle">
+                            <span class="visually-hidden">New alerts</span>
+                        </span>
+                    </button>
+
+                    <!-- Add Project Button -->
+                    <a href="#new-project-modal" data-bs-toggle="modal" class="btn btn-sm btn-custom d-flex align-items-center gap-1 shadow-sm">
+                        <i class="bi bi-plus-lg"></i>
+                        <span class="d-none d-sm-inline fw-semibold">New Project</span>
+                    </a>
+
+                </div>
+
+            </header>
+
+            <!-- Global Toast Messages / Alerts -->
+            {% if messages %}
+                <div class="container-fluid px-lg-4 mt-3">
+                    {% for message in messages %}
+                        <div class="alert alert-{% if message.tags == 'error' %}danger{% elif message.tags == 'warning' %}warning{% elif message.tags == 'info' %}info{% else %}success{% endif %} alert-dismissible fade show shadow-sm" role="alert">
+                            <i class="bi bi-info-circle-fill me-2"></i> {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <!-- Main Page Content Slot -->
+            <main class="main-content">
+                {% block content %}{% endblock %}
+            </main>
+
+            <!-- Footer -->
+            <footer class="footer mt-auto py-3 px-4 border-top bg-body text-center text-muted small d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2">
+                <span>&copy; {% now "Y" %} Project Manager &bull; Operations & Field Guides</span>
+                <span class="d-flex align-items-center gap-3">
+                    <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1"><i class="bi bi-circle-fill me-1" style="font-size: 0.5rem;"></i> System Online</span>
+                    <span>Bootstrap 5.3 &bull; Django 6.1</span>
+                </span>
+            </footer>
+
+        </div>
+
+    </div>
+
+    <!-- Bootstrap 5.3 JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Theme Switcher Script -->
+    <script>
+        const htmlElement = document.documentElement;
+        const toggleBtn = document.getElementById('themeToggleBtn');
+        const themeIcon = document.getElementById('themeIcon');
+        const themeText = document.getElementById('themeText');
+        const themeToggleLabel = document.getElementById('themeToggleLabel');
+
+        function updateUI(theme) {
+            if (theme === 'dark') {
+                if (themeIcon) themeIcon.className = 'bi bi-sun-fill text-warning';
+                if (themeText) themeText.textContent = 'Light Mode';
+                if (themeToggleLabel) themeToggleLabel.textContent = 'Light';
+            } else {
+                if (themeIcon) themeIcon.className = 'bi bi-moon-stars-fill text-custom';
+                if (themeText) themeText.textContent = 'Dark Mode';
+                if (themeToggleLabel) themeToggleLabel.textContent = 'Dark';
+            }
+        }
+
+        function setTheme(theme) {
+            htmlElement.setAttribute('data-bs-theme', theme);
+            localStorage.setItem('theme', theme);
+            updateUI(theme);
+        }
+
+        const currentTheme = htmlElement.getAttribute('data-bs-theme') || 'light';
+        updateUI(currentTheme);
+
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => {
+                const activeTheme = htmlElement.getAttribute('data-bs-theme');
+                const nextTheme = activeTheme === 'dark' ? 'light' : 'dark';
+                setTheme(nextTheme);
+            });
+        }
+    </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
