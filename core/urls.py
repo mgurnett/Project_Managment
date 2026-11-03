@@ -59,4 +59,5 @@ urlpatterns = [
     # Inventory Count Sheet & Audit
     path('inventory/count-sheet/', views.InventoryCountSheetView.as_view(), name='inventory_count_sheet'),
     path('inventory/count-sheet/export/csv/', views.inventory_count_sheet_export_csv, name='inventory_count_sheet_csv'),
+    path('inventory/count-sheet/pdf/', views.inventory_count_sheet_pdf, name='inventory_count_sheet_pdf'),
 ]

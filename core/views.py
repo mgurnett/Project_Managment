@@ -1,6 +1,7 @@
 import csv
 import re
 from django.shortcuts import render, get_object_or_404, redirect
+from django.template.loader import render_to_string
 from django.http import HttpResponse
 from django.urls import reverse_lazy, reverse
 from django.contrib import messages
@@ -844,4 +845,55 @@ def inventory_count_sheet_export_csv(request):
             '',  # Notes
         ])
 
+    return response
+
+
+def inventory_count_sheet_pdf(request):
+    """
+    Renders and streams a high-resolution print-ready PDF version of the Inventory Count Sheet.
+    Uses WeasyPrint to produce standard Letter portrait reference sheets.
+    Supports ?download=1 to force attachment download vs inline browser tab view.
+    """
+    import weasyprint
+
+    qs = get_count_sheet_queryset(request)
+
+    category_map = {}
+    for part in qs:
+        cat = part.category
+        cat_id = cat.pk if cat else 'none'
+        if cat_id not in category_map:
+            category_map[cat_id] = {
+                'category': cat,
+                'category_name': cat.name if cat else 'Uncategorized / General Components',
+                'prefix': cat.get_prefix() if cat else '',
+                'parts': [],
+                'total_on_hand': 0,
+                'total_items': 0,
+            }
+        category_map[cat_id]['parts'].append(part)
+        category_map[cat_id]['total_on_hand'] += (part.quantity_on_hand or 0)
+        category_map[cat_id]['total_items'] += 1
+
+    groups = list(category_map.values())
+
+    context = {
+        'groups': groups,
+        'total_parts': qs.count(),
+        'total_categories': len(groups),
+        'total_on_hand': sum(g['total_on_hand'] for g in groups),
+        'generated_at': timezone.now(),
+        'request': request,
+    }
+
+    html_content = render_to_string('core/inventory_count_sheet_pdf.html', context)
+    pdf_bytes = weasyprint.HTML(
+        string=html_content,
+        base_url=request.build_absolute_uri('/')
+    ).write_pdf()
+
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+    disposition = 'attachment' if request.GET.get('download') == '1' else 'inline'
+    response['Content-Disposition'] = f'{disposition}; filename="inventory_count_sheet_{timestamp}.pdf"'
     return response
