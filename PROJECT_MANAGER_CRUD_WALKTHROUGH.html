@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project Manager CRUD, Prefix & Document Walkthrough</title>
+    <title>Project Manager: Inventory, BOM & Assembly Production Runbook</title>
     <style>
         @page {
             size: letter portrait;
@@ -18,8 +18,8 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            font-size: 10.5px;
-            line-height: 1.4;
+            font-size: 10px;
+            line-height: 1.38;
             color: #0f172a;
             background-color: #f8fafc;
             -webkit-print-color-adjust: exact;
@@ -65,12 +65,12 @@
             font-size: 21px;
             font-weight: 800;
             color: #0f172a;
-            line-height: 1.1;
+            line-height: 1.15;
             margin-bottom: 3px;
         }
 
         .header-subtitle {
-            font-size: 11px;
+            font-size: 10.5px;
             color: #64748b;
             font-weight: 500;
         }
@@ -78,12 +78,12 @@
         .header-right {
             text-align: right;
             font-family: "JetBrains Mono", "Fira Code", monospace;
-            font-size: 8.5px;
+            font-size: 8px;
             color: #475569;
             background: #f1f5f9;
             border: 1px solid #e2e8f0;
             border-radius: 4px;
-            padding: 5px 9px;
+            padding: 4px 8px;
             line-height: 1.35;
         }
 
@@ -106,6 +106,7 @@
             padding: 8px 10px;
             break-inside: avoid;
             box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+            margin-bottom: 2px;
         }
 
         .card-header {
@@ -138,7 +139,7 @@
         }
 
         .card-title {
-            font-size: 11.5px;
+            font-size: 11px;
             font-weight: 700;
             color: #0f172a;
             text-transform: uppercase;
@@ -166,7 +167,7 @@
         table.ref-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 9px;
+            font-size: 8.5px;
             margin: 3px 0;
         }
 
@@ -196,7 +197,7 @@
 
         code, .mono {
             font-family: "JetBrains Mono", "Fira Code", monospace;
-            font-size: 8.5px;
+            font-size: 8px;
             background: #f1f5f9;
             color: #0369a1;
             padding: 1px 3px;
@@ -211,7 +212,7 @@
             border-radius: 5px;
             padding: 7px 9px;
             font-family: "JetBrains Mono", "Fira Code", monospace;
-            font-size: 8.5px;
+            font-size: 8px;
             line-height: 1.45;
             margin: 4px 0;
             overflow-x: auto;
@@ -233,8 +234,8 @@
         ul.bullet-list li {
             position: relative;
             padding-left: 11px;
-            margin-bottom: 3.5px;
-            font-size: 9.5px;
+            margin-bottom: 3px;
+            font-size: 9px;
             color: #334155;
         }
 
@@ -255,9 +256,9 @@
             border: 1px solid #bbf7d0;
             border-left: 3px solid #16a34a;
             border-radius: 4px;
-            padding: 5px 7px;
+            padding: 4px 7px;
             margin: 4px 0;
-            font-size: 9px;
+            font-size: 8.5px;
             color: #166534;
         }
 
@@ -277,13 +278,14 @@
     <header class="header-banner">
         <div class="header-left">
             <span class="category-badge">Django 6.1 • Field Operations Runbook</span>
-            <h1 class="header-title">Project Manager: Inventory Architecture & Walkthrough</h1>
-            <div class="header-subtitle">Category Prefixes, Auto Part Numbering, Datasheets, Scans, Articles & Controller Matrix</div>
+            <h1 class="header-title">Project Manager: Inventory, BOM & Assembly Guide</h1>
+            <div class="header-subtitle">Category Prefixes, Auto Part Numbering, Datasheets/Scans, Bill of Materials (BOM) & ODS Importer</div>
         </div>
         <div class="header-right">
             <div>HOST: <strong>localhost:8000</strong></div>
-            <div>WORKSPACE: <strong>Project_manager</strong></div>
+            <div>DB: <strong>MySQL (Project_manager)</strong></div>
             <div>THEME: <strong>Cadmium Green (#137547)</strong></div>
+            <div>RELEASE: <strong>v2.1 Production</strong></div>
         </div>
     </header>
 
@@ -296,7 +298,7 @@
                     <span class="badge-number">1</span>
                     <span class="card-title">Comprehensive Controller & Route Registry</span>
                 </div>
-                <span class="pill pill-green">30 Active Endpoints</span>
+                <span class="pill pill-green">38 Active Endpoints</span>
             </div>
             <table class="ref-table">
                 <thead>
@@ -317,7 +319,7 @@
                         <td><span class="pill pill-blue">KPI Overview</span></td>
                     </tr>
                     <tr>
-                        <td rowspan="3"><strong>Part</strong></td>
+                        <td rowspan="3"><strong>Part Catalog</strong></td>
                         <td><code>/parts/</code> | <code>/parts/add/</code></td>
                         <td><code>PartListView</code> | <code>PartCreateView</code></td>
                         <td><code>core/part_list.html</code> | <code>form.html</code></td>
@@ -334,6 +336,32 @@
                         <td><code>PartUpdateView</code> | <code>DeleteView</code></td>
                         <td><code>part_form.html</code> | <code>confirm_delete.html</code></td>
                         <td><span class="pill pill-amber">Edit / Purge</span></td>
+                    </tr>
+                    <tr>
+                        <td rowspan="3"><strong>Bills of Materials (BOM)</strong></td>
+                        <td><code>/boms/</code> | <code>/boms/add/</code></td>
+                        <td><code>BOMListView</code> | <code>BOMCreateView</code></td>
+                        <td><code>core/bom_list.html</code> | <code>bom_form.html</code></td>
+                        <td><span class="pill pill-green">Assemblies</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>/boms/&lt;pk&gt;/</code></td>
+                        <td><code>BOMDetailView</code></td>
+                        <td><code>core/bom_detail.html</code></td>
+                        <td><span class="pill pill-blue">Cost Rollup</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>/boms/&lt;pk&gt;/edit/</code> | <code>/delete/</code></td>
+                        <td><code>BOMUpdateView</code> | <code>BOMDeleteView</code></td>
+                        <td><code>bom_form.html</code> | <code>confirm_delete.html</code></td>
+                        <td><span class="pill pill-amber">Edit / Delete</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>BOM Line Items</strong></td>
+                        <td><code>/boms/&lt;bom_pk&gt;/items/add/</code> | <code>/bom-items/&lt;pk&gt;/delete/</code></td>
+                        <td><code>BOMItemCreateView</code> | <code>BOMItemDeleteView</code></td>
+                        <td><code>core/bom_item_form.html</code> | <code>confirm_delete.html</code></td>
+                        <td><span class="pill pill-purple">Component Link</span></td>
                     </tr>
                     <tr>
                         <td rowspan="2"><strong>Documents & Scans</strong></td>
@@ -356,7 +384,7 @@
                         <td><span class="pill pill-slate">Taxonomy</span></td>
                     </tr>
                     <tr>
-                        <td><strong>Company</strong></td>
+                        <td><strong>Company / Suppliers</strong></td>
                         <td><code>/companies/</code> | <code>/add/</code> | <code>/&lt;pk&gt;/</code></td>
                         <td><code>CompanyListView</code> | <code>CreateView</code> | <code>DetailView</code></td>
                         <td><code>company_list.html</code> | <code>detail.html</code></td>
@@ -370,7 +398,7 @@
                         <td><span class="pill pill-slate">OEM Index</span></td>
                     </tr>
                     <tr>
-                        <td><strong>Location</strong></td>
+                        <td><strong>Storage Location</strong></td>
                         <td><code>/locations/</code> | <code>/add/</code> | <code>/&lt;pk&gt;/</code></td>
                         <td><code>LocationListView</code> | <code>CreateView</code></td>
                         <td><code>location_list.html</code></td>
@@ -390,7 +418,7 @@
                 <span class="pill pill-blue">core/models.py</span>
             </div>
             <ul class="bullet-list">
-                <li><strong>Prefix Field</strong>: <code>Category.prefix</code> (e.g. <code>100</code> for Passives, <code>200</code> for Discrete Semiconductors, <code>300</code> for Connectors).</li>
+                <li><strong>Prefix Field</strong>: <code>Category.prefix</code> (e.g. <code>100</code> for Passives, <code>200</code> for Compute/RF, <code>300</code> for Connectors).</li>
                 <li><strong>Recursive Inheritance</strong>: <code>get_prefix()</code> checks current category; if empty, ascends parent tree (<code>parent.get_prefix()</code>).</li>
                 <li><strong>Dropdown Display</strong>: <code>Category.__str__()</code> formats hierarchies: <code>[100] Passives &gt; Resistors &gt; SMD 0805</code>.</li>
                 <li><strong>Taxonomy Nesting</strong>: Self-referential <code>parent = ForeignKey('self')</code> allows unlimited subcategory depth.</li>
@@ -421,110 +449,167 @@
             </ul>
         </div>
 
-        <!-- Panel 4: Part Documents, Scans, Datasheets & Articles -->
+        <!-- Panel 4: Bill of Materials (BOM) & Product Assembly System (Full Width) -->
         <div class="card col-span-2">
             <div class="card-header">
                 <div class="card-title-group">
                     <span class="badge-number">4</span>
-                    <span class="card-title">Part Documents, Scans, Pinouts & Technical Articles</span>
+                    <span class="card-title">Bill of Materials (BOM) & Product Assembly Architecture</span>
                 </div>
-                <span class="pill pill-purple">PartDocument Model</span>
+                <span class="pill pill-green">BOM & BOMItem Models</span>
             </div>
             <div class="grid-layout" style="gap: 8px;">
                 <div>
                     <ul class="bullet-list">
-                        <li><strong>Relationship</strong>: One-to-Many with <code>Part</code> (<code>part.documents.all()</code>). Multiple attachments per part number.</li>
-                        <li><strong>Document Types</strong>:
-                            <code>datasheet</code> (PDF) &bull;
-                            <code>pinout</code> (Diagram/Schematic) &bull;
-                            <code>scan</code> (Document Scan) &bull;
-                            <code>instructions</code> (Assembly Guide) &bull;
-                            <code>article</code> (Technical Notes)
+                        <li><strong>Assembly Tracking (BOM)</strong>: Represents fully assembled products and sub-assemblies (e.g. String, Node, Base Station, Tipups).</li>
+                        <li><strong>Assembly Instructions</strong>: Integrated <code>CKEditor5Field</code> for WYSIWYG build instructions, test protocols, and revision notes.</li>
+                        <li><strong>Real-Time Rollup Metrics</strong>:
+                            <br>&bull; <code>total_items_count</code>: Unique component lines in the build.
+                            <br>&bull; <code>total_parts_quantity</code>: Total raw physical pieces required.
+                            <br>&bull; <code>total_cost</code>: Sum of <code>(item.part.price_per * item.quantity)</code>.
                         </li>
-                        <li><strong>File Storage</strong>: Uploads to <code>media/parts/documents/%Y/%m/</code>. Auto-detects <code>is_image</code>, <code>is_pdf</code>, and formats file size.</li>
                     </ul>
                 </div>
                 <div>
                     <ul class="bullet-list">
-                        <li><strong>External Links</strong>: <code>external_url</code> field for manufacturer-hosted online datasheets and web references.</li>
-                        <li><strong>WYSIWYG Articles</strong>: <code>content = CKEditor5Field()</code> for rich pinout tables, troubleshooting procedures, and markdown notes.</li>
-                        <li><strong>Dedicated Viewers</strong>: Embedded in-browser PDF reader, high-resolution scan zoom canvas, and print-ready technical article viewer.</li>
+                        <li><strong>Component Links (BOMItem)</strong>: Foreign key linking <code>BOM</code> to <code>Part</code> with:
+                            <br>&bull; <code>quantity</code>: Pieces required per single finished assembly.
+                            <br>&bull; <code>reference_designator</code>: PCB / schematic designators (e.g. <code>U1</code>, <code>C1-C4</code>, <code>BAR1</code>).
+                            <br>&bull; <code>notes</code>: Solder, trimming, or torque instructions.
+                        </li>
+                        <li><strong>Subtotal Calculation</strong>: <code>subtotal</code> dynamically returns line cost based on live catalog pricing.</li>
                     </ul>
                 </div>
             </div>
-            <table class="ref-table" style="margin-top: 5px;">
+
+            <table class="ref-table" style="margin-top: 6px;">
                 <thead>
                     <tr>
-                        <th>Resource Kind</th>
-                        <th>Typical Files / Content</th>
-                        <th>Frontend Behavior on Part Detail</th>
+                        <th>Assembly Name</th>
+                        <th>Unique Components</th>
+                        <th>Total Parts Count</th>
+                        <th>Total Unit Cost</th>
+                        <th>Sample Reference Designators</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><strong>Datasheet</strong></td>
-                        <td>Official PDF datasheet or direct web link</td>
-                        <td>Red PDF badge, file size indicator, embedded viewer, download link</td>
+                        <td><strong>String Assembly</strong></td>
+                        <td>9 line items</td>
+                        <td>72 pieces</td>
+                        <td><strong style="color: #15803d;">$153.17</strong></td>
+                        <td><code>5 nodes baseline, wiring harness, terminal blocks</code></td>
                     </tr>
                     <tr>
-                        <td><strong>Pinout Diagram</strong></td>
-                        <td>PNG / JPG schematic scan + pin table</td>
-                        <td>Visual thumbnail preview, image zoom modal, pinout table</td>
+                        <td><strong>Sensor Node Assembly</strong></td>
+                        <td>8 line items</td>
+                        <td>8 pieces</td>
+                        <td><strong style="color: #15803d;">$14.34</strong></td>
+                        <td><code>Enclosure, sensory probe, interconnect, seal</code></td>
                     </tr>
                     <tr>
-                        <td><strong>Lab Scan</strong></td>
-                        <td>Handwritten notebook scan or CAD drawing</td>
-                        <td>High-res image canvas with full resolution popout</td>
+                        <td><strong>Base Station Assembly</strong></td>
+                        <td>5 line items</td>
+                        <td>5 pieces</td>
+                        <td><strong style="color: #15803d;">$101.04</strong></td>
+                        <td><code>Compute core, RF transceiver, antenna, power supply</code></td>
                     </tr>
                     <tr>
-                        <td><strong>Instructions</strong></td>
-                        <td>Rich WYSIWYG text with formatting & steps</td>
-                        <td>Article reader view with formatted tables, bold text, code blocks</td>
+                        <td><strong>Tipups Wireless Monitor</strong></td>
+                        <td>12 line items</td>
+                        <td>12 pieces</td>
+                        <td><span class="pill pill-slate">RFQ Pending</span></td>
+                        <td><code>U1 (Micro), U2 (RF), BAR1, BT1, C1-C6, ANT1</code></td>
                     </tr>
                 </tbody>
             </table>
         </div>
 
-        <!-- Panel 5: Model Relationships & Sourcing Architecture -->
-        <div class="card">
+        <!-- Panel 5: ODS Spreadsheet Importer Engine (Full Width) -->
+        <div class="card col-span-2">
             <div class="card-header">
                 <div class="card-title-group">
                     <span class="badge-number">5</span>
-                    <span class="card-title">Sourcing & Location Topology</span>
+                    <span class="card-title">ODS Spreadsheet Ingestion Engine (BoMs.ods)</span>
                 </div>
-                <span class="pill pill-slate">Ecosystem</span>
+                <span class="pill pill-blue">manage.py import_boms</span>
             </div>
-            <ul class="bullet-list">
-                <li><strong>Company (Supplier)</strong>: Vendor supplying components (DigiKey, Mouser). Stores account numbers, sales reps, and phone contacts.</li>
-                <li><strong>Manufacturer (OEM)</strong>: Original brand (Texas Instruments, STMicro).</li>
-                <li><strong>Location</strong>: Physical warehouse, rack, or bin code (<code>BIN-A12</code>).</li>
-                <li><strong>Price Automation</strong>: <code>price_per</code> &times; <code>quantity</code> &rarr; auto-computes <code>price</code> in model <code>save()</code>.</li>
-                <li><strong>Superseding</strong>: Self FK <code>superseded_by</code> links legacy parts to newer replacement inventory items.</li>
-            </ul>
+            <div class="grid-layout" style="gap: 8px;">
+                <div>
+                    <ul class="bullet-list">
+                        <li><strong>Zero-Dependency Parser</strong>: Built directly on Python standard library (<code>zipfile</code> + <code>xml.etree.ElementTree</code>) for pure ODS XML parsing.</li>
+                        <li><strong>Master Parts List Extraction</strong>: Reads <code>Parts list</code> sheet (24 parts), maps suppliers, unit price, quantity, confirmed flag, and external order URLs.</li>
+                        <li><strong>DigiKey Component Ingestion</strong>: Parses <code>tipups</code> sheet (12 components) creating parts with manufacturers and PCB designators.</li>
+                    </ul>
+                </div>
+                <div>
+                    <ul class="bullet-list">
+                        <li><strong>Automated Revision Superseding</strong>:
+                            <br>&bull; Detects revision series (e.g. <code>2002.1</code> &rarr; <code>2002.2</code>).
+                            <br>&bull; Populates <code>superseded_by</code> Foreign Key relationship automatically.
+                        </li>
+                        <li><strong>Automated Assembly Construction</strong>: Generates assemblies (<code>string</code>, <code>Node</code>, <code>Base_station</code>, <code>tipups</code>) and resolves component references.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="terminal-block">
+<span class="t-comment"># Execute ODS Import Command (Idempotent & Safe to Re-run)</span>
+<span class="t-cmd">python</span> manage.py import_boms
+
+<span class="t-output">Reading ODS file: /home/michael/Desktop/Project_manager/BoMs.ods...</span>
+<span class="t-output">Found 7 sheets: string, Node, Base_station, Signal_strength, String tester, tipups, Parts list</span>
+<span class="t-highlight">✓ Linked: 2002.1 is superseded by -> 2002.2</span>
+<span class="t-highlight">✓ Linked: 2003.1 is superseded by -> 2003.2</span>
+<span class="t-output">Total Parts in DB: 36 | Total Companies in DB: 11 | Total BOMs in DB: 4 | Total BOM Items: 34</span>
+            </div>
         </div>
 
-        <!-- Panel 6: Design System & Cadmium Green Palette -->
+        <!-- Panel 6: Part Documents, Scans, Datasheets & Articles -->
         <div class="card">
             <div class="card-header">
                 <div class="card-title-group">
                     <span class="badge-number">6</span>
+                    <span class="card-title">Datasheets, Scans & Articles</span>
+                </div>
+                <span class="pill pill-purple">PartDocument</span>
+            </div>
+            <ul class="bullet-list">
+                <li><strong>Relationship</strong>: One-to-Many with <code>Part</code> (<code>part.documents.all()</code>). Multiple attachments per part number.</li>
+                <li><strong>Document Types</strong>:
+                    <code>datasheet</code> (PDF) &bull;
+                    <code>pinout</code> (Diagram) &bull;
+                    <code>scan</code> (Drawing) &bull;
+                    <code>instructions</code> (Assembly) &bull;
+                    <code>article</code> (Notes)
+                </li>
+                <li><strong>File Storage</strong>: Uploads to <code>media/parts/documents/%Y/%m/</code>. Auto-detects <code>is_image</code>, <code>is_pdf</code>, and formats file size.</li>
+                <li><strong>WYSIWYG Articles</strong>: <code>content = CKEditor5Field()</code> for rich pinout tables, troubleshooting procedures, and notes.</li>
+            </ul>
+        </div>
+
+        <!-- Panel 7: Theme & UI Architecture -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="badge-number">7</span>
                     <span class="card-title">Theme & UI Architecture</span>
                 </div>
                 <span class="pill pill-green">Cadmium Green</span>
             </div>
             <ul class="bullet-list">
                 <li><strong>Base Palette</strong>: Integrated <code>bootstrapcolors-custom.css</code>: Cadmium Green (<code>#137547</code>), Forest (<code>#054a29</code>), Mint accents.</li>
-                <li><strong>Responsive Sidebar</strong>: Permanent desktop drawer; collapses into touch-friendly offcanvas on mobile devices.</li>
+                <li><strong>Responsive Sidebar</strong>: Permanent desktop drawer; collapses into touch-friendly offcanvas on mobile devices with BOM nav.</li>
                 <li><strong>Dual Dark/Light Theme</strong>: Bootstrap 5.3 <code>data-bs-theme</code> with persistent client-side <code>localStorage</code> sync.</li>
-                <li><strong>Interactive Forms</strong>: Real-time JS total cost calculator & dynamic category prefix placeholders.</li>
+                <li><strong>Interactive Calculators</strong>: Real-time JS total cost calculator & dynamic category prefix placeholders.</li>
             </ul>
         </div>
 
-        <!-- Panel 7: Operator Terminal Runbook & Workflow (Full Width) -->
+        <!-- Panel 8: Operator Terminal Runbook & Workflow (Full Width) -->
         <div class="card col-span-2">
             <div class="card-header">
                 <div class="card-title-group">
-                    <span class="badge-number">7</span>
+                    <span class="badge-number">8</span>
                     <span class="card-title">Operator Walkthrough & Terminal Runbook</span>
                 </div>
                 <span class="pill pill-green">Standard Procedure</span>
@@ -535,22 +620,25 @@
 <span class="t-cmd">source</span> .venv/bin/activate
 <span class="t-cmd">python</span> manage.py runserver 127.0.0.1:8000
 
-<span class="t-comment"># 2. Create Category with Prefix (e.g. 100 for Passives)</span>
+<span class="t-comment"># 2. Ingest or Re-synchronize BoMs.ods Spreadsheet</span>
+<span class="t-cmd">python</span> manage.py import_boms
+
+<span class="t-comment"># 3. Create Category with Prefix (e.g. 100 for Passives)</span>
 <span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/categories/add/ -d <span class="t-output">"name=Passives&prefix=100&description=Passive Components"</span>
 
-<span class="t-comment"># 3. Create Part leaving part_number blank -> auto-generates 100-1001</span>
+<span class="t-comment"># 4. Create Part leaving part_number blank -> auto-generates 100-1001</span>
 <span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/parts/add/ -d <span class="t-output">"description=10uF Capacitor&category=1&quantity=100&price_per=0.15"</span>
 <span class="t-highlight"># -> Generated: part_number = '100-1001' | price = 15.00</span>
-
-<span class="t-comment"># 4. Create Part entering specific sequence '1234' -> auto-formats to 100-1234</span>
-<span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/parts/add/ -d <span class="t-output">"part_number=1234&category=1&description=Precision Resistor"</span>
-<span class="t-highlight"># -> Formatted: part_number = '100-1234'</span>
 
 <span class="t-comment"># 5. Attach a Datasheet / Scan to the component</span>
 <span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/parts/1/documents/add/ \
      -F <span class="t-output">"title=TI LM317 Datasheet"</span> \
      -F <span class="t-output">"document_type=datasheet"</span> \
      -F <span class="t-output">"file=@datasheet.pdf"</span>
+
+<span class="t-comment"># 6. Add a Line Item to a Bill of Materials Assembly</span>
+<span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/boms/1/items/add/ \
+     -d <span class="t-output">"part=1&quantity=5&reference_designator=C1-C5&notes=Decoupling capacitors"</span>
             </div>
 
             <table class="ref-table">
@@ -563,27 +651,42 @@
                 </thead>
                 <tbody>
                     <tr>
-                        <td><strong>1. Category Setup</strong></td>
-                        <td>Go to <code>/categories/add/</code>. Enter Name & Prefix (e.g. <code>100</code>).</td>
-                        <td>Prefix stored; inherited by any child subcategories.</td>
+                        <td><strong>1. ODS Ingestion</strong></td>
+                        <td>Place <code>BoMs.ods</code> in root and run <code>python manage.py import_boms</code>.</td>
+                        <td>Ingests 36 parts, 11 companies, 4 BOM assemblies, and links superseded revisions.</td>
                     </tr>
                     <tr>
-                        <td><strong>2. Part Registration</strong></td>
+                        <td><strong>2. Category Setup</strong></td>
+                        <td>Go to <code>/categories/add/</code>. Enter Name & Prefix (e.g. <code>100</code>).</td>
+                        <td>Prefix stored; inherited by any child subcategories via <code>get_prefix()</code>.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>3. Part Registration</strong></td>
                         <td>Select category on <code>/parts/add/</code>. Leave part number blank.</td>
                         <td>Auto-generates <code>100-1001</code>. Computes <code>price = price_per * qty</code>.</td>
                     </tr>
                     <tr>
-                        <td><strong>3. Suffix Override</strong></td>
+                        <td><strong>4. Suffix Override</strong></td>
                         <td>Enter <code>1234</code> in Part Number input.</td>
                         <td>Auto-prepends category prefix to produce <code>100-1234</code>.</td>
                     </tr>
                     <tr>
-                        <td><strong>4. Attach Resources</strong></td>
+                        <td><strong>5. BOM Management</strong></td>
+                        <td>Go to <code>/boms/</code> &rarr; Click <em>Add BOM</em> or inspect existing assembly.</td>
+                        <td>Displays assembly summary, total unit cost, and component list.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>6. Add Component to BOM</strong></td>
+                        <td>On BOM detail page, click <em>Add Component</em>. Select part & quantity.</td>
+                        <td>Line item added; rolls up <code>total_cost</code> and <code>total_parts_quantity</code>.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>7. Attach Resources</strong></td>
                         <td>On Part detail page, click <em>Add Document / Scan</em>.</td>
                         <td>Uploads PDF/scan, renders thumbnail, and attaches to part record.</td>
                     </tr>
                     <tr>
-                        <td><strong>5. Document Viewing</strong></td>
+                        <td><strong>8. Document Viewing</strong></td>
                         <td>Click <em>View</em> on any document card.</td>
                         <td>Opens dedicated high-res viewer, embedded PDF, or article body.</td>
                     </tr>
