@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal
 from django.db import models
 from django_ckeditor_5.fields import CKEditor5Field
 
@@ -423,3 +424,91 @@ class PartDocument(models.Model):
         except Exception:
             pass
         return ""
+
+
+class BOM(models.Model):
+    """
+    Bill of Materials (BOM) / Product Assembly.
+    Represents an assembled device or sub-assembly (e.g. String, Node, Base Station, Tipups).
+    """
+    name = models.CharField(max_length=150, unique=True, verbose_name="BOM / Assembly Name")
+    description = models.CharField(max_length=255, blank=True, verbose_name="Description")
+    notes = CKEditor5Field('Assembly Instructions & Notes', config_name='notes', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Bill of Materials (BOM)"
+        verbose_name_plural = "Bills of Materials (BOMs)"
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def total_items_count(self):
+        return self.items.count()
+
+    @property
+    def total_parts_quantity(self):
+        return sum(item.quantity for item in self.items.all())
+
+    @property
+    def total_cost(self):
+        total = Decimal('0.00')
+        for item in self.items.select_related('part'):
+            if item.part and item.part.price_per:
+                total += Decimal(str(item.part.price_per)) * Decimal(str(item.quantity))
+        return total
+
+
+class BOMItem(models.Model):
+    """
+    Line item inside a Bill of Materials, linking a specific component Part with quantity and reference.
+    """
+    bom = models.ForeignKey(
+        BOM,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name="BOM Assembly"
+    )
+    part = models.ForeignKey(
+        Part,
+        on_delete=models.CASCADE,
+        related_name='bom_items',
+        verbose_name="Component Part"
+    )
+    reference = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name="Reference Designator",
+        help_text="e.g. U1, R1, C12, SW1"
+    )
+    quantity = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Quantity Required"
+    )
+    notes = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="Notes"
+    )
+
+    class Meta:
+        verbose_name = "BOM Item"
+        verbose_name_plural = "BOM Items"
+        ordering = ['reference', 'part__part_number']
+
+    def __str__(self):
+        ref_str = f"[{self.reference}] " if self.reference else ""
+        return f"{ref_str}{self.part.part_number} x {self.quantity} in {self.bom.name}"
+
+    @property
+    def unit_price(self):
+        return self.part.price_per or Decimal('0.00')
+
+    @property
+    def subtotal(self):
+        if self.part and self.part.price_per:
+            return Decimal(str(self.part.price_per)) * Decimal(str(self.quantity))
+        return Decimal('0.00')

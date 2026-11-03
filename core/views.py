@@ -3,8 +3,11 @@ from django.urls import reverse_lazy, reverse
 from django.contrib import messages
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 from django.db.models import Q, Count, Sum
-from .models import Part, Company, Manufacturer, Category, Location, PartDocument
-from .forms import PartForm, CompanyForm, ManufacturerForm, CategoryForm, LocationForm, PartDocumentForm
+from .models import Part, Company, Manufacturer, Category, Location, PartDocument, BOM, BOMItem
+from .forms import (
+    PartForm, CompanyForm, ManufacturerForm, CategoryForm, LocationForm,
+    PartDocumentForm, BOMForm, BOMItemForm
+)
 
 
 def home(request):
@@ -15,6 +18,7 @@ def home(request):
     total_companies = Company.objects.count()
     total_categories = Category.objects.count()
     total_locations = Location.objects.count()
+    total_boms = BOM.objects.count()
 
     context = {
         'page_title': 'Dashboard Overview',
@@ -27,7 +31,9 @@ def home(request):
             'total_companies': total_companies,
             'total_categories': total_categories,
             'total_locations': total_locations,
+            'total_boms': total_boms,
         },
+        'recent_boms': BOM.objects.annotate(item_count=Count('items')).order_by('-created_at')[:4],
         'recent_parts': Part.objects.select_related('company', 'category', 'location').order_by('-created_at')[:8],
         'recent_companies': Company.objects.annotate(part_count=Count('parts')).order_by('-created_at')[:5],
         'recent_projects': [
@@ -495,3 +501,107 @@ class PartDocumentDeleteView(DeleteView):
 
     def get_success_url(self):
         return reverse('part_detail', kwargs={'pk': self.object.part.pk})
+
+
+# ==============================================================================
+# BILL OF MATERIALS (BOM) VIEWS
+# ==============================================================================
+
+class BOMListView(ListView):
+    model = BOM
+    template_name = 'core/bom_list.html'
+    context_object_name = 'boms'
+    paginate_by = 20
+
+    def get_queryset(self):
+        qs = BOM.objects.annotate(items_count=Count('items')).all()
+        q = self.request.GET.get('q', '').strip()
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
+        return qs.order_by('name')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['current_q'] = self.request.GET.get('q', '')
+        ctx['total_count'] = self.get_queryset().count()
+        return ctx
+
+
+class BOMDetailView(DetailView):
+    model = BOM
+    template_name = 'core/bom_detail.html'
+    context_object_name = 'bom'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['items'] = self.object.items.select_related('part', 'part__company').all()
+        ctx['item_form'] = BOMItemForm()
+        return ctx
+
+
+class BOMCreateView(CreateView):
+    model = BOM
+    form_class = BOMForm
+    template_name = 'core/bom_form.html'
+    success_url = reverse_lazy('bom_list')
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, f"BOM Assembly '{self.object.name}' was created successfully!")
+        return response
+
+
+class BOMUpdateView(UpdateView):
+    model = BOM
+    form_class = BOMForm
+    template_name = 'core/bom_form.html'
+    success_url = reverse_lazy('bom_list')
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, f"BOM Assembly '{self.object.name}' was updated successfully!")
+        return response
+
+
+class BOMDeleteView(DeleteView):
+    model = BOM
+    template_name = 'core/confirm_delete.html'
+    success_url = reverse_lazy('bom_list')
+
+    def form_valid(self, form):
+        messages.success(self.request, f"BOM Assembly '{self.object.name}' was deleted.")
+        return super().form_valid(form)
+
+
+class BOMItemCreateView(CreateView):
+    model = BOMItem
+    form_class = BOMItemForm
+
+    def get_bom(self):
+        return get_object_or_404(BOM, pk=self.kwargs['bom_pk'])
+
+    def form_valid(self, form):
+        form.instance.bom = self.get_bom()
+        response = super().form_valid(form)
+        messages.success(self.request, f"Added {self.object.part.part_number} to {self.object.bom.name}!")
+        return response
+
+    def form_invalid(self, form):
+        messages.error(self.request, "Could not add item to BOM. Please check your inputs.")
+        return redirect('bom_detail', pk=self.kwargs['bom_pk'])
+
+    def get_success_url(self):
+        return reverse('bom_detail', kwargs={'pk': self.kwargs['bom_pk']})
+
+
+class BOMItemDeleteView(DeleteView):
+    model = BOMItem
+    template_name = 'core/confirm_delete.html'
+
+    def form_valid(self, form):
+        bom_pk = self.object.bom.pk
+        messages.success(self.request, f"Removed {self.object.part.part_number} from {self.object.bom.name}.")
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse('bom_detail', kwargs={'pk': self.object.bom.pk})

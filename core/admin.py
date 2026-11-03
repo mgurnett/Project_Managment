@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Company, Manufacturer, Category, Location, Part, PartDocument
+from .models import Company, Manufacturer, Category, Location, Part, PartDocument, BOM, BOMItem
 
 
 @admin.register(Company)
@@ -145,3 +145,25 @@ class PartDocumentAdmin(admin.ModelAdmin):
             return format_html('<a href="{}" target="_blank" class="button" style="padding: 2px 8px; font-size: 11px;">Visit ↗</a>', obj.external_url)
         return "-"
     external_url_link.short_description = "URL"
+
+
+class BOMItemInline(admin.TabularInline):
+    model = BOMItem
+    extra = 1
+    autocomplete_fields = ('part',)
+    fields = ('part', 'reference', 'quantity', 'notes')
+
+
+@admin.register(BOM)
+class BOMAdmin(admin.ModelAdmin):
+    list_display = ('name', 'description', 'total_items_display', 'total_cost_display', 'updated_at')
+    search_fields = ('name', 'description', 'notes')
+    inlines = [BOMItemInline]
+
+    def total_items_display(self, obj):
+        return f"{obj.total_items_count} items ({obj.total_parts_quantity} pcs)"
+    total_items_display.short_description = "Items"
+
+    def total_cost_display(self, obj):
+        return f"${obj.total_cost:.2f}"
+    total_cost_display.short_description = "Unit Cost"

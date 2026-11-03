@@ -1,5 +1,5 @@
 from django import forms
-from .models import Part, Company, Manufacturer, Category, Location, PartDocument
+from .models import Part, Company, Manufacturer, Category, Location, PartDocument, BOM, BOMItem
 
 
 class PartForm(forms.ModelForm):
@@ -163,3 +163,30 @@ class PartDocumentForm(forms.ModelForm):
                 "Please provide at least one resource: an uploaded file/scan, an external URL, or article content."
             )
         return cleaned_data
+
+
+class BOMForm(forms.ModelForm):
+    class Meta:
+        model = BOM
+        fields = ['name', 'description', 'notes']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. String Assembly, Sensor Node, Base Station'}),
+            'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Brief description of the assembly or device'}),
+        }
+
+
+class BOMItemForm(forms.ModelForm):
+    class Meta:
+        model = BOMItem
+        fields = ['part', 'reference', 'quantity', 'notes']
+        widgets = {
+            'part': forms.Select(attrs={'class': 'form-select'}),
+            'reference': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. U1, C12, SW1'}),
+            'quantity': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
+            'notes': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Optional assembly notes or placement instructions'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if 'part' in self.fields:
+            self.fields['part'].empty_label = "-- Select Component Part --"

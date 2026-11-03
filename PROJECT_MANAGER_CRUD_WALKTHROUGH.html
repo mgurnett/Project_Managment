@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project Manager CRUD Walkthrough & Technical Field Guide</title>
+    <title>Project Manager CRUD, Prefix & Document Walkthrough</title>
     <style>
         @page {
             size: letter portrait;
@@ -18,7 +18,7 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            font-size: 11px;
+            font-size: 10.5px;
             line-height: 1.4;
             color: #0f172a;
             background-color: #f8fafc;
@@ -38,7 +38,7 @@
         .header-banner {
             border-bottom: 2px solid #0284c7;
             padding-bottom: 8px;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
             display: flex;
             justify-content: space-between;
             align-items: flex-end;
@@ -62,7 +62,7 @@
         }
 
         .header-title {
-            font-size: 22px;
+            font-size: 21px;
             font-weight: 800;
             color: #0f172a;
             line-height: 1.1;
@@ -78,12 +78,12 @@
         .header-right {
             text-align: right;
             font-family: "JetBrains Mono", "Fira Code", monospace;
-            font-size: 9px;
+            font-size: 8.5px;
             color: #475569;
             background: #f1f5f9;
             border: 1px solid #e2e8f0;
             border-radius: 4px;
-            padding: 6px 10px;
+            padding: 5px 9px;
             line-height: 1.35;
         }
 
@@ -103,7 +103,7 @@
             background: #ffffff;
             border: 1px solid #e2e8f0;
             border-radius: 6px;
-            padding: 9px 11px;
+            padding: 8px 10px;
             break-inside: avoid;
             box-shadow: 0 1px 2px rgba(0,0,0,0.02);
         }
@@ -114,7 +114,7 @@
             justify-content: space-between;
             border-bottom: 1px solid #f1f5f9;
             padding-bottom: 5px;
-            margin-bottom: 7px;
+            margin-bottom: 6px;
         }
 
         .card-title-group {
@@ -138,7 +138,7 @@
         }
 
         .card-title {
-            font-size: 12px;
+            font-size: 11.5px;
             font-weight: 700;
             color: #0f172a;
             text-transform: uppercase;
@@ -148,7 +148,7 @@
         /* Status Pills */
         .pill {
             display: inline-block;
-            font-size: 8.5px;
+            font-size: 8px;
             font-weight: 700;
             padding: 1px 5px;
             border-radius: 9999px;
@@ -159,14 +159,15 @@
         .pill-blue { background: #e0f2fe; color: #0369a1; }
         .pill-green { background: #dcfce7; color: #15803d; }
         .pill-amber { background: #fef3c7; color: #b45309; }
+        .pill-purple { background: #f3e8ff; color: #7e22ce; }
         .pill-slate { background: #f1f5f9; color: #475569; }
 
         /* Tables */
         table.ref-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 9.5px;
-            margin: 4px 0;
+            font-size: 9px;
+            margin: 3px 0;
         }
 
         table.ref-table th {
@@ -174,16 +175,16 @@
             color: #475569;
             text-transform: uppercase;
             font-weight: 700;
-            font-size: 8.5px;
+            font-size: 8px;
             letter-spacing: 0.04em;
             text-align: left;
-            padding: 4px 6px;
+            padding: 3.5px 5px;
             border-bottom: 1px solid #cbd5e1;
             border-top: 1px solid #e2e8f0;
         }
 
         table.ref-table td {
-            padding: 4px 6px;
+            padding: 3.5px 5px;
             border-bottom: 1px solid #f1f5f9;
             color: #334155;
             vertical-align: middle;
@@ -195,7 +196,7 @@
 
         code, .mono {
             font-family: "JetBrains Mono", "Fira Code", monospace;
-            font-size: 9px;
+            font-size: 8.5px;
             background: #f1f5f9;
             color: #0369a1;
             padding: 1px 3px;
@@ -208,11 +209,11 @@
             background: #0f172a;
             color: #e2e8f0;
             border-radius: 5px;
-            padding: 8px 10px;
+            padding: 7px 9px;
             font-family: "JetBrains Mono", "Fira Code", monospace;
-            font-size: 9px;
+            font-size: 8.5px;
             line-height: 1.45;
-            margin: 5px 0;
+            margin: 4px 0;
             overflow-x: auto;
             border-left: 3px solid #0284c7;
         }
@@ -226,14 +227,14 @@
         ul.bullet-list {
             list-style: none;
             padding-left: 0;
-            margin: 4px 0;
+            margin: 3px 0;
         }
 
         ul.bullet-list li {
             position: relative;
-            padding-left: 12px;
-            margin-bottom: 4px;
-            font-size: 10px;
+            padding-left: 11px;
+            margin-bottom: 3.5px;
+            font-size: 9.5px;
             color: #334155;
         }
 
@@ -254,16 +255,17 @@
             border: 1px solid #bbf7d0;
             border-left: 3px solid #16a34a;
             border-radius: 4px;
-            padding: 6px 8px;
-            margin: 5px 0;
-            font-size: 9.5px;
+            padding: 5px 7px;
+            margin: 4px 0;
+            font-size: 9px;
             color: #166534;
         }
 
         .page-break {
             page-break-before: always;
             break-before: page;
-            margin-top: 14px;
+            margin-top: 15px;
+            padding-top: 5px;
         }
     </style>
 </head>
@@ -275,8 +277,8 @@
     <header class="header-banner">
         <div class="header-left">
             <span class="category-badge">Django 6.1 • Field Operations Runbook</span>
-            <h1 class="header-title">Project Manager: Inventory CRUD Walkthrough</h1>
-            <div class="header-subtitle">Architecture, Route Registry, Model Schema, and Operational Workflows</div>
+            <h1 class="header-title">Project Manager: Inventory Architecture & Walkthrough</h1>
+            <div class="header-subtitle">Category Prefixes, Auto Part Numbering, Datasheets, Scans, Articles & Controller Matrix</div>
         </div>
         <div class="header-right">
             <div>HOST: <strong>localhost:8000</strong></div>
@@ -287,23 +289,23 @@
 
     <div class="grid-layout">
 
-        <!-- Panel 1: Route & View Inventory (Full Width) -->
+        <!-- Panel 1: Route & View Matrix (Full Width) -->
         <div class="card col-span-2">
             <div class="card-header">
                 <div class="card-title-group">
                     <span class="badge-number">1</span>
-                    <span class="card-title">Complete CRUD Endpoint & Controller Matrix</span>
+                    <span class="card-title">Comprehensive Controller & Route Registry</span>
                 </div>
-                <span class="pill pill-green">26 Active Routes</span>
+                <span class="pill pill-green">30 Active Endpoints</span>
             </div>
             <table class="ref-table">
                 <thead>
                     <tr>
                         <th style="width: 14%;">Domain / Model</th>
-                        <th style="width: 25%;">URL Route & Pattern</th>
+                        <th style="width: 27%;">URL Pattern</th>
                         <th style="width: 23%;">Class-Based View</th>
                         <th style="width: 24%;">Template Resource</th>
-                        <th style="width: 14%;">Action / Perm</th>
+                        <th style="width: 12%;">Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -315,17 +317,11 @@
                         <td><span class="pill pill-blue">KPI Overview</span></td>
                     </tr>
                     <tr>
-                        <td rowspan="4"><strong>Part</strong></td>
-                        <td><code>/parts/</code></td>
-                        <td><code>PartListView</code></td>
-                        <td><code>core/part_list.html</code></td>
-                        <td><span class="pill pill-slate">Search & Filter</span></td>
-                    </tr>
-                    <tr>
-                        <td><code>/parts/add/</code></td>
-                        <td><code>PartCreateView</code></td>
-                        <td><code>core/part_form.html</code></td>
-                        <td><span class="pill pill-green">Create (CKEditor)</span></td>
+                        <td rowspan="3"><strong>Part</strong></td>
+                        <td><code>/parts/</code> | <code>/parts/add/</code></td>
+                        <td><code>PartListView</code> | <code>PartCreateView</code></td>
+                        <td><code>core/part_list.html</code> | <code>form.html</code></td>
+                        <td><span class="pill pill-slate">Search/Create</span></td>
                     </tr>
                     <tr>
                         <td><code>/parts/&lt;pk&gt;/</code></td>
@@ -337,205 +333,259 @@
                         <td><code>/parts/&lt;pk&gt;/edit/</code> | <code>/delete/</code></td>
                         <td><code>PartUpdateView</code> | <code>DeleteView</code></td>
                         <td><code>part_form.html</code> | <code>confirm_delete.html</code></td>
-                        <td><span class="pill pill-amber">Update / Purge</span></td>
+                        <td><span class="pill pill-amber">Edit / Purge</span></td>
                     </tr>
                     <tr>
-                        <td rowspan="2"><strong>Company</strong></td>
-                        <td><code>/companies/</code> | <code>/add/</code></td>
-                        <td><code>CompanyListView</code> | <code>CreateView</code></td>
-                        <td><code>company_list.html</code> | <code>form.html</code></td>
-                        <td><span class="pill pill-slate">Supplier Index</span></td>
+                        <td rowspan="2"><strong>Documents & Scans</strong></td>
+                        <td><code>/parts/&lt;part_pk&gt;/documents/add/</code></td>
+                        <td><code>PartDocumentCreateView</code></td>
+                        <td><code>core/part_document_form.html</code></td>
+                        <td><span class="pill pill-green">Attach File</span></td>
                     </tr>
                     <tr>
-                        <td><code>/companies/&lt;pk&gt;/</code> | <code>/edit/</code></td>
-                        <td><code>CompanyDetailView</code> | <code>UpdateView</code></td>
-                        <td><code>company_detail.html</code></td>
-                        <td><span class="pill pill-blue">Parts Cascade</span></td>
+                        <td><code>/documents/&lt;pk&gt;/</code> | <code>/edit/</code> | <code>/delete/</code></td>
+                        <td><code>DetailView</code> | <code>UpdateView</code> | <code>DeleteView</code></td>
+                        <td><code>part_document_detail.html</code></td>
+                        <td><span class="pill pill-purple">High-Res View</span></td>
                     </tr>
                     <tr>
-                        <td rowspan="2"><strong>Manufacturer</strong></td>
-                        <td><code>/manufacturers/</code> | <code>/add/</code></td>
+                        <td><strong>Category</strong></td>
+                        <td><code>/categories/</code> | <code>/add/</code> | <code>/&lt;pk&gt;/</code></td>
+                        <td><code>CategoryListView</code> | <code>CreateView</code> | <code>DetailView</code></td>
+                        <td><code>category_list.html</code> | <code>detail.html</code></td>
+                        <td><span class="pill pill-slate">Taxonomy</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Company</strong></td>
+                        <td><code>/companies/</code> | <code>/add/</code> | <code>/&lt;pk&gt;/</code></td>
+                        <td><code>CompanyListView</code> | <code>CreateView</code> | <code>DetailView</code></td>
+                        <td><code>company_list.html</code> | <code>detail.html</code></td>
+                        <td><span class="pill pill-slate">Suppliers</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Manufacturer</strong></td>
+                        <td><code>/manufacturers/</code> | <code>/add/</code> | <code>/&lt;pk&gt;/</code></td>
                         <td><code>ManufacturerListView</code> | <code>CreateView</code></td>
                         <td><code>manufacturer_list.html</code></td>
                         <td><span class="pill pill-slate">OEM Index</span></td>
                     </tr>
                     <tr>
-                        <td><code>/manufacturers/&lt;pk&gt;/</code> | <code>/edit/</code></td>
-                        <td><code>ManufacturerDetailView</code> | <code>UpdateView</code></td>
-                        <td><code>manufacturer_detail.html</code></td>
-                        <td><span class="pill pill-blue">Catalog View</span></td>
-                    </tr>
-                    <tr>
-                        <td rowspan="2"><strong>Category</strong></td>
-                        <td><code>/categories/</code> | <code>/add/</code></td>
-                        <td><code>CategoryListView</code> | <code>CreateView</code></td>
-                        <td><code>category_list.html</code></td>
-                        <td><span class="pill pill-slate">Classification</span></td>
-                    </tr>
-                    <tr>
-                        <td><code>/categories/&lt;pk&gt;/</code> | <code>/edit/</code></td>
-                        <td><code>CategoryDetailView</code> | <code>UpdateView</code></td>
-                        <td><code>category_detail.html</code></td>
-                        <td><span class="pill pill-blue">Hierarchy Tree</span></td>
-                    </tr>
-                    <tr>
-                        <td rowspan="2"><strong>Location</strong></td>
-                        <td><code>/locations/</code> | <code>/add/</code></td>
+                        <td><strong>Location</strong></td>
+                        <td><code>/locations/</code> | <code>/add/</code> | <code>/&lt;pk&gt;/</code></td>
                         <td><code>LocationListView</code> | <code>CreateView</code></td>
                         <td><code>location_list.html</code></td>
-                        <td><span class="pill pill-slate">Bin Locations</span></td>
-                    </tr>
-                    <tr>
-                        <td><code>/locations/&lt;pk&gt;/</code> | <code>/edit/</code></td>
-                        <td><code>LocationDetailView</code> | <code>UpdateView</code></td>
-                        <td><code>location_detail.html</code></td>
-                        <td><span class="pill pill-blue">Stock by Bin</span></td>
+                        <td><span class="pill pill-slate">Storage Bins</span></td>
                     </tr>
                 </tbody>
             </table>
         </div>
 
-        <!-- Panel 2: Part Model Core -->
+        <!-- Panel 2: Category Prefix & Hierarchy -->
         <div class="card">
             <div class="card-header">
                 <div class="card-title-group">
                     <span class="badge-number">2</span>
-                    <span class="card-title">Part Model Specification</span>
+                    <span class="card-title">Category Prefix & Taxonomy</span>
                 </div>
                 <span class="pill pill-blue">core/models.py</span>
             </div>
             <ul class="bullet-list">
-                <li><strong>Identification</strong>: <code>part_number</code> (unique, auto-generated fallback), <code>supplier_part_number</code>, <code>description</code>.</li>
-                <li><strong>Calculated Pricing</strong>: <code>price_per</code> &times; <code>quantity</code> &rarr; auto-computes <code>price</code> in model <code>save()</code>.</li>
-                <li><strong>Superseded Architecture</strong>: Self-referential FK <code>superseded_by = models.ForeignKey('self', null=True, blank=True, related_name='supersedes')</code>. Allows seamless forward & backward lookup.</li>
-                <li><strong>Stock Metrics</strong>: <code>quantity_on_hand</code>, <code>quantity_on_order</code>, <code>quantity_committed</code>, <code>quantity_availible</code>, <code>quantity</code> (defaults to 0, <code>blank=True</code>).</li>
-                <li><strong>Rich Notes</strong>: Rendered using <code>CKEditor5Field('Notes', config_name='extends')</code>.</li>
+                <li><strong>Prefix Field</strong>: <code>Category.prefix</code> (e.g. <code>100</code> for Passives, <code>200</code> for Discrete Semiconductors, <code>300</code> for Connectors).</li>
+                <li><strong>Recursive Inheritance</strong>: <code>get_prefix()</code> checks current category; if empty, ascends parent tree (<code>parent.get_prefix()</code>).</li>
+                <li><strong>Dropdown Display</strong>: <code>Category.__str__()</code> formats hierarchies: <code>[100] Passives &gt; Resistors &gt; SMD 0805</code>.</li>
+                <li><strong>Taxonomy Nesting</strong>: Self-referential <code>parent = ForeignKey('self')</code> allows unlimited subcategory depth.</li>
             </ul>
             <div class="highlight-box">
-                <strong>Pricing Hook:</strong> When <code>price_per</code> and <code>quantity</code> are provided, <code>save()</code> computes <code>self.price = Decimal(self.price_per) * Decimal(self.quantity)</code>.
+                <strong>Subcategory Inheritance:</strong> Defining <code>100</code> on <em>Passives</em> allows <em>Resistors</em> and <em>Capacitors</em> to inherit prefix <code>100</code> without re-typing.
             </div>
         </div>
 
-        <!-- Panel 3: Supplier & Manufacturer Ecosystem -->
+        <!-- Panel 3: Part Number Automated Sequence Engine -->
         <div class="card">
             <div class="card-header">
                 <div class="card-title-group">
                     <span class="badge-number">3</span>
-                    <span class="card-title">Suppliers & Taxonomy</span>
+                    <span class="card-title">Automated Part Numbering</span>
                 </div>
-                <span class="pill pill-slate">Relationships</span>
+                <span class="pill pill-green">Prefix Engine</span>
             </div>
             <ul class="bullet-list">
-                <li><strong>Company (Supplier)</strong>: One-to-Many relation to parts (<code>company.parts.all()</code>). Stores website URL, account number, contact rep, phone, email, and procurement notes.</li>
-                <li><strong>Manufacturer (OEM)</strong>: One-to-Many relation to parts (<code>manufacturer.parts.all()</code>). Distinguishes vendor distributor from original maker.</li>
-                <li><strong>Category</strong>: Self-nested hierarchy via <code>parent = ForeignKey('self')</code> for deep breadcrumb trees (e.g. <em>Passives &rarr; Resistors &rarr; SMD 0805</em>).</li>
-                <li><strong>Location</strong>: Warehouse, shelf, rack, or bin code (<code>BIN-xxx</code>) tracking exact physical storage slots.</li>
+                <li><strong>Starting Sequence</strong>: Sequential numbers start at <code>1001</code> (e.g. <code>100-1001</code>, <code>100-1002</code>, ..., <code>100-1234</code>).</li>
+                <li><strong>Dynamic Increment</strong>: <code>generate_next_part_number(category)</code> queries existing parts with <code>prefix-*</code>, parses numeric suffixes, and takes <code>max_num + 1</code>.</li>
+                <li><strong>Intelligent Formatting in <code>save()</code></strong>:
+                    <br>&bull; Blank &rarr; Auto-generates next available sequence (<code>100-1001</code>).
+                    <br>&bull; Digits only (e.g. <code>1234</code>) &rarr; Prepends prefix: <code>100-1234</code>.
+                    <br>&bull; Custom string &rarr; Preserved untouched.
+                </li>
+                <li><strong>Collision Avoidance</strong>: Loops candidate numbers until verified unused.</li>
             </ul>
-            <table class="ref-table">
+        </div>
+
+        <!-- Panel 4: Part Documents, Scans, Datasheets & Articles -->
+        <div class="card col-span-2">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="badge-number">4</span>
+                    <span class="card-title">Part Documents, Scans, Pinouts & Technical Articles</span>
+                </div>
+                <span class="pill pill-purple">PartDocument Model</span>
+            </div>
+            <div class="grid-layout" style="gap: 8px;">
+                <div>
+                    <ul class="bullet-list">
+                        <li><strong>Relationship</strong>: One-to-Many with <code>Part</code> (<code>part.documents.all()</code>). Multiple attachments per part number.</li>
+                        <li><strong>Document Types</strong>:
+                            <code>datasheet</code> (PDF) &bull;
+                            <code>pinout</code> (Diagram/Schematic) &bull;
+                            <code>scan</code> (Document Scan) &bull;
+                            <code>instructions</code> (Assembly Guide) &bull;
+                            <code>article</code> (Technical Notes)
+                        </li>
+                        <li><strong>File Storage</strong>: Uploads to <code>media/parts/documents/%Y/%m/</code>. Auto-detects <code>is_image</code>, <code>is_pdf</code>, and formats file size.</li>
+                    </ul>
+                </div>
+                <div>
+                    <ul class="bullet-list">
+                        <li><strong>External Links</strong>: <code>external_url</code> field for manufacturer-hosted online datasheets and web references.</li>
+                        <li><strong>WYSIWYG Articles</strong>: <code>content = CKEditor5Field()</code> for rich pinout tables, troubleshooting procedures, and markdown notes.</li>
+                        <li><strong>Dedicated Viewers</strong>: Embedded in-browser PDF reader, high-resolution scan zoom canvas, and print-ready technical article viewer.</li>
+                    </ul>
+                </div>
+            </div>
+            <table class="ref-table" style="margin-top: 5px;">
                 <thead>
-                    <tr><th>Related Model</th><th>Field on Part</th><th>On Delete Behavior</th></tr>
+                    <tr>
+                        <th>Resource Kind</th>
+                        <th>Typical Files / Content</th>
+                        <th>Frontend Behavior on Part Detail</th>
+                    </tr>
                 </thead>
                 <tbody>
-                    <tr><td><code>Company</code></td><td><code>part.company</code></td><td><code>SET_NULL</code> (prevents data loss)</td></tr>
-                    <tr><td><code>Manufacturer</code></td><td><code>part.manufacturer</code></td><td><code>SET_NULL</code></td></tr>
-                    <tr><td><code>Category</code></td><td><code>part.category</code></td><td><code>SET_NULL</code></td></tr>
-                    <tr><td><code>Location</code></td><td><code>part.location</code></td><td><code>SET_NULL</code></td></tr>
+                    <tr>
+                        <td><strong>Datasheet</strong></td>
+                        <td>Official PDF datasheet or direct web link</td>
+                        <td>Red PDF badge, file size indicator, embedded viewer, download link</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Pinout Diagram</strong></td>
+                        <td>PNG / JPG schematic scan + pin table</td>
+                        <td>Visual thumbnail preview, image zoom modal, pinout table</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Lab Scan</strong></td>
+                        <td>Handwritten notebook scan or CAD drawing</td>
+                        <td>High-res image canvas with full resolution popout</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Instructions</strong></td>
+                        <td>Rich WYSIWYG text with formatting & steps</td>
+                        <td>Article reader view with formatted tables, bold text, code blocks</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
 
-        <!-- Panel 4: UI Architecture & Custom Styling -->
-        <div class="card">
-            <div class="card-header">
-                <div class="card-title-group">
-                    <span class="badge-number">4</span>
-                    <span class="card-title">Design System & Theme</span>
-                </div>
-                <span class="pill pill-green">Cadmium Green</span>
-            </div>
-            <ul class="bullet-list">
-                <li><strong>Base Palette</strong>: Integrated <code>bootstrapcolors-custom.css</code> featuring Cadmium Green (<code>#137547</code>), Forest (<code>#054a29</code>), and Mint accents.</li>
-                <li><strong>Responsive Sidebar</strong>: Permanent 260px desktop drawer; responsive collapse into touch-friendly mobile offcanvas drawer.</li>
-                <li><strong>Theme Switcher</strong>: Dual Light/Dark mode via Bootstrap 5.3 <code>data-bs-theme</code> with persistent <code>localStorage</code> sync.</li>
-                <li><strong>Interactive Forms</strong>: Grouped card layouts, floating labels, select widgets with <code>-- Select --</code> prompts, and real-time JS price calculators.</li>
-            </ul>
-        </div>
-
-        <!-- Panel 5: Form Validation & Security -->
+        <!-- Panel 5: Model Relationships & Sourcing Architecture -->
         <div class="card">
             <div class="card-header">
                 <div class="card-title-group">
                     <span class="badge-number">5</span>
-                    <span class="card-title">Forms & Validation Safeguards</span>
+                    <span class="card-title">Sourcing & Location Topology</span>
                 </div>
-                <span class="pill pill-amber">core/forms.py</span>
+                <span class="pill pill-slate">Ecosystem</span>
             </div>
             <ul class="bullet-list">
-                <li><strong>Self-Reference Loop Prevention</strong>: In <code>PartForm</code> and <code>CategoryForm</code>, <code>__init__()</code> dynamically excludes <code>pk=self.instance.pk</code> from choices.</li>
-                <li><strong>Quantity Sanitization</strong>: Form cleaning hooks default empty inputs to <code>0</code>, eliminating validation rejections on stock counters.</li>
-                <li><strong>WYSIWYG Asset Inclusion</strong>: Form headers inject <code>{{ form.media }}</code> to load CKEditor 5 assets dynamically.</li>
-                <li><strong>Safe Deletion</strong>: Reusable <code>confirm_delete.html</code> displays item details and warning before executing <code>POST</code> purges.</li>
+                <li><strong>Company (Supplier)</strong>: Vendor supplying components (DigiKey, Mouser). Stores account numbers, sales reps, and phone contacts.</li>
+                <li><strong>Manufacturer (OEM)</strong>: Original brand (Texas Instruments, STMicro).</li>
+                <li><strong>Location</strong>: Physical warehouse, rack, or bin code (<code>BIN-A12</code>).</li>
+                <li><strong>Price Automation</strong>: <code>price_per</code> &times; <code>quantity</code> &rarr; auto-computes <code>price</code> in model <code>save()</code>.</li>
+                <li><strong>Superseding</strong>: Self FK <code>superseded_by</code> links legacy parts to newer replacement inventory items.</li>
             </ul>
         </div>
 
-        <!-- Panel 6: Operator Step-by-Step Runbook (Full Width) -->
-        <div class="card col-span-2">
+        <!-- Panel 6: Design System & Cadmium Green Palette -->
+        <div class="card">
             <div class="card-header">
                 <div class="card-title-group">
                     <span class="badge-number">6</span>
+                    <span class="card-title">Theme & UI Architecture</span>
+                </div>
+                <span class="pill pill-green">Cadmium Green</span>
+            </div>
+            <ul class="bullet-list">
+                <li><strong>Base Palette</strong>: Integrated <code>bootstrapcolors-custom.css</code>: Cadmium Green (<code>#137547</code>), Forest (<code>#054a29</code>), Mint accents.</li>
+                <li><strong>Responsive Sidebar</strong>: Permanent desktop drawer; collapses into touch-friendly offcanvas on mobile devices.</li>
+                <li><strong>Dual Dark/Light Theme</strong>: Bootstrap 5.3 <code>data-bs-theme</code> with persistent client-side <code>localStorage</code> sync.</li>
+                <li><strong>Interactive Forms</strong>: Real-time JS total cost calculator & dynamic category prefix placeholders.</li>
+            </ul>
+        </div>
+
+        <!-- Panel 7: Operator Terminal Runbook & Workflow (Full Width) -->
+        <div class="card col-span-2">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="badge-number">7</span>
                     <span class="card-title">Operator Walkthrough & Terminal Runbook</span>
                 </div>
                 <span class="pill pill-green">Standard Procedure</span>
             </div>
 
             <div class="terminal-block">
-<span class="t-comment"># 1. Activate environment and boot the local development server</span>
+<span class="t-comment"># 1. Boot local development server</span>
 <span class="t-cmd">source</span> .venv/bin/activate
 <span class="t-cmd">python</span> manage.py runserver 127.0.0.1:8000
 
-<span class="t-comment"># 2. Add reference suppliers, manufacturers, and storage locations</span>
-<span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/companies/add/ -d <span class="t-output">"name=DigiKey&website=https://digikey.com&contact_name=Support"</span>
-<span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/locations/add/ -d <span class="t-output">"name=Bin A12&code=BIN-A12&description=Main Component Rack"</span>
+<span class="t-comment"># 2. Create Category with Prefix (e.g. 100 for Passives)</span>
+<span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/categories/add/ -d <span class="t-output">"name=Passives&prefix=100&description=Passive Components"</span>
 
-<span class="t-comment"># 3. Create a component with automatic price multiplication</span>
-<span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/parts/add/ -d <span class="t-output">"part_number=LM317T&quantity=100&price_per=0.75&confirmed=true"</span>
-<span class="t-highlight"># -> Automatically calculates: price = 75.00 | redirects to /parts/</span>
+<span class="t-comment"># 3. Create Part leaving part_number blank -> auto-generates 100-1001</span>
+<span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/parts/add/ -d <span class="t-output">"description=10uF Capacitor&category=1&quantity=100&price_per=0.15"</span>
+<span class="t-highlight"># -> Generated: part_number = '100-1001' | price = 15.00</span>
 
-<span class="t-comment"># 4. Filter and query the parts database</span>
-<span class="t-cmd">curl</span> "http://127.0.0.1:8000/parts/?q=LM317&confirmed=true"
+<span class="t-comment"># 4. Create Part entering specific sequence '1234' -> auto-formats to 100-1234</span>
+<span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/parts/add/ -d <span class="t-output">"part_number=1234&category=1&description=Precision Resistor"</span>
+<span class="t-highlight"># -> Formatted: part_number = '100-1234'</span>
 
-<span class="t-comment"># 5. Supersede a legacy part with an updated replacement</span>
-<span class="t-comment"># In /parts/&lt;legacy_pk&gt;/edit/, select the new component in the 'Superseded By' dropdown.</span>
+<span class="t-comment"># 5. Attach a Datasheet / Scan to the component</span>
+<span class="t-cmd">curl</span> -X POST http://127.0.0.1:8000/parts/1/documents/add/ \
+     -F <span class="t-output">"title=TI LM317 Datasheet"</span> \
+     -F <span class="t-output">"document_type=datasheet"</span> \
+     -F <span class="t-output">"file=@datasheet.pdf"</span>
             </div>
 
             <table class="ref-table">
                 <thead>
                     <tr>
-                        <th style="width: 20%;">Workflow Phase</th>
-                        <th style="width: 35%;">Action Performed in UI</th>
-                        <th style="width: 45%;">System Reaction & State Change</th>
+                        <th style="width: 22%;">Operational Phase</th>
+                        <th style="width: 38%;">Action Performed in Interface</th>
+                        <th style="width: 40%;">System Reaction & State Change</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><strong>1. Supplier Onboarding</strong></td>
-                        <td>Navigate to <code>/companies/add/</code>, fill in rep & contact details.</td>
-                        <td>Creates <code>Company</code> record. Instantly selectable in the Part creation dropdown.</td>
+                        <td><strong>1. Category Setup</strong></td>
+                        <td>Go to <code>/categories/add/</code>. Enter Name & Prefix (e.g. <code>100</code>).</td>
+                        <td>Prefix stored; inherited by any child subcategories.</td>
                     </tr>
                     <tr>
                         <td><strong>2. Part Registration</strong></td>
-                        <td>Go to <code>/parts/add/</code>. Enter part number, unit price, quantity, and specs.</td>
-                        <td>Calculates total price on save. Shows success alert on <code>/parts/</code>.</td>
+                        <td>Select category on <code>/parts/add/</code>. Leave part number blank.</td>
+                        <td>Auto-generates <code>100-1001</code>. Computes <code>price = price_per * qty</code>.</td>
                     </tr>
                     <tr>
-                        <td><strong>3. Inventory Audit</strong></td>
-                        <td>Open <code>/parts/&lt;pk&gt;/</code> detail view.</td>
-                        <td>Renders stock badge tiles (On Hand, On Order, Committed, Available) & CKEditor notes.</td>
+                        <td><strong>3. Suffix Override</strong></td>
+                        <td>Enter <code>1234</code> in Part Number input.</td>
+                        <td>Auto-prepends category prefix to produce <code>100-1234</code>.</td>
                     </tr>
                     <tr>
-                        <td><strong>4. Part Superseding</strong></td>
-                        <td>Edit legacy part at <code>/parts/&lt;pk&gt;/edit/</code>, pick replacement.</td>
-                        <td>Displays yellow warning badge on legacy part and "Supersedes" link on new part.</td>
+                        <td><strong>4. Attach Resources</strong></td>
+                        <td>On Part detail page, click <em>Add Document / Scan</em>.</td>
+                        <td>Uploads PDF/scan, renders thumbnail, and attaches to part record.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>5. Document Viewing</strong></td>
+                        <td>Click <em>View</em> on any document card.</td>
+                        <td>Opens dedicated high-res viewer, embedded PDF, or article body.</td>
                     </tr>
                 </tbody>
             </table>

@@ -45,4 +45,13 @@ urlpatterns = [
     path('documents/<int:pk>/', views.PartDocumentDetailView.as_view(), name='part_document_detail'),
     path('documents/<int:pk>/edit/', views.PartDocumentUpdateView.as_view(), name='part_document_update'),
     path('documents/<int:pk>/delete/', views.PartDocumentDeleteView.as_view(), name='part_document_delete'),
+
+    # Bills of Materials (BOM) / Product Assemblies
+    path('boms/', views.BOMListView.as_view(), name='bom_list'),
+    path('boms/add/', views.BOMCreateView.as_view(), name='bom_create'),
+    path('boms/<int:pk>/', views.BOMDetailView.as_view(), name='bom_detail'),
+    path('boms/<int:pk>/edit/', views.BOMUpdateView.as_view(), name='bom_update'),
+    path('boms/<int:pk>/delete/', views.BOMDeleteView.as_view(), name='bom_delete'),
+    path('boms/<int:bom_pk>/items/add/', views.BOMItemCreateView.as_view(), name='bom_item_create'),
+    path('bom-items/<int:pk>/delete/', views.BOMItemDeleteView.as_view(), name='bom_item_delete'),
 ]

@@ -218,7 +218,12 @@
 
                 <a href="{% url 'part_list' %}" class="nav-link-custom {% if 'parts' in request.path %}active{% endif %}">
                     <i class="bi bi-cpu"></i>
-                    <span>Parts & BOM</span>
+                    <span>Parts Catalog</span>
+                </a>
+
+                <a href="{% url 'bom_list' %}" class="nav-link-custom {% if 'boms' in request.path %}active{% endif %}">
+                    <i class="bi bi-diagram-3"></i>
+                    <span>Bills of Materials (BoMs)</span>
                 </a>
 
                 <a href="{% url 'company_list' %}" class="nav-link-custom {% if 'companies' in request.path %}active{% endif %}">
