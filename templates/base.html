@@ -216,25 +216,31 @@
 
                 <div class="sidebar-heading">Assets & Inventory</div>
 
-                <a href="{% url 'admin:core_part_changelist' %}" class="nav-link-custom">
+                <a href="{% url 'part_list' %}" class="nav-link-custom {% if 'parts' in request.path %}active{% endif %}">
                     <i class="bi bi-cpu"></i>
                     <span>Parts & BOM</span>
                 </a>
 
-                <a href="{% url 'admin:core_company_changelist' %}" class="nav-link-custom">
+                <a href="{% url 'company_list' %}" class="nav-link-custom {% if 'companies' in request.path %}active{% endif %}">
                     <i class="bi bi-building"></i>
                     <span>Companies / Suppliers</span>
                 </a>
 
-                <a href="{% url 'admin:core_category_changelist' %}" class="nav-link-custom">
+                <a href="{% url 'manufacturer_list' %}" class="nav-link-custom {% if 'manufacturers' in request.path %}active{% endif %}">
+                    <i class="bi bi-industry"></i>
+                    <span>Manufacturers</span>
+                </a>
+
+                <a href="{% url 'category_list' %}" class="nav-link-custom {% if 'categories' in request.path %}active{% endif %}">
                     <i class="bi bi-tags"></i>
                     <span>Categories</span>
                 </a>
 
-                <a href="{% url 'admin:core_location_changelist' %}" class="nav-link-custom">
+                <a href="{% url 'location_list' %}" class="nav-link-custom {% if 'locations' in request.path %}active{% endif %}">
                     <i class="bi bi-geo-alt"></i>
                     <span>Storage Locations</span>
                 </a>
+
 
 
 

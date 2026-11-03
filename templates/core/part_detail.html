@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+
+{% block title %}{{ part.part_number|default:part.description }} | Project Manager{% endblock %}
+{% block breadcrumb %}
+    <a href="{% url 'part_list' %}" class="text-decoration-none text-muted">Parts</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>{{ part.part_number|default:part.description|truncatechars:25 }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+
+    <!-- Header Section -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
+        <div>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <h1 class="h3 fw-bold mb-0 text-custom">{{ part.part_number|default:"(No Part Number)" }}</h1>
+                {% if part.confirmed %}
+                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1">
+                        <i class="bi bi-check-circle-fill me-1"></i> Confirmed
+                    </span>
+                {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-2.5 py-1">
+                        <i class="bi bi-clock me-1"></i> Pending Confirmation
+                    </span>
+                {% endif %}
+            </div>
+            <p class="text-muted fs-6 mb-0 mt-1">{{ part.description }}</p>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <a href="{% url 'part_list' %}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1">
+                <i class="bi bi-arrow-left"></i>
+                <span>Back to Parts</span>
+            </a>
+            <a href="{% url 'part_update' part.pk %}" class="btn btn-outline-custom btn-sm d-flex align-items-center gap-1">
+                <i class="bi bi-pencil"></i>
+                <span>Edit Part</span>
+            </a>
+            <a href="{% url 'part_delete' part.pk %}" class="btn btn-outline-danger btn-sm d-flex align-items-center gap-1">
+                <i class="bi bi-trash"></i>
+                <span>Delete</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="row g-4">
+        
+        <!-- Left Column: Specs & Inventory -->
+        <div class="col-12 col-lg-8">
+            
+            <!-- Inventory Stock Counts -->
+            <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+                <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2">
+                    <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">Inventory Levels</h3>
+                </div>
+                <div class="card-body p-4 pt-2">
+                    <div class="row g-3 text-center">
+                        <div class="col-6 col-sm-3">
+                            <div class="p-3 rounded-3 bg-body-tertiary border">
+                                <span class="small text-muted d-block mb-1">On Hand</span>
+                                <h4 class="fw-bold mb-0 text-success">{{ part.quantity_on_hand }}</h4>
+                            </div>
+                        </div>
+                        <div class="col-6 col-sm-3">
+                            <div class="p-3 rounded-3 bg-body-tertiary border">
+                                <span class="small text-muted d-block mb-1">On Order</span>
+                                <h4 class="fw-bold mb-0 text-primary">{{ part.quantity_on_order }}</h4>
+                            </div>
+                        </div>
+                        <div class="col-6 col-sm-3">
+                            <div class="p-3 rounded-3 bg-body-tertiary border">
+                                <span class="small text-muted d-block mb-1">Committed</span>
+                                <h4 class="fw-bold mb-0 text-warning">{{ part.quantity_committed }}</h4>
+                            </div>
+                        </div>
+                        <div class="col-6 col-sm-3">
+                            <div class="p-3 rounded-3 bg-body-tertiary border">
+                                <span class="small text-muted d-block mb-1">Available</span>
+                                <h4 class="fw-bold mb-0 text-body">{{ part.quantity_availible }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notes & Documentation -->
+            <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+                <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center">
+                    <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">Documentation & Notes</h3>
+                    {% if part.link %}
+                        <a href="{{ part.link }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-custom">
+                            <i class="bi bi-box-arrow-up-right me-1"></i> Open Datasheet / URL
+                        </a>
+                    {% endif %}
+                </div>
+                <div class="card-body p-4 pt-2">
+                    {% if part.notes %}
+                        <div class="ck-content">
+                            {{ part.notes|safe }}
+                        </div>
+                    {% else %}
+                        <p class="text-muted small fst-italic mb-0">No technical notes or documentation recorded for this component.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Superseded Information (If Any) -->
+            {% if part.superseded_by or part.supersedes.exists %}
+            <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+                <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2">
+                    <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">Revision & Replacement History</h3>
+                </div>
+                <div class="card-body p-4 pt-2">
+                    {% if part.superseded_by %}
+                        <div class="alert alert-warning d-flex align-items-center justify-content-between mb-3">
+                            <div>
+                                <i class="bi bi-arrow-repeat me-2 fs-5"></i>
+                                <span>This component has been superseded by:</span>
+                                <a href="{% url 'part_detail' part.superseded_by.pk %}" class="fw-bold ms-1 text-decoration-none">
+                                    {{ part.superseded_by.part_number|default:part.superseded_by.description }}
+                                </a>
+                            </div>
+                            <a href="{% url 'part_detail' part.superseded_by.pk %}" class="btn btn-sm btn-outline-dark">View New Part &rarr;</a>
+                        </div>
+                    {% endif %}
+
+                    {% if part.supersedes.exists %}
+                        <div class="small fw-semibold text-muted mb-2">Previous Parts Replaced by this Item:</div>
+                        <ul class="list-group list-group-flush">
+                            {% for old_part in part.supersedes.all %}
+                            <li class="list-group-item px-0 py-2 bg-transparent d-flex justify-content-between align-items-center">
+                                <a href="{% url 'part_detail' old_part.pk %}" class="text-decoration-none fw-medium text-custom">
+                                    {{ old_part.part_number|default:old_part.description }}
+                                </a>
+                                <span class="badge bg-secondary-subtle text-secondary">Obsoleted</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Articles, Datasheets, Pinouts & Scans Section -->
+            <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+                <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                            <i class="bi bi-file-earmark-medical me-2 text-custom"></i>Articles, Datasheets, Pinouts &amp; Scans ({{ documents.count }})
+                        </h3>
+                    </div>
+                    <a href="{% url 'part_document_create' part.pk %}" class="btn btn-sm btn-custom">
+                        <i class="bi bi-cloud-arrow-up me-1"></i> Add Document / Scan
+                    </a>
+                </div>
+                <div class="card-body p-4 pt-2">
+                    {% if documents %}
+                        <div class="row g-3">
+                            {% for doc in documents %}
+                            <div class="col-12">
+                                <div class="p-3 border rounded-3 bg-body-tertiary d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+                                    <div class="d-flex align-items-start gap-3">
+                                        <!-- Thumbnail or Icon -->
+                                        {% if doc.is_image and doc.file %}
+                                            <a href="{% url 'part_document_detail' doc.pk %}" class="d-block flex-shrink-0">
+                                                <img src="{{ doc.file.url }}" alt="{{ doc.title }}" class="rounded border shadow-sm" style="width: 72px; height: 56px; object-fit: cover; background: #fff;">
+                                            </a>
+                                        {% elif doc.is_pdf %}
+                                            <div class="rounded-3 p-2 bg-danger-subtle text-danger d-flex align-items-center justify-content-center flex-shrink-0" style="width: 56px; height: 56px;">
+                                                <i class="bi bi-file-earmark-pdf fs-3"></i>
+                                            </div>
+                                        {% elif doc.content %}
+                                            <div class="rounded-3 p-2 bg-success-subtle text-success d-flex align-items-center justify-content-center flex-shrink-0" style="width: 56px; height: 56px;">
+                                                <i class="bi bi-journal-text fs-3"></i>
+                                            </div>
+                                        {% else %}
+                                            <div class="rounded-3 p-2 bg-info-subtle text-info d-flex align-items-center justify-content-center flex-shrink-0" style="width: 56px; height: 56px;">
+                                                <i class="bi bi-link-45deg fs-3"></i>
+                                            </div>
+                                        {% endif %}
+
+                                        <!-- Meta & Title -->
+                                        <div>
+                                            <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                                                <a href="{% url 'part_document_detail' doc.pk %}" class="fw-bold text-decoration-none text-body">
+                                                    {{ doc.title }}
+                                                </a>
+                                                <span class="badge {% if doc.document_type == 'datasheet' %}bg-primary-subtle text-primary{% elif doc.document_type == 'pinout' %}bg-info-subtle text-info{% elif doc.document_type == 'scan' %}bg-warning-subtle text-warning{% elif doc.document_type == 'instructions' %}bg-success-subtle text-success{% else %}bg-secondary-subtle text-secondary{% endif %} border px-2 py-0.5 text-uppercase" style="font-size: 0.65rem;">
+                                                    {{ doc.get_document_type_display }}
+                                                </span>
+                                            </div>
+                                            <div class="text-muted small">
+                                                {% if doc.file %}
+                                                    <span class="me-2"><i class="bi bi-paperclip me-1"></i>{{ doc.file_extension|upper }} ({{ doc.file_size_display }})</span>
+                                                {% endif %}
+                                                {% if doc.external_url %}
+                                                    <a href="{{ doc.external_url }}" target="_blank" rel="noopener" class="text-custom text-decoration-none me-2">
+                                                        <i class="bi bi-box-arrow-up-right me-1"></i>Web Link
+                                                    </a>
+                                                {% endif %}
+                                                <span><i class="bi bi-clock me-1"></i>{{ doc.created_at|date:"M d, Y" }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Actions -->
+                                    <div class="d-flex align-items-center gap-1 flex-shrink-0 ms-auto ms-md-0">
+                                        <a href="{% url 'part_document_detail' doc.pk %}" class="btn btn-sm btn-outline-secondary" title="View Document / Reader">
+                                            <i class="bi bi-eye"></i> View
+                                        </a>
+                                        {% if doc.file %}
+                                            <a href="{{ doc.file.url }}" target="_blank" download class="btn btn-sm btn-outline-secondary" title="Download">
+                                                <i class="bi bi-download"></i>
+                                            </a>
+                                        {% endif %}
+                                        <a href="{% url 'part_document_update' doc.pk %}" class="btn btn-sm btn-outline-secondary" title="Edit">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                        <a href="{% url 'part_document_delete' doc.pk %}" class="btn btn-sm btn-outline-danger" title="Delete">
+                                            <i class="bi bi-trash"></i>
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4 border rounded-3 bg-body-tertiary">
+                            <i class="bi bi-file-earmark-arrow-up text-muted" style="font-size: 2.2rem;"></i>
+                            <h6 class="fw-semibold mt-2 mb-1">No Documents, Scans, or Pinouts Attached</h6>
+                            <p class="text-muted small mb-3">Upload component datasheets, pinout drawings, scans, or technical articles.</p>
+                            <a href="{% url 'part_document_create' part.pk %}" class="btn btn-custom btn-sm">
+                                <i class="bi bi-plus-circle me-1"></i> Attach First Document / Scan
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Sourcing & Pricing -->
+        <div class="col-12 col-lg-4">
+            
+            <!-- Sourcing & Supplier Info -->
+            <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+                <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2">
+                    <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">Sourcing & Classification</h3>
+                </div>
+                <div class="card-body p-4 pt-2">
+                    <ul class="list-unstyled mb-0 d-flex flex-column gap-3 small">
+                        <li class="d-flex justify-content-between align-items-center pb-2 border-bottom">
+                            <span class="text-muted"><i class="bi bi-building me-2 text-custom"></i>Supplier / Vendor</span>
+                            {% if part.company %}
+                                <a href="{% url 'company_detail' part.company.pk %}" class="fw-semibold text-decoration-none text-body">
+                                    {{ part.company.name }}
+                                </a>
+                            {% else %}
+                                <span class="text-muted">&mdash;</span>
+                            {% endif %}
+                        </li>
+
+                        <li class="d-flex justify-content-between align-items-center pb-2 border-bottom">
+                            <span class="text-muted"><i class="bi bi-upc-scan me-2 text-custom"></i>Supplier SKU #</span>
+                            <span class="fw-semibold text-body">{{ part.supplier_part_number|default:"&mdash;" }}</span>
+                        </li>
+
+                        <li class="d-flex justify-content-between align-items-center pb-2 border-bottom">
+                            <span class="text-muted"><i class="bi bi-industry me-2 text-custom"></i>Manufacturer</span>
+                            {% if part.manufacturer %}
+                                <a href="{% url 'manufacturer_detail' part.manufacturer.pk %}" class="fw-semibold text-decoration-none text-body">
+                                    {{ part.manufacturer.name }}
+                                </a>
+                            {% else %}
+                                <span class="text-muted">&mdash;</span>
+                            {% endif %}
+                        </li>
+
+                        <li class="d-flex justify-content-between align-items-center pb-2 border-bottom">
+                            <span class="text-muted"><i class="bi bi-tags me-2 text-custom"></i>Category</span>
+                            {% if part.category %}
+                                <span class="badge bg-light text-dark border">{{ part.category.name }}</span>
+                            {% else %}
+                                <span class="text-muted">&mdash;</span>
+                            {% endif %}
+                        </li>
+
+                        <li class="d-flex justify-content-between align-items-center pb-2 border-bottom">
+                            <span class="text-muted"><i class="bi bi-geo-alt me-2 text-custom"></i>Storage Location</span>
+                            {% if part.location %}
+                                <span class="fw-semibold text-body">{{ part.location.name }}</span>
+                            {% else %}
+                                <span class="text-muted">&mdash;</span>
+                            {% endif %}
+                        </li>
+
+                        <li class="d-flex justify-content-between align-items-center">
+                            <span class="text-muted"><i class="bi bi-calendar3 me-2 text-custom"></i>Last Updated</span>
+                            <span class="text-muted">{{ part.updated_at|date:"M j, Y H:i" }}</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Pricing Breakdown -->
+            <div class="card border-0 shadow-sm rounded-3 bg-body">
+                <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2">
+                    <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">Cost & Procurement</h3>
+                </div>
+                <div class="card-body p-4 pt-2">
+                    <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                        <span class="text-muted small">Unit Price (Price Per)</span>
+                        <span class="fw-bold text-body">
+                            {% if part.price_per %}${{ part.price_per|floatformat:2 }}{% else %}&mdash;{% endif %}
+                        </span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                        <span class="text-muted small">Purchased Quantity</span>
+                        <span class="fw-bold text-body">{{ part.quantity }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span class="text-muted small fw-bold">Total Batch Cost</span>
+                        <span class="h5 fw-bold text-custom mb-0">
+                            {% if part.price %}${{ part.price|floatformat:2 }}{% else %}&mdash;{% endif %}
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+{% endblock %}

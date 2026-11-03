@@ -1,3 +1,4 @@
+import os
 from django.db import models
 from django_ckeditor_5.fields import CKEditor5Field
 
@@ -56,6 +57,12 @@ class Category(models.Model):
     Supports hierarchical nesting via parent.
     """
     name = models.CharField(max_length=100, unique=True, verbose_name="Category Name")
+    prefix = models.CharField(
+        max_length=20, 
+        blank=True, 
+        verbose_name="Category Prefix",
+        help_text="Prefix code for part numbers (e.g. 100 for Passives, 200 for Actives)"
+    )
     parent = models.ForeignKey(
         'self', 
         on_delete=models.CASCADE, 
@@ -73,10 +80,28 @@ class Category(models.Model):
         verbose_name_plural = "Categories"
         ordering = ['name']
 
-    def __str__(self):
+    def get_prefix(self):
+        """
+        Returns this category's prefix, or inherits from parent if not explicitly set.
+        """
+        if self.prefix and self.prefix.strip():
+            return self.prefix.strip()
         if self.parent:
-            return f"{self.parent} > {self.name}"
-        return self.name
+            return self.parent.get_prefix()
+        return ""
+
+    def get_full_path(self):
+        names = [self.name]
+        curr = self.parent
+        while curr:
+            names.append(curr.name)
+            curr = curr.parent
+        return " > ".join(reversed(names))
+
+    def __str__(self):
+        prefix = self.get_prefix()
+        prefix_str = f"[{prefix}] " if prefix else ""
+        return f"{prefix_str}{self.get_full_path()}"
 
 
 class Location(models.Model):
@@ -84,6 +109,7 @@ class Location(models.Model):
     Physical storage location (e.g. Bin B-04, Shelf 2, Warehouse 1).
     """
     name = models.CharField(max_length=100, unique=True, verbose_name="Location Name")
+    code = models.CharField(max_length=50, blank=True, verbose_name="Location Code", help_text="Bin barcode / identifier")
     description = models.CharField(max_length=255, blank=True, verbose_name="Description")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -166,22 +192,27 @@ class Part(models.Model):
     )
     quantity_on_hand = models.IntegerField(
         default=0, 
+        blank=True,
         verbose_name="On hand"
     )
     quantity_on_order = models.IntegerField(
         default=0, 
+        blank=True,
         verbose_name="On order"
     )
     quantity_committed = models.IntegerField(
         default=0, 
+        blank=True,
         verbose_name="Committed"
     )
     quantity_availible = models.IntegerField(
         default=0, 
+        blank=True,
         verbose_name="Available"
     )
     quantity = models.PositiveIntegerField(
         default=0, 
+        blank=True,
         verbose_name="Quantity",
         help_text="Purchased in quanity"
     )
@@ -232,11 +263,163 @@ class Part(models.Model):
             return f"{self.part_number} - {self.description}"
         return self.description
 
+    @classmethod
+    def generate_next_part_number(cls, category):
+        """
+        Generates the next sequential part number for the given category prefix.
+        Starts at 1001 (e.g. 100-1001, 100-1002, ..., matching 100-1234).
+        """
+        prefix = category.get_prefix() if hasattr(category, 'get_prefix') else str(category).strip()
+        if not prefix:
+            prefix = "PART"
+
+        prefix_pattern = f"{prefix}-"
+        matching_parts = cls.objects.filter(part_number__startswith=prefix_pattern).values_list('part_number', flat=True)
+
+        highest_num = 1000
+        for pn in matching_parts:
+            suffix = pn[len(prefix_pattern):]
+            if suffix.isdigit():
+                num = int(suffix)
+                if num > highest_num:
+                    highest_num = num
+
+        next_num = highest_num + 1
+        candidate = f"{prefix}-{next_num}"
+        while cls.objects.filter(part_number=candidate).exists():
+            next_num += 1
+            candidate = f"{prefix}-{next_num}"
+        return candidate
+
     def save(self, *args, **kwargs):
-        # Auto-compute total price if price_per and quantity are set but price is empty
+        # 1. Part Number auto-generation / formatting based on Category prefix
+        if self.category:
+            prefix = self.category.get_prefix()
+            if prefix:
+                if not self.part_number or not self.part_number.strip():
+                    self.part_number = self.generate_next_part_number(self.category)
+                else:
+                    cleaned = self.part_number.strip()
+                    if cleaned.isdigit():
+                        # User entered only digits (e.g. '1234') -> auto-format to '100-1234'
+                        self.part_number = f"{prefix}-{cleaned}"
+                    else:
+                        self.part_number = cleaned
+            elif not self.part_number or not self.part_number.strip():
+                self.part_number = self.generate_next_part_number(self.category)
+            else:
+                self.part_number = self.part_number.strip()
+        elif not self.part_number or not self.part_number.strip():
+            # If no category and no part_number provided, fallback to PART-1001
+            matching_parts = Part.objects.filter(part_number__startswith="PART-").values_list('part_number', flat=True)
+            highest_num = 1000
+            for pn in matching_parts:
+                suffix = pn[len("PART-"):]
+                if suffix.isdigit():
+                    num = int(suffix)
+                    if num > highest_num:
+                        highest_num = num
+            self.part_number = f"PART-{highest_num + 1}"
+        else:
+            self.part_number = self.part_number.strip()
+
+        # 2. Auto-compute total price if price_per and quantity are set but price is empty
         if self.price_per is not None and self.quantity and not self.price:
             self.price = round(self.price_per * self.quantity, 2)
         # Or auto-compute price_per if total price and quantity are set
         elif self.price is not None and self.quantity and not self.price_per and self.quantity > 0:
             self.price_per = round(self.price / self.quantity, 2)
+
         super().save(*args, **kwargs)
+
+
+class PartDocument(models.Model):
+    """
+    Associated documentation, datasheets, scans, pinouts, and technical articles for a Part.
+    """
+    DOCUMENT_TYPES = [
+        ('datasheet', 'Datasheet (PDF)'),
+        ('pinout', 'Pinout Diagram / Schematic'),
+        ('scan', 'Document Scan / Drawing'),
+        ('instructions', 'Instructions / Manual'),
+        ('article', 'Technical Article / Notes'),
+        ('other', 'Other Document'),
+    ]
+
+    part = models.ForeignKey(
+        Part,
+        on_delete=models.CASCADE,
+        related_name='documents',
+        verbose_name="Part"
+    )
+    title = models.CharField(
+        max_length=200,
+        verbose_name="Title / Description",
+        help_text="e.g. TI LM317 Datasheet Rev. C, TO-220 Pinout Diagram, Soldering Instructions"
+    )
+    document_type = models.CharField(
+        max_length=50,
+        choices=DOCUMENT_TYPES,
+        default='datasheet',
+        verbose_name="Document Type"
+    )
+    file = models.FileField(
+        upload_to='parts/documents/%Y/%m/',
+        blank=True,
+        null=True,
+        verbose_name="Uploaded File / Scan",
+        help_text="Upload PDF, Image (PNG, JPG, WEBP), or document file"
+    )
+    external_url = models.URLField(
+        max_length=500,
+        blank=True,
+        verbose_name="External URL",
+        help_text="Direct web link to datasheet or online reference (if not uploaded)"
+    )
+    content = CKEditor5Field(
+        'Article / Notes Content',
+        config_name='notes',
+        blank=True,
+        null=True,
+        help_text="Rich text article body, pinout description, or assembly instructions"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Part Document / Scan"
+        verbose_name_plural = "Part Documents & Scans"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.title} ({self.get_document_type_display()}) - {self.part.part_number}"
+
+    @property
+    def file_extension(self):
+        if self.file and self.file.name:
+            _, ext = os.path.splitext(self.file.name)
+            return ext.lstrip('.').lower()
+        return ""
+
+    @property
+    def is_image(self):
+        return self.file_extension in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']
+
+    @property
+    def is_pdf(self):
+        return self.file_extension == 'pdf'
+
+    @property
+    def file_size_display(self):
+        try:
+            if self.file and hasattr(self.file, 'size') and self.file.size:
+                size = self.file.size
+                if size < 1024:
+                    return f"{size} B"
+                elif size < 1024 * 1024:
+                    return f"{size / 1024:.1f} KB"
+                else:
+                    return f"{size / (1024 * 1024):.1f} MB"
+        except Exception:
+            pass
+        return ""

@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if form.instance.pk %}Edit {{ form.instance.part_number|default:form.instance.description }}{% else %}Add New Part{% endif %} | Project Manager
+{% endblock %}
+
+{% block extra_head %}
+    {{ form.media }}
+{% endblock %}
+
+{% block breadcrumb %}
+    <a href="{% url 'part_list' %}" class="text-decoration-none text-muted">Parts</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>{% if form.instance.pk %}Edit Part{% else %}New Part{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0" style="max-width: 1050px;">
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2">
+        <div>
+            <h1 class="h3 fw-bold mb-1 text-custom">
+                {% if form.instance.pk %}Edit Component: {{ form.instance.part_number|default:form.instance.description }}{% else %}Add New Component{% endif %}
+            </h1>
+            <p class="text-muted small mb-0">Fill in the technical specifications, supplier links, stock levels, and pricing.</p>
+        </div>
+        <a href="{% if form.instance.pk %}{% url 'part_detail' form.instance.pk %}{% else %}{% url 'part_list' %}{% endif %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-x-lg me-1"></i> Cancel
+        </a>
+    </div>
+
+    <form method="post" novalidate>
+        {% csrf_token %}
+
+        {% if form.errors %}
+            <div class="alert alert-danger shadow-sm mb-4">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <strong>Please correct the errors below:</strong>
+                <ul class="mb-0 mt-2 small">
+                    {% for field, errors in form.errors.items %}
+                        <li><strong>{{ field|title }}:</strong> {{ errors|striptags }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
+        <!-- Card 1: Identification & Sourcing -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-cpu me-2 text-custom"></i>Part Identification &amp; Sourcing
+                </h3>
+            </div>
+            <div class="card-body p-4 pt-3">
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Part Number</label>
+                        {{ form.part_number }}
+                        <div class="form-text small" id="partNumberHelp">
+                            Leave blank to auto-generate (e.g. <code>100-1001</code>), enter digits (e.g. <code>1234</code> &rarr; <code>100-1234</code>), or enter custom identifier.
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Supplier SKU / Part Number</label>
+                        {{ form.supplier_part_number }}
+                        <div class="form-text small">{{ form.supplier_part_number.help_text }}</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Description <span class="text-danger">*</span></label>
+                        {{ form.description }}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Supplier / Company</label>
+                        {{ form.company }}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Manufacturer</label>
+                        {{ form.manufacturer }}
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Category</label>
+                        {{ form.category }}
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Storage Location</label>
+                        {{ form.location }}
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Superseded By (Replacement)</label>
+                        {{ form.superseded_by }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 2: Inventory Quantities -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-boxes me-2 text-custom"></i>Inventory &amp; Stock Levels
+                </h3>
+            </div>
+            <div class="card-body p-4 pt-3">
+                <div class="row g-3">
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small fw-semibold">On Hand</label>
+                        {{ form.quantity_on_hand }}
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small fw-semibold">On Order</label>
+                        {{ form.quantity_on_order }}
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small fw-semibold">Committed</label>
+                        {{ form.quantity_committed }}
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small fw-semibold">Available</label>
+                        {{ form.quantity_availible }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 3: Pricing & Procurement -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-currency-dollar me-2 text-custom"></i>Pricing &amp; Verification
+                </h3>
+            </div>
+            <div class="card-body p-4 pt-3">
+                <div class="row g-3 align-items-center">
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Purchased Quantity</label>
+                        {{ form.quantity }}
+                        <div class="form-text small">{{ form.quantity.help_text }}</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Unit Price ($ Price Per)</label>
+                        {{ form.price_per }}
+                        <div class="form-text small">{{ form.price_per.help_text }}</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Total Price ($)</label>
+                        {{ form.price }}
+                        <div class="form-text small">{{ form.price.help_text }}</div>
+                    </div>
+                    <div class="col-12 mt-3">
+                        <div class="form-check form-switch">
+                            {{ form.confirmed }}
+                            <label class="form-check-label fw-semibold" for="{{ form.confirmed.id_for_label }}">
+                                Part Specification &amp; Order Confirmed
+                            </label>
+                            <div class="form-text small">Check when component parameters and order feasibility are finalized.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 4: Documentation & Notes -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-file-earmark-text me-2 text-custom"></i>Documentation &amp; Rich Notes
+                </h3>
+            </div>
+            <div class="card-body p-4 pt-3">
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Product URL / Datasheet Link</label>
+                    {{ form.link }}
+                    <div class="form-text small">{{ form.link.help_text }}</div>
+                </div>
+                <div>
+                    <label class="form-label small fw-semibold">Technical Notes</label>
+                    {{ form.notes }}
+                </div>
+            </div>
+        </div>
+
+        <!-- Submit Button Row -->
+        <div class="d-flex justify-content-end gap-2 mb-5">
+            <a href="{% if form.instance.pk %}{% url 'part_detail' form.instance.pk %}{% else %}{% url 'part_list' %}{% endif %}" class="btn btn-outline-secondary px-4">
+                Cancel
+            </a>
+            <button type="submit" class="btn btn-custom px-4 fw-semibold">
+                <i class="bi bi-check2-circle me-1"></i> Save Component
+            </button>
+        </div>
+
+    </form>
+
+</div>
+{% endblock %}

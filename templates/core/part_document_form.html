@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if form.instance.pk %}Edit Document{% else %}Add Document / Scan{% endif %} | {{ part.part_number }} | Project Manager
+{% endblock %}
+
+{% block extra_head %}
+    {{ form.media }}
+{% endblock %}
+
+{% block breadcrumb %}
+    <a href="{% url 'part_list' %}" class="text-decoration-none text-muted">Parts</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <a href="{% url 'part_detail' part.pk %}" class="text-decoration-none text-muted">{{ part.part_number }}</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>{% if form.instance.pk %}Edit Document{% else %}Add Document / Scan{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0" style="max-width: 820px;">
+
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2">
+        <div>
+            <h1 class="h3 fw-bold mb-1 text-custom">
+                {% if form.instance.pk %}Edit Document / Scan{% else %}Attach Document / Scan / Article{% endif %}
+            </h1>
+            <p class="text-muted small mb-0">
+                Adding technical resources for Part <strong class="text-body font-monospace">{{ part.part_number }}</strong> &bull; {{ part.description }}
+            </p>
+        </div>
+        <a href="{% url 'part_detail' part.pk %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-x-lg me-1"></i> Cancel
+        </a>
+    </div>
+
+    <!-- Form -->
+    <form method="post" enctype="multipart/form-data" novalidate>
+        {% csrf_token %}
+
+        {% if form.errors %}
+            <div class="alert alert-danger shadow-sm mb-4">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <strong>Please correct the following errors:</strong>
+                <ul class="mb-0 mt-2 small">
+                    {% for field, errors in form.errors.items %}
+                        <li><strong>{{ field|title }}:</strong> {{ errors|striptags }}</li>
+                    {% endfor %}
+                    {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
+        <!-- Card 1: Document Metadata -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-file-earmark-text me-2 text-custom"></i>Resource Identification
+                </h3>
+            </div>
+            <div class="card-body p-4 pt-3">
+                <div class="row g-3">
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small fw-semibold">Title / Description <span class="text-danger">*</span></label>
+                        {{ form.title }}
+                        <div class="form-text small">Descriptive label (e.g. TI LM317 Datasheet Rev C, TO-220 Pinout Diagram, Assembly Procedure).</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Document Type <span class="text-danger">*</span></label>
+                        {{ form.document_type }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 2: File Upload & External Links -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-upload me-2 text-custom"></i>File Upload &amp; Web Links
+                </h3>
+            </div>
+            <div class="card-body p-4 pt-3">
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Upload File or Scan (PDF, Image)</label>
+                        {{ form.file }}
+                        <div class="form-text small">Accepted formats: PDF, PNG, JPG, JPEG, WEBP.</div>
+                        {% if form.instance.file %}
+                            <div class="mt-2 p-2 bg-body-tertiary rounded small d-flex align-items-center gap-2">
+                                <i class="bi bi-paperclip text-custom"></i>
+                                <span class="text-truncate">Current: <a href="{{ form.instance.file.url }}" target="_blank" class="fw-semibold">{{ form.instance.file.name }}</a></span>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">External URL (Optional)</label>
+                        {{ form.external_url }}
+                        <div class="form-text small">Direct web link to online datasheet or vendor documentation.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 3: Technical Article & Rich Instructions -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-journal-text me-2 text-custom"></i>Article Body, Pinout Notes, or Instructions
+                </h3>
+            </div>
+            <div class="card-body p-4 pt-3">
+                <div class="mb-2">
+                    <label class="form-label small fw-semibold">Rich Text Content (WYSIWYG)</label>
+                    {{ form.content }}
+                    <div class="form-text small">Write step-by-step instructions, pin definitions, soldering guidelines, or technical notes.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Submit Row -->
+        <div class="d-flex justify-content-end gap-2 mb-5">
+            <a href="{% url 'part_detail' part.pk %}" class="btn btn-outline-secondary px-4">Cancel</a>
+            <button type="submit" class="btn btn-custom px-4 fw-semibold">
+                <i class="bi bi-check2-circle me-1"></i> Save Document
+            </button>
+        </div>
+
+    </form>
+
+</div>
+{% endblock %}
