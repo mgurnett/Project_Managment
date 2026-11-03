@@ -2,16 +2,19 @@
 [COMPLETED] component numbers must be unique. (Enforced case-insensitive part number uniqueness with prefix formatting in PartForm, and UniqueConstraint on BOM components)
 
 ==============  Priority HIGH
+TODO: We need to add a name to the parts.   Then we need to go through the parts list and put put the short descriptions that are there now in the new name column.
+TODO: We need to make an inventor count sheet.  It needs to be grouped by catagory and sorted by part number.   It need to have location and on-hand 
+TODO: We need to be able to upload documents to parts, not just links.
+
+
+==============  Priority Medium
+TODO: 
 TODO: Make a order action - can scan in an order
+
+==============  Priority Low
+TODO: 
 TODO: Make a recieve action - can recieve everything that wa on order.
 TODO: Make a BOM - you can make up what it takes to build someihtng.
 TODO: MAke a kit action. - You move everything form a BoM to a kit
 TODO: Make a build action - that takes all the parts out of inventory 
 TODO: Make a take inventory sheet that shows what should be there and allows for adjustments.
-
-
-==============  Priority Medium
-TODO: 
-
-==============  Priority Low
-TODO: 

@@ -1,8 +1,12 @@
+import csv
+import re
 from django.shortcuts import render, get_object_or_404, redirect
+from django.http import HttpResponse
 from django.urls import reverse_lazy, reverse
 from django.contrib import messages
+from django.utils import timezone
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
-from django.db.models import Q, Count, Sum
+from django.db.models import Q, Count, Sum, Case, When, Value, IntegerField
 from .models import Part, Company, Manufacturer, Category, Location, PartDocument, BOM, BOMItem
 from .forms import (
     PartForm, CompanyForm, ManufacturerForm, CategoryForm, LocationForm,
@@ -59,8 +63,109 @@ def home(request):
 
 
 # ==============================================================================
-# PART CRUD VIEWS
+# PART CRUD VIEWS & CSV EXPORT
 # ==============================================================================
+
+def get_parts_filtered_queryset(request):
+    """
+    Applies search query, supplier, category, location, and confirmed status filters to the Part queryset.
+    """
+    qs = Part.objects.select_related('company', 'manufacturer', 'category', 'location', 'superseded_by').all()
+    q = request.GET.get('q', '').strip()
+    company_id = request.GET.get('company')
+    category_id = request.GET.get('category')
+    location_id = request.GET.get('location')
+    confirmed = request.GET.get('confirmed')
+
+    if q:
+        qs = qs.filter(
+            Q(part_number__icontains=q) |
+            Q(supplier_part_number__icontains=q) |
+            Q(description__icontains=q) |
+            Q(company__name__icontains=q)
+        )
+    if company_id:
+        qs = qs.filter(company_id=company_id)
+    if category_id:
+        qs = qs.filter(category_id=category_id)
+    if location_id:
+        qs = qs.filter(location_id=location_id)
+    if confirmed in ['true', '1']:
+        qs = qs.filter(confirmed=True)
+    elif confirmed in ['false', '0']:
+        qs = qs.filter(confirmed=False)
+
+    return qs.order_by('part_number', '-created_at')
+
+
+def generate_parts_csv(queryset):
+    """
+    Generates an HTTP streaming CSV response from a Part queryset.
+    """
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+    response['Content-Disposition'] = f'attachment; filename="parts_catalog_{timestamp}.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow([
+        'Part Number',
+        'Description',
+        'Supplier Part Number',
+        'Company / Supplier',
+        'Manufacturer',
+        'Category',
+        'Category Prefix',
+        'Storage Location',
+        'Quantity On Hand',
+        'Quantity On Order',
+        'Quantity Committed',
+        'Quantity Available',
+        'Purchased Quantity',
+        'Unit Price ($)',
+        'Total Price ($)',
+        'Confirmed',
+        'Superseded By',
+        'Product URL',
+        'Notes',
+    ])
+
+    for part in queryset:
+        notes_text = ''
+        if part.notes:
+            notes_text = re.sub(r'<[^>]+>', ' ', str(part.notes)).strip()
+
+        writer.writerow([
+            part.part_number,
+            part.description,
+            part.supplier_part_number or '',
+            part.company.name if part.company else '',
+            part.manufacturer.name if part.manufacturer else '',
+            part.category.name if part.category else '',
+            part.category.get_prefix() if part.category else '',
+            part.location.name if part.location else '',
+            part.quantity_on_hand,
+            part.quantity_on_order,
+            part.quantity_committed,
+            part.quantity_availible,
+            part.quantity,
+            f"{part.price_per:.2f}" if part.price_per is not None else '',
+            f"{part.price:.2f}" if part.price is not None else '',
+            'Yes' if part.confirmed else 'No',
+            part.superseded_by.part_number if part.superseded_by else '',
+            part.link or '',
+            notes_text,
+        ])
+
+    return response
+
+
+def part_export_csv(request):
+    """
+    Standalone endpoint to export parts filtered by active query parameters.
+    """
+    queryset = get_parts_filtered_queryset(request)
+    return generate_parts_csv(queryset)
+
 
 class PartListView(ListView):
     model = Part
@@ -69,32 +174,12 @@ class PartListView(ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        qs = Part.objects.select_related('company', 'manufacturer', 'category', 'location').all()
-        q = self.request.GET.get('q', '').strip()
-        company_id = self.request.GET.get('company')
-        category_id = self.request.GET.get('category')
-        location_id = self.request.GET.get('location')
-        confirmed = self.request.GET.get('confirmed')
+        return get_parts_filtered_queryset(self.request)
 
-        if q:
-            qs = qs.filter(
-                Q(part_number__icontains=q) |
-                Q(supplier_part_number__icontains=q) |
-                Q(description__icontains=q) |
-                Q(company__name__icontains=q)
-            )
-        if company_id:
-            qs = qs.filter(company_id=company_id)
-        if category_id:
-            qs = qs.filter(category_id=category_id)
-        if location_id:
-            qs = qs.filter(location_id=location_id)
-        if confirmed in ['true', '1']:
-            qs = qs.filter(confirmed=True)
-        elif confirmed in ['false', '0']:
-            qs = qs.filter(confirmed=False)
-
-        return qs.order_by('-created_at')
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('export') == 'csv':
+            return generate_parts_csv(self.get_queryset())
+        return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -312,11 +397,19 @@ class CategoryListView(ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        qs = Category.objects.select_related('parent').annotate(parts_count=Count('parts')).all()
+        qs = Category.objects.select_related('parent').annotate(
+            parts_count=Count('parts'),
+            empty_prefix=Case(
+                When(prefix='', then=Value(1)),
+                When(prefix__isnull=True, then=Value(1)),
+                default=Value(0),
+                output_field=IntegerField()
+            )
+        ).all()
         q = self.request.GET.get('q', '').strip()
         if q:
             qs = qs.filter(Q(name__icontains=q) | Q(prefix__icontains=q) | Q(description__icontains=q))
-        return qs.order_by('name')
+        return qs.order_by('empty_prefix', 'prefix', 'name')
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

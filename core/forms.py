@@ -26,7 +26,7 @@ class PartForm(forms.ModelForm):
             'notes',
         ]
         widgets = {
-            'part_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 100-1234 (or enter 1234, or leave blank to auto-generate)'}),
+            'part_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 100-001 (or enter 001, or leave blank to auto-generate)'}),
             'supplier_part_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 296-1389-5-ND'}),
             'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Component description or specs'}),
             'company': forms.Select(attrs={'class': 'form-select'}),
@@ -87,7 +87,7 @@ class PartForm(forms.ModelForm):
             if category:
                 prefix = category.get_prefix()
                 if prefix and raw_pn.isdigit():
-                    raw_pn = f"{prefix}-{raw_pn}"
+                    raw_pn = f"{prefix}-{int(raw_pn):03d}"
 
             # Case-insensitive uniqueness check
             qs = Part.objects.filter(part_number__iexact=raw_pn)

@@ -80,7 +80,7 @@ class Category(models.Model):
     class Meta:
         verbose_name = "Category"
         verbose_name_plural = "Categories"
-        ordering = ['name']
+        ordering = ['prefix', 'name']
 
     def get_prefix(self):
         """
@@ -268,7 +268,7 @@ class Part(models.Model):
             if self.category:
                 prefix = self.category.get_prefix()
                 if prefix and raw_pn.isdigit():
-                    raw_pn = f"{prefix}-{raw_pn}"
+                    raw_pn = f"{prefix}-{int(raw_pn):03d}"
 
             # Case-insensitive uniqueness check across all parts
             existing = Part.objects.filter(part_number__iexact=raw_pn)
@@ -288,7 +288,7 @@ class Part(models.Model):
     def generate_next_part_number(cls, category):
         """
         Generates the next sequential part number for the given category prefix.
-        Starts at 1001 (e.g. 100-1001, 100-1002, ..., matching 100-1234).
+        Uses 3-digit zero-padded format (e.g. 100-001, 100-002, 210-001).
         """
         prefix = category.get_prefix() if hasattr(category, 'get_prefix') else str(category).strip()
         if not prefix:
@@ -297,7 +297,7 @@ class Part(models.Model):
         prefix_pattern = f"{prefix}-"
         matching_parts = cls.objects.filter(part_number__startswith=prefix_pattern).values_list('part_number', flat=True)
 
-        highest_num = 1000
+        highest_num = 0
         for pn in matching_parts:
             suffix = pn[len(prefix_pattern):]
             if suffix.isdigit():
@@ -306,10 +306,10 @@ class Part(models.Model):
                     highest_num = num
 
         next_num = highest_num + 1
-        candidate = f"{prefix}-{next_num}"
+        candidate = f"{prefix}-{next_num:03d}"
         while cls.objects.filter(part_number=candidate).exists():
             next_num += 1
-            candidate = f"{prefix}-{next_num}"
+            candidate = f"{prefix}-{next_num:03d}"
         return candidate
 
     def save(self, *args, **kwargs):
@@ -322,8 +322,8 @@ class Part(models.Model):
                 else:
                     cleaned = self.part_number.strip()
                     if cleaned.isdigit():
-                        # User entered only digits (e.g. '1234') -> auto-format to '100-1234'
-                        self.part_number = f"{prefix}-{cleaned}"
+                        # User entered digits (e.g. '1' or '001') -> auto-format to '100-001'
+                        self.part_number = f"{prefix}-{int(cleaned):03d}"
                     else:
                         self.part_number = cleaned
             elif not self.part_number or not self.part_number.strip():
@@ -331,16 +331,16 @@ class Part(models.Model):
             else:
                 self.part_number = self.part_number.strip()
         elif not self.part_number or not self.part_number.strip():
-            # If no category and no part_number provided, fallback to PART-1001
+            # If no category and no part_number provided, fallback to PART-001
             matching_parts = Part.objects.filter(part_number__startswith="PART-").values_list('part_number', flat=True)
-            highest_num = 1000
+            highest_num = 0
             for pn in matching_parts:
                 suffix = pn[len("PART-"):]
                 if suffix.isdigit():
                     num = int(suffix)
                     if num > highest_num:
                         highest_num = num
-            self.part_number = f"PART-{highest_num + 1}"
+            self.part_number = f"PART-{highest_num + 1:03d}"
         else:
             self.part_number = self.part_number.strip()
 

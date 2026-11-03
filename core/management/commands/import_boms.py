@@ -91,25 +91,42 @@ class Command(BaseCommand):
 
                 notes_html = f"<p>{notes_str}</p>" if notes_str else None
 
-                part, created = Part.objects.update_or_create(
-                    part_number=part_num,
-                    defaults={
-                        'description': desc or f"Part {part_num}",
-                        'company': company,
-                        'category': cat,
-                        'quantity': qty,
-                        'price': price,
-                        'price_per': price_per,
-                        'confirmed': confirmed,
-                        'link': link_str,
-                        'notes': notes_html,
-                    }
-                )
-                parts_by_number[part_num] = part
-                if created:
-                    created_parts += 1
-                else:
+                existing = Part.objects.filter(description__iexact=desc).first() if desc else None
+                if not existing:
+                    existing = Part.objects.filter(part_number=part_num).first()
+
+                if existing:
+                    part = existing
+                    if company and not part.company:
+                        part.company = company
+                    part.quantity = qty
+                    if price is not None:
+                        part.price = price
+                    if price_per is not None:
+                        part.price_per = price_per
+                    part.confirmed = confirmed
+                    if link_str:
+                        part.link = link_str
+                    if notes_html and not part.notes:
+                        part.notes = notes_html
+                    part.save()
                     updated_parts += 1
+                else:
+                    part = Part.objects.create(
+                        part_number=part_num,
+                        description=desc or f"Part {part_num}",
+                        company=company,
+                        category=cat,
+                        quantity=qty,
+                        price=price,
+                        price_per=price_per,
+                        confirmed=confirmed,
+                        link=link_str,
+                        notes=notes_html,
+                    )
+                    created_parts += 1
+
+                parts_by_number[part_num] = part
 
             self.stdout.write(self.style.SUCCESS(f"Parts list: {created_parts} created, {updated_parts} updated."))
 

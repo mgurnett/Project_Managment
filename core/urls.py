@@ -7,6 +7,7 @@ urlpatterns = [
 
     # Parts CRUD
     path('parts/', views.PartListView.as_view(), name='part_list'),
+    path('parts/export/csv/', views.part_export_csv, name='part_export_csv'),
     path('parts/add/', views.PartCreateView.as_view(), name='part_create'),
     path('parts/<int:pk>/', views.PartDetailView.as_view(), name='part_detail'),
     path('parts/<int:pk>/edit/', views.PartUpdateView.as_view(), name='part_update'),
