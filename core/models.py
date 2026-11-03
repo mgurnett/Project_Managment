@@ -2,6 +2,7 @@ import os
 from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 from django_ckeditor_5.fields import CKEditor5Field
 
 
@@ -599,3 +600,179 @@ class BOMItem(models.Model):
         if self.part and self.part.price_per:
             return Decimal(str(self.part.price_per)) * Decimal(str(self.quantity))
         return Decimal('0.00')
+
+
+class Order(models.Model):
+    """
+    Purchase Order (PO) placed with a supplier/vendor.
+    Tracks supplier, expected delivery date, carrier tracking number, status, and part items.
+    """
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending / Draft'),
+        ('ORDERED', 'Ordered / Placed'),
+        ('PARTIALLY_RECEIVED', 'Partially Received'),
+        ('RECEIVED', 'Completed / Received'),
+        ('CANCELLED', 'Cancelled'),
+    ]
+
+    order_number = models.CharField(
+        max_length=50,
+        unique=True,
+        blank=True,
+        verbose_name="Order # / PO Number",
+        help_text="Custom PO number, or leave blank to auto-generate (e.g. PO-YYYYMMDD-001)"
+    )
+    supplier = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name='orders',
+        verbose_name="Supplier / Vendor",
+        help_text="Company supplying this order"
+    )
+    order_date = models.DateField(
+        default=timezone.now,
+        verbose_name="Order Date"
+    )
+    expected_delivery_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Expected Delivery Date",
+        help_text="Estimated date of arrival"
+    )
+    tracking_number = models.CharField(
+        max_length=150,
+        blank=True,
+        verbose_name="Tracking Number",
+        help_text="Shipping carrier tracking or waybill number"
+    )
+    carrier = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name="Shipping Carrier",
+        help_text="e.g. FedEx, UPS, USPS, DHL, Freight"
+    )
+    status = models.CharField(
+        max_length=25,
+        choices=STATUS_CHOICES,
+        default='ORDERED',
+        verbose_name="Status"
+    )
+    notes = CKEditor5Field(
+        'Order Notes & Instructions',
+        config_name='notes',
+        blank=True,
+        null=True,
+        help_text="Special instructions, delivery terms, or supplier contact notes"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Purchase Order"
+        verbose_name_plural = "Purchase Orders"
+        ordering = ['-order_date', '-created_at']
+
+    def __str__(self):
+        supplier_name = self.supplier.name if self.supplier else 'No Supplier'
+        return f"{self.order_number} ({supplier_name})"
+
+    def save(self, *args, **kwargs):
+        if not self.order_number:
+            today_str = timezone.now().strftime("%Y%m%d")
+            prefix = f"PO-{today_str}-"
+            last_order = Order.objects.filter(order_number__startswith=prefix).order_by('order_number').last()
+            if last_order:
+                try:
+                    last_seq = int(last_order.order_number.split('-')[-1])
+                    next_seq = last_seq + 1
+                except (ValueError, IndexError):
+                    next_seq = 1
+            else:
+                next_seq = 1
+            self.order_number = f"{prefix}{next_seq:03d}"
+        super().save(*args, **kwargs)
+
+    @property
+    def total_items_count(self):
+        return self.items.count()
+
+    @property
+    def total_units_ordered(self):
+        return sum(item.quantity for item in self.items.all())
+
+    @property
+    def total_units_received(self):
+        return sum(item.quantity_received for item in self.items.all())
+
+    @property
+    def total_cost(self):
+        total = Decimal('0.00')
+        for item in self.items.all():
+            total += item.subtotal
+        return total
+
+    @property
+    def is_fully_received(self):
+        items = list(self.items.all())
+        return len(items) > 0 and all(item.quantity_received >= item.quantity for item in items)
+
+
+class OrderItem(models.Model):
+    """
+    Line item for a purchase order linking a component Part with quantity and tracking.
+    """
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name="Order"
+    )
+    part = models.ForeignKey(
+        Part,
+        on_delete=models.CASCADE,
+        related_name='order_items',
+        verbose_name="Part"
+    )
+    quantity = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Quantity Ordered",
+        help_text="Number of units ordered"
+    )
+    quantity_received = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Quantity Received",
+        help_text="Number of units already received"
+    )
+    unit_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Unit Price",
+        help_text="Cost per unit for this order"
+    )
+    notes = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="Item Notes"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Order Item"
+        verbose_name_plural = "Order Items"
+        ordering = ['part__part_number']
+
+    def __str__(self):
+        return f"{self.part.part_number} x {self.quantity} on {self.order.order_number}"
+
+    @property
+    def subtotal(self):
+        price = self.unit_price if self.unit_price is not None else (self.part.price_per or Decimal('0.00'))
+        return Decimal(str(price)) * Decimal(str(self.quantity))
+
+    @property
+    def remaining_to_receive(self):
+        return max(0, self.quantity - self.quantity_received)
+

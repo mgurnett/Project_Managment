@@ -1,6 +1,9 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Company, Manufacturer, Category, Location, Part, PartDocument, BOM, BOMItem
+from .models import (
+    Company, Manufacturer, Category, Location, Part, PartDocument,
+    BOM, BOMItem, Order, OrderItem
+)
 
 
 @admin.register(Company)
@@ -192,3 +195,66 @@ class BOMAdmin(admin.ModelAdmin):
     def total_cost_display(self, obj):
         return f"${obj.total_cost:.2f}"
     total_cost_display.short_description = "Unit Cost"
+
+
+class OrderItemInline(admin.TabularInline):
+    model = OrderItem
+    extra = 1
+    autocomplete_fields = ('part',)
+    fields = ('part', 'quantity', 'quantity_received', 'unit_price', 'notes')
+
+
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
+    list_display = (
+        'order_number',
+        'supplier',
+        'status_badge',
+        'order_date',
+        'expected_delivery_date',
+        'tracking_number',
+        'items_count_display',
+        'total_cost_display',
+    )
+    list_filter = ('status', 'supplier', 'order_date', 'expected_delivery_date')
+    search_fields = ('order_number', 'tracking_number', 'supplier__name', 'notes')
+    autocomplete_fields = ('supplier',)
+    inlines = [OrderItemInline]
+    date_hierarchy = 'order_date'
+
+    def items_count_display(self, obj):
+        return f"{obj.total_items_count} items ({obj.total_units_ordered} pcs)"
+    items_count_display.short_description = "Items"
+
+    def total_cost_display(self, obj):
+        return f"${obj.total_cost:.2f}"
+    total_cost_display.short_description = "Total Cost"
+
+    def status_badge(self, obj):
+        color_map = {
+            'ORDERED': '#0284c7',
+            'PENDING': '#64748b',
+            'PARTIALLY_RECEIVED': '#f59e0b',
+            'RECEIVED': '#10b981',
+            'CANCELLED': '#ef4444',
+        }
+        color = color_map.get(obj.status, '#64748b')
+        return format_html(
+            '<span style="background-color: {}; color: #fff; padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px;">{}</span>',
+            color,
+            obj.get_status_display()
+        )
+    status_badge.short_description = "Status"
+
+
+@admin.register(OrderItem)
+class OrderItemAdmin(admin.ModelAdmin):
+    list_display = ('order', 'part', 'quantity', 'quantity_received', 'unit_price', 'subtotal_display')
+    list_filter = ('order__status', 'order__supplier')
+    search_fields = ('order__order_number', 'part__part_number', 'part__name')
+    autocomplete_fields = ('order', 'part')
+
+    def subtotal_display(self, obj):
+        return f"${obj.subtotal:.2f}"
+    subtotal_display.short_description = "Subtotal"
+

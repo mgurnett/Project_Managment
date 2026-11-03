@@ -1,5 +1,8 @@
 from django import forms
-from .models import Part, Company, Manufacturer, Category, Location, PartDocument, BOM, BOMItem
+from .models import (
+    Part, Company, Manufacturer, Category, Location, PartDocument,
+    BOM, BOMItem, Order, OrderItem
+)
 
 
 class PartForm(forms.ModelForm):
@@ -243,3 +246,58 @@ class BOMItemForm(forms.ModelForm):
                     f"Component '{part.part_number}' is already included in '{bom.name}'. Each component can only appear once per BOM assembly."
                 )
         return cleaned_data
+
+
+class OrderForm(forms.ModelForm):
+    class Meta:
+        model = Order
+        fields = [
+            'supplier',
+            'order_number',
+            'order_date',
+            'expected_delivery_date',
+            'carrier',
+            'tracking_number',
+            'status',
+            'notes',
+        ]
+        widgets = {
+            'supplier': forms.Select(attrs={'class': 'form-select', 'id': 'id_order_supplier'}),
+            'order_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Leave blank to auto-generate (e.g. PO-20261103-001)'}),
+            'order_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'expected_delivery_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'carrier': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. UPS, FedEx, DHL, USPS, Freight'}),
+            'tracking_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Tracking / Waybill #'}),
+            'status': forms.Select(attrs={'class': 'form-select'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if 'supplier' in self.fields:
+            self.fields['supplier'].empty_label = "-- Select Supplier / Vendor --"
+            self.fields['supplier'].queryset = Company.objects.all().order_by('name')
+
+
+class OrderItemForm(forms.ModelForm):
+    class Meta:
+        model = OrderItem
+        fields = ['part', 'quantity', 'unit_price', 'notes']
+        widgets = {
+            'part': forms.Select(attrs={'class': 'form-select'}),
+            'quantity': forms.NumberInput(attrs={'class': 'form-control', 'min': 1, 'value': 1}),
+            'unit_price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '0.00'}),
+            'notes': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Optional item notes'}),
+        }
+
+    def __init__(self, *args, order=None, **kwargs):
+        self.order = order
+        super().__init__(*args, **kwargs)
+        if 'part' in self.fields:
+            self.fields['part'].empty_label = "-- Select Part --"
+            # Format label to display part info
+            parts = Part.objects.select_related('company').all().order_by('part_number')
+            self.fields['part'].queryset = parts
+            self.fields['part'].label_from_instance = lambda obj: (
+                f"{obj.part_number} - {obj.name or obj.description or 'Part'} (On-Order: {obj.quantity_on_order}, On-Hand: {obj.quantity_on_hand})"
+            )
+

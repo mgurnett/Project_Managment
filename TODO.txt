@@ -8,8 +8,7 @@
 
 
 ==============  Priority Medium
-TODO: 
-TODO: Make a order action - can scan in an order
+[COMPLETED] Make a order action - We can create an action that allows us to make an order.  The order will have a supplier, part numbers and expected delivery date and tracking number.  The part numbers need to have their on order number increased by the amount on order. (Implemented Order & OrderItem models with migration 0014, dynamic multi-item order placement at /orders/create/ with supplier selection, tracking number, carrier, expected delivery date, automatic quantity_on_order increment, order list/detail views with receipt modal, and full test suite)
 
 ==============  Priority Low
 TODO: 

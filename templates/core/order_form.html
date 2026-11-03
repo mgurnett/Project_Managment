@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if object %}Edit Order {{ object.order_number }}{% else %}Make An Order{% endif %} | Project Manager
+{% endblock %}
+
+{% block breadcrumb %}
+    <a href="{% url 'order_list' %}" class="text-decoration-none text-muted">Purchase Orders</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>{% if object %}Edit Order{% else %}Make An Order{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+
+    <!-- Header -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
+        <div>
+            <h1 class="h3 fw-bold mb-1">
+                {% if object %}
+                    Edit Order <span class="text-custom">{{ object.order_number }}</span>
+                {% else %}
+                    Make An Order
+                {% endif %}
+            </h1>
+            <p class="text-muted small mb-0">
+                {% if object %}
+                    Update order dates, delivery tracking, supplier, and order status.
+                {% else %}
+                    Place a purchase order with a supplier. Specify expected delivery date, tracking number, and part numbers to increase inventory on-order.
+                {% endif %}
+            </p>
+        </div>
+        <a href="{% if object %}{% url 'order_detail' object.pk %}{% else %}{% url 'order_list' %}{% endif %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i> Cancel & Return
+        </a>
+    </div>
+
+    <form method="post" id="orderActionForm">
+        {% csrf_token %}
+
+        <div class="row g-4">
+            
+            <!-- Left Column: Order Primary Details -->
+            <div class="col-12 col-lg-4">
+                <div class="card border-0 shadow-sm rounded-3 bg-body p-4 mb-4">
+                    <h5 class="fw-bold mb-3 d-flex align-items-center gap-2">
+                        <i class="bi bi-building text-custom"></i>
+                        <span>Supplier & Logistics</span>
+                    </h5>
+
+                    <!-- Supplier -->
+                    <div class="mb-3">
+                        <label for="{{ form.supplier.id_for_label }}" class="form-label small fw-semibold">
+                            Supplier / Vendor <span class="text-danger">*</span>
+                        </label>
+                        {{ form.supplier }}
+                        {% if form.supplier.errors %}
+                            <div class="text-danger small mt-1">{{ form.supplier.errors.0 }}</div>
+                        {% endif %}
+                        <div class="form-text small">Select the vendor fulfilling this order.</div>
+                    </div>
+
+                    <!-- Expected Delivery Date -->
+                    <div class="mb-3">
+                        <label for="{{ form.expected_delivery_date.id_for_label }}" class="form-label small fw-semibold">
+                            <i class="bi bi-calendar-event me-1 text-primary"></i>Expected Delivery Date
+                        </label>
+                        {{ form.expected_delivery_date }}
+                        {% if form.expected_delivery_date.errors %}
+                            <div class="text-danger small mt-1">{{ form.expected_delivery_date.errors.0 }}</div>
+                        {% endif %}
+                        <div class="form-text small">Estimated date parts will arrive at your facility.</div>
+                    </div>
+
+                    <!-- Tracking Number -->
+                    <div class="mb-3">
+                        <label for="{{ form.tracking_number.id_for_label }}" class="form-label small fw-semibold">
+                            <i class="bi bi-upc-scan me-1 text-primary"></i>Tracking Number
+                        </label>
+                        {{ form.tracking_number }}
+                        {% if form.tracking_number.errors %}
+                            <div class="text-danger small mt-1">{{ form.tracking_number.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Carrier -->
+                    <div class="mb-3">
+                        <label for="{{ form.carrier.id_for_label }}" class="form-label small fw-semibold">
+                            Shipping Carrier
+                        </label>
+                        {{ form.carrier }}
+                        {% if form.carrier.errors %}
+                            <div class="text-danger small mt-1">{{ form.carrier.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="card border-0 shadow-sm rounded-3 bg-body p-4 mb-4">
+                    <h5 class="fw-bold mb-3 d-flex align-items-center gap-2">
+                        <i class="bi bi-gear text-custom"></i>
+                        <span>Order Settings</span>
+                    </h5>
+
+                    <!-- Order Number -->
+                    <div class="mb-3">
+                        <label for="{{ form.order_number.id_for_label }}" class="form-label small fw-semibold">
+                            Order / PO Number
+                        </label>
+                        {{ form.order_number }}
+                        {% if form.order_number.errors %}
+                            <div class="text-danger small mt-1">{{ form.order_number.errors.0 }}</div>
+                        {% endif %}
+                        <div class="form-text small">Leave blank to auto-generate (e.g. PO-YYYYMMDD-001).</div>
+                    </div>
+
+                    <!-- Order Date -->
+                    <div class="mb-3">
+                        <label for="{{ form.order_date.id_for_label }}" class="form-label small fw-semibold">
+                            Order Date
+                        </label>
+                        {{ form.order_date }}
+                        {% if form.order_date.errors %}
+                            <div class="text-danger small mt-1">{{ form.order_date.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Status -->
+                    <div class="mb-3">
+                        <label for="{{ form.status.id_for_label }}" class="form-label small fw-semibold">
+                            Order Status
+                        </label>
+                        {{ form.status }}
+                        {% if form.status.errors %}
+                            <div class="text-danger small mt-1">{{ form.status.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Parts to Order (Line Items) or Order Edit Notes -->
+            <div class="col-12 col-lg-8">
+                
+                {% if not object %}
+                <!-- Order Creation: Interactive Part Line Items Table -->
+                <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+                    <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div>
+                            <h5 class="fw-bold mb-0 d-flex align-items-center gap-2">
+                                <i class="bi bi-box-seam text-custom"></i>
+                                <span>Parts on Order</span>
+                            </h5>
+                            <span class="text-muted small">Select part numbers and quantities. The on-order count will automatically increase upon order creation.</span>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-custom" id="addPartRowBtn">
+                            <i class="bi bi-plus-circle me-1"></i> Add Another Part
+                        </button>
+                    </div>
+
+                    <div class="card-body px-4 py-3">
+                        <div class="table-responsive">
+                            <table class="table table-bordered align-middle mb-0" id="orderItemsTable">
+                                <thead class="table-light small text-uppercase text-muted">
+                                    <tr>
+                                        <th style="min-width: 260px;">Part Number / Component <span class="text-danger">*</span></th>
+                                        <th style="width: 110px;">Qty <span class="text-danger">*</span></th>
+                                        <th style="width: 130px;">Unit Price ($)</th>
+                                        <th style="min-width: 140px;">Notes</th>
+                                        <th style="width: 60px;" class="text-center">Del</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="orderItemsBody">
+                                    <!-- Dynamic Rows Injected Here -->
+                                </tbody>
+                                <tfoot class="table-light fw-semibold">
+                                    <tr>
+                                        <td colspan="2" class="text-end py-2">Estimated Total:</td>
+                                        <td colspan="3" class="py-2 text-custom fs-6" id="grandTotalDisplay">$0.00</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        <div class="form-text small mt-2">
+                            <i class="bi bi-info-circle me-1"></i> You can also add more parts or receive parts anytime from the Order Details page.
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Notes & Instructions -->
+                <div class="card border-0 shadow-sm rounded-3 bg-body p-4 mb-4">
+                    <h5 class="fw-bold mb-3 d-flex align-items-center gap-2">
+                        <i class="bi bi-card-text text-custom"></i>
+                        <span>Order Notes & Delivery Instructions</span>
+                    </h5>
+                    {{ form.notes }}
+                    {% if form.notes.errors %}
+                        <div class="text-danger small mt-1">{{ form.notes.errors.0 }}</div>
+                    {% endif %}
+                </div>
+
+                <!-- Submit Bar -->
+                <div class="d-flex justify-content-end gap-2 mb-5">
+                    <a href="{% if object %}{% url 'order_detail' object.pk %}{% else %}{% url 'order_list' %}{% endif %}" class="btn btn-outline-secondary">
+                        Cancel
+                    </a>
+                    <button type="submit" class="btn btn-custom px-4 py-2 fw-semibold shadow-sm">
+                        <i class="bi bi-check2-circle me-1.5"></i>
+                        {% if object %}Save Changes{% else %}Confirm & Place Order{% endif %}
+                    </button>
+                </div>
+
+            </div>
+
+        </div>
+    </form>
+
+</div>
+
+{% if not object %}
+<!-- JavaScript for Dynamic Line Items -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const partsData = [
+        {% for p in all_parts %}
+        {
+            id: "{{ p.pk }}",
+            part_number: "{{ p.part_number|escapejs }}",
+            name: "{{ p.name|default:p.description|default:'Part'|escapejs }}",
+            price: "{{ p.price_per|default:'0.00' }}",
+            on_hand: {{ p.quantity_on_hand|default:0 }},
+            on_order: {{ p.quantity_on_order|default:0 }}
+        }{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    const preselectedPartId = "{{ preselected_part_id|default:'' }}";
+    const tbody = document.getElementById('orderItemsBody');
+    const addBtn = document.getElementById('addPartRowBtn');
+    const grandTotalDisplay = document.getElementById('grandTotalDisplay');
+
+    function createRow(selectedId = '') {
+        const tr = document.createElement('tr');
+        tr.className = 'item-row';
+
+        let optionsHtml = '<option value="">-- Select Component Part --</option>';
+        partsData.forEach(p => {
+            const isSel = (p.id === selectedId) ? 'selected' : '';
+            optionsHtml += `<option value="${p.id}" data-price="${p.price}" ${isSel}>${p.part_number} &mdash; ${p.name} (On-Hand: ${p.on_hand}, On-Order: ${p.on_order})</option>`;
+        });
+
+        tr.innerHTML = `
+            <td>
+                <select name="item_part[]" class="form-select form-select-sm part-selector" required>
+                    ${optionsHtml}
+                </select>
+            </td>
+            <td>
+                <input type="number" name="item_quantity[]" class="form-control form-control-sm qty-input" value="1" min="1" required>
+            </td>
+            <td>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">$</span>
+                    <input type="number" step="0.01" name="item_unit_price[]" class="form-control form-control-sm price-input" placeholder="0.00">
+                </div>
+            </td>
+            <td>
+                <input type="text" name="item_notes[]" class="form-control form-control-sm" placeholder="Optional notes">
+            </td>
+            <td class="text-center">
+                <button type="button" class="btn btn-outline-danger btn-sm remove-row-btn" title="Remove row">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </td>
+        `;
+
+        const partSelect = tr.querySelector('.part-selector');
+        const priceInput = tr.querySelector('.price-input');
+        const qtyInput = tr.querySelector('.qty-input');
+        const removeBtn = tr.querySelector('.remove-row-btn');
+
+        // If part pre-selected, auto-fill price
+        if (selectedId) {
+            const matched = partsData.find(p => p.id === selectedId);
+            if (matched && matched.price && matched.price !== '0.00') {
+                priceInput.value = matched.price;
+            }
+        }
+
+        partSelect.addEventListener('change', function() {
+            const opt = partSelect.options[partSelect.selectedIndex];
+            const defPrice = opt.getAttribute('data-price');
+            if (defPrice && defPrice !== '0.00' && !priceInput.value) {
+                priceInput.value = defPrice;
+            }
+            recalcTotal();
+        });
+
+        qtyInput.addEventListener('input', recalcTotal);
+        priceInput.addEventListener('input', recalcTotal);
+
+        removeBtn.addEventListener('click', function() {
+            if (tbody.querySelectorAll('.item-row').length > 1) {
+                tr.remove();
+                recalcTotal();
+            } else {
+                alert('An order requires at least one part item.');
+            }
+        });
+
+        tbody.appendChild(tr);
+        recalcTotal();
+    }
+
+    function recalcTotal() {
+        let total = 0.0;
+        tbody.querySelectorAll('.item-row').forEach(row => {
+            const qty = parseFloat(row.querySelector('.qty-input').value) || 0;
+            const price = parseFloat(row.querySelector('.price-input').value) || 0;
+            total += (qty * price);
+        });
+        grandTotalDisplay.textContent = '$' + total.toFixed(2);
+    }
+
+    addBtn.addEventListener('click', () => createRow(''));
+
+    // Create initial row
+    createRow(preselectedPartId);
+});
+</script>
+{% endif %}
+
+{% endblock %}

@@ -28,6 +28,10 @@
                 <i class="bi bi-file-earmark-spreadsheet"></i>
                 <span class="fw-semibold">Export CSV</span>
             </a>
+            <a href="{% url 'order_create' %}" class="btn btn-outline-custom btn-sm d-flex align-items-center gap-1 shadow-sm" title="Place an order with a supplier to replenish parts">
+                <i class="bi bi-cart-plus"></i>
+                <span class="fw-semibold">Make Order</span>
+            </a>
             <a href="{% url 'part_create' %}" class="btn btn-custom btn-sm d-flex align-items-center gap-1 shadow-sm">
                 <i class="bi bi-plus-circle"></i>
                 <span class="fw-semibold">Add New Part</span>

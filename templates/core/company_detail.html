@@ -21,6 +21,9 @@
             <a href="{% url 'company_list' %}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-arrow-left me-1"></i> Back to Companies
             </a>
+            <a href="{% url 'order_create' %}?supplier={{ company.pk }}" class="btn btn-custom btn-sm">
+                <i class="bi bi-cart-plus me-1"></i> Make Order
+            </a>
             <a href="{% url 'company_update' company.pk %}" class="btn btn-outline-custom btn-sm">
                 <i class="bi bi-pencil me-1"></i> Edit
             </a>

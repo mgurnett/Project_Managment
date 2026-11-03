@@ -38,6 +38,10 @@
                     <span>Datasheet ({{ part.document_extension|upper }})</span>
                 </a>
             {% endif %}
+            <a href="{% url 'order_create' %}?part={{ part.pk }}{% if part.company %}&supplier={{ part.company.pk }}{% endif %}" class="btn btn-custom btn-sm d-flex align-items-center gap-1 shadow-sm" title="Create a purchase order for this part">
+                <i class="bi bi-cart-plus"></i>
+                <span>Make Order</span>
+            </a>
             <a href="{% url 'part_list' %}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1">
                 <i class="bi bi-arrow-left"></i>
                 <span>Back to Parts</span>

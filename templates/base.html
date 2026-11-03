@@ -226,6 +226,11 @@
                     <span>Bills of Materials (BoMs)</span>
                 </a>
 
+                <a href="{% url 'order_list' %}" class="nav-link-custom {% if 'orders' in request.path %}active{% endif %}">
+                    <i class="bi bi-cart3"></i>
+                    <span>Purchase Orders</span>
+                </a>
+
                 <a href="{% url 'inventory_count_sheet' %}" class="nav-link-custom {% if 'count-sheet' in request.path %}active{% endif %}">
                     <i class="bi bi-clipboard2-check"></i>
                     <span>Inventory Count Sheet</span>

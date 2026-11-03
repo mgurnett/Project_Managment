@@ -7,11 +7,15 @@ from django.urls import reverse_lazy, reverse
 from django.contrib import messages
 from django.utils import timezone
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView, TemplateView
-from django.db.models import Q, Count, Sum, Case, When, Value, IntegerField
-from .models import Part, Company, Manufacturer, Category, Location, PartDocument, BOM, BOMItem
+from django.db import transaction
+from django.db.models import Q, Count, Sum, Case, When, Value, IntegerField, F
+from .models import (
+    Part, Company, Manufacturer, Category, Location, PartDocument,
+    BOM, BOMItem, Order, OrderItem
+)
 from .forms import (
     PartForm, CompanyForm, ManufacturerForm, CategoryForm, LocationForm,
-    PartDocumentForm, BOMForm, BOMItemForm
+    PartDocumentForm, BOMForm, BOMItemForm, OrderForm, OrderItemForm
 )
 
 
@@ -24,6 +28,7 @@ def home(request):
     total_categories = Category.objects.count()
     total_locations = Location.objects.count()
     total_boms = BOM.objects.count()
+    total_orders = Order.objects.count()
 
     context = {
         'page_title': 'Dashboard Overview',
@@ -37,7 +42,9 @@ def home(request):
             'total_categories': total_categories,
             'total_locations': total_locations,
             'total_boms': total_boms,
+            'total_orders': total_orders,
         },
+        'recent_orders': Order.objects.select_related('supplier').order_by('-order_date', '-created_at')[:4],
         'recent_boms': BOM.objects.annotate(item_count=Count('items')).order_by('-created_at')[:4],
         'recent_parts': Part.objects.select_related('company', 'category', 'location').order_by('-created_at')[:8],
         'recent_companies': Company.objects.annotate(part_count=Count('parts')).order_by('-created_at')[:5],
@@ -897,3 +904,291 @@ def inventory_count_sheet_pdf(request):
     disposition = 'attachment' if request.GET.get('download') == '1' else 'inline'
     response['Content-Disposition'] = f'{disposition}; filename="inventory_count_sheet_{timestamp}.pdf"'
     return response
+
+
+# ==============================================================================
+# PURCHASE ORDERS & ORDER ACTION VIEWS
+# ==============================================================================
+
+class OrderListView(ListView):
+    model = Order
+    template_name = 'core/order_list.html'
+    context_object_name = 'orders'
+    paginate_by = 20
+
+    def get_queryset(self):
+        qs = Order.objects.select_related('supplier').annotate(
+            items_count=Count('items'),
+            total_ordered=Sum('items__quantity'),
+            total_received=Sum('items__quantity_received')
+        )
+        q = self.request.GET.get('q', '').strip()
+        if q:
+            qs = qs.filter(
+                Q(order_number__icontains=q) |
+                Q(tracking_number__icontains=q) |
+                Q(carrier__icontains=q) |
+                Q(supplier__name__icontains=q) |
+                Q(items__part__part_number__icontains=q) |
+                Q(items__part__name__icontains=q)
+            ).distinct()
+
+        status_filter = self.request.GET.get('status', '').strip()
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        supplier_filter = self.request.GET.get('supplier', '').strip()
+        if supplier_filter.isdigit():
+            qs = qs.filter(supplier_id=int(supplier_filter))
+
+        return qs.order_by('-order_date', '-created_at')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        all_orders = Order.objects.all()
+        ctx['total_orders_count'] = all_orders.count()
+        ctx['active_orders_count'] = all_orders.filter(status__in=['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED']).count()
+        ctx['received_orders_count'] = all_orders.filter(status='RECEIVED').count()
+        ctx['total_on_order_units'] = OrderItem.objects.filter(
+            order__status__in=['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED']
+        ).aggregate(total=Sum('quantity'))['total'] or 0
+
+        ctx['current_q'] = self.request.GET.get('q', '')
+        ctx['current_status'] = self.request.GET.get('status', '')
+        ctx['current_supplier'] = self.request.GET.get('supplier', '')
+        ctx['suppliers'] = Company.objects.filter(orders__isnull=False).distinct().order_by('name')
+        ctx['status_choices'] = Order.STATUS_CHOICES
+        return ctx
+
+
+class OrderDetailView(DetailView):
+    model = Order
+    template_name = 'core/order_detail.html'
+    context_object_name = 'order'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['items'] = self.object.items.select_related('part', 'part__company', 'part__location').all()
+        ctx['item_form'] = OrderItemForm(order=self.object)
+        return ctx
+
+
+class OrderCreateView(CreateView):
+    """
+    Action that allows us to make an order.
+    The order has a supplier, expected delivery date, tracking number, and part numbers.
+    The part numbers have their on-order number increased by the amount ordered.
+    """
+    model = Order
+    form_class = OrderForm
+    template_name = 'core/order_form.html'
+
+    def get_initial(self):
+        initial = super().get_initial()
+        supplier_id = self.request.GET.get('supplier')
+        if supplier_id and supplier_id.isdigit():
+            initial['supplier'] = supplier_id
+        return initial
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['all_parts'] = Part.objects.select_related('company', 'category').all().order_by('part_number')
+        ctx['preselected_part_id'] = self.request.GET.get('part')
+        return ctx
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            order = form.save()
+
+            # Process line items submitted dynamically
+            part_ids = self.request.POST.getlist('item_part[]') or self.request.POST.getlist('item_part')
+            quantities = self.request.POST.getlist('item_quantity[]') or self.request.POST.getlist('item_quantity')
+            unit_prices = self.request.POST.getlist('item_unit_price[]') or self.request.POST.getlist('item_unit_price')
+            notes_list = self.request.POST.getlist('item_notes[]') or self.request.POST.getlist('item_notes')
+
+            items_created = 0
+            for i, p_id in enumerate(part_ids):
+                if not p_id or not p_id.isdigit():
+                    continue
+                try:
+                    qty = int(quantities[i]) if i < len(quantities) and quantities[i] else 1
+                    if qty <= 0:
+                        continue
+                except ValueError:
+                    qty = 1
+
+                u_price = None
+                if i < len(unit_prices) and unit_prices[i]:
+                    try:
+                        u_price = Decimal(str(unit_prices[i]))
+                    except Exception:
+                        u_price = None
+
+                item_notes = notes_list[i].strip() if i < len(notes_list) and notes_list[i] else ''
+
+                part = get_object_or_404(Part, pk=int(p_id))
+                if u_price is None and part.price_per:
+                    u_price = part.price_per
+
+                OrderItem.objects.create(
+                    order=order,
+                    part=part,
+                    quantity=qty,
+                    unit_price=u_price,
+                    notes=item_notes
+                )
+
+                # Increase the part's on order number
+                Part.objects.filter(pk=part.pk).update(quantity_on_order=F('quantity_on_order') + qty)
+                items_created += 1
+
+            messages.success(
+                self.request,
+                f"Order '{order.order_number}' successfully created with {items_created} part item(s)! On-order quantities have been increased."
+            )
+            return redirect('order_detail', pk=order.pk)
+
+
+class OrderUpdateView(UpdateView):
+    model = Order
+    form_class = OrderForm
+    template_name = 'core/order_form.html'
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, f"Order '{self.object.order_number}' was updated.")
+        return response
+
+    def get_success_url(self):
+        return reverse('order_detail', kwargs={'pk': self.object.pk})
+
+
+class OrderDeleteView(DeleteView):
+    model = Order
+    template_name = 'core/confirm_delete.html'
+    success_url = reverse_lazy('order_list')
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            order = self.get_object()
+            # Restore on-order quantities for remaining unreceived quantities before deleting
+            for item in order.items.select_related('part').all():
+                remaining = max(0, item.quantity - item.quantity_received)
+                if remaining > 0 and order.status not in ['CANCELLED', 'RECEIVED']:
+                    Part.objects.filter(pk=item.part.pk).update(
+                        quantity_on_order=Case(
+                            When(quantity_on_order__gt=remaining, then=F('quantity_on_order') - remaining),
+                            default=Value(0),
+                            output_field=IntegerField()
+                        )
+                    )
+            messages.success(self.request, f"Order '{order.order_number}' was deleted and on-order quantities adjusted.")
+            return super().form_valid(form)
+
+
+class OrderItemCreateView(CreateView):
+    """
+    Adds a line item to an existing order and increments the part's quantity_on_order.
+    """
+    model = OrderItem
+    form_class = OrderItemForm
+
+    def get_order(self):
+        return get_object_or_404(Order, pk=self.kwargs['order_pk'])
+
+    def form_valid(self, form):
+        order = self.get_order()
+        with transaction.atomic():
+            form.instance.order = order
+            item = form.save()
+            # Increase on-order count
+            Part.objects.filter(pk=item.part.pk).update(quantity_on_order=F('quantity_on_order') + item.quantity)
+            messages.success(
+                self.request,
+                f"Added {item.part.part_number} (Qty: {item.quantity}) to Order {order.order_number}. On-order quantity increased."
+            )
+            return redirect('order_detail', pk=order.pk)
+
+    def form_invalid(self, form):
+        for field, errs in form.errors.items():
+            for err in errs:
+                messages.error(self.request, f"{err}")
+        return redirect('order_detail', pk=self.kwargs['order_pk'])
+
+
+class OrderItemDeleteView(DeleteView):
+    """
+    Deletes a line item and decrements the part's quantity_on_order.
+    """
+    model = OrderItem
+    template_name = 'core/confirm_delete.html'
+
+    def form_valid(self, form):
+        item = self.get_object()
+        order_pk = item.order.pk
+        with transaction.atomic():
+            remaining = max(0, item.quantity - item.quantity_received)
+            if remaining > 0 and item.order.status not in ['CANCELLED', 'RECEIVED']:
+                Part.objects.filter(pk=item.part.pk).update(
+                    quantity_on_order=Case(
+                        When(quantity_on_order__gt=remaining, then=F('quantity_on_order') - remaining),
+                        default=Value(0),
+                        output_field=IntegerField()
+                    )
+                )
+            messages.success(
+                self.request,
+                f"Removed {item.part.part_number} from order. On-order quantity adjusted."
+            )
+            return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse('order_detail', kwargs={'pk': self.object.order.pk})
+
+
+def order_receive_item(request, order_pk, item_pk):
+    """
+    Action to receive units for a specific order line item.
+    Increases on_hand and decreases on_order.
+    """
+    if request.method != 'POST':
+        return redirect('order_detail', pk=order_pk)
+
+    order = get_object_or_404(Order, pk=order_pk)
+    item = get_object_or_404(OrderItem, pk=item_pk, order=order)
+
+    try:
+        qty_to_receive = int(request.POST.get('quantity_received', item.remaining_to_receive))
+    except (ValueError, TypeError):
+        qty_to_receive = item.remaining_to_receive
+
+    if qty_to_receive <= 0:
+        messages.warning(request, "Receive quantity must be at least 1.")
+        return redirect('order_detail', pk=order_pk)
+
+    qty_to_receive = min(qty_to_receive, item.remaining_to_receive)
+
+    with transaction.atomic():
+        item.quantity_received += qty_to_receive
+        item.save(update_fields=['quantity_received', 'updated_at'])
+
+        part = item.part
+        # Decrease on order, increase on hand
+        part.quantity_on_order = max(0, (part.quantity_on_order or 0) - qty_to_receive)
+        part.quantity_on_hand = (part.quantity_on_hand or 0) + qty_to_receive
+        part.save(update_fields=['quantity_on_order', 'quantity_on_hand', 'updated_at'])
+
+        # Update order status
+        if order.is_fully_received:
+            order.status = 'RECEIVED'
+        else:
+            order.status = 'PARTIALLY_RECEIVED'
+        order.save(update_fields=['status', 'updated_at'])
+
+        messages.success(
+            request,
+            f"Received {qty_to_receive} units of {part.part_number}! On-hand is now {part.quantity_on_hand}, On-order is {part.quantity_on_order}."
+        )
+
+    return redirect('order_detail', pk=order_pk)
+

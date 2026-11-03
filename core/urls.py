@@ -60,4 +60,14 @@ urlpatterns = [
     path('inventory/count-sheet/', views.InventoryCountSheetView.as_view(), name='inventory_count_sheet'),
     path('inventory/count-sheet/export/csv/', views.inventory_count_sheet_export_csv, name='inventory_count_sheet_csv'),
     path('inventory/count-sheet/pdf/', views.inventory_count_sheet_pdf, name='inventory_count_sheet_pdf'),
+
+    # Purchase Orders & Order Action
+    path('orders/', views.OrderListView.as_view(), name='order_list'),
+    path('orders/create/', views.OrderCreateView.as_view(), name='order_create'),
+    path('orders/<int:pk>/', views.OrderDetailView.as_view(), name='order_detail'),
+    path('orders/<int:pk>/edit/', views.OrderUpdateView.as_view(), name='order_update'),
+    path('orders/<int:pk>/delete/', views.OrderDeleteView.as_view(), name='order_delete'),
+    path('orders/<int:order_pk>/items/add/', views.OrderItemCreateView.as_view(), name='order_item_create'),
+    path('order-items/<int:pk>/delete/', views.OrderItemDeleteView.as_view(), name='order_item_delete'),
+    path('orders/<int:order_pk>/items/<int:item_pk>/receive/', views.order_receive_item, name='order_receive_item'),
 ]

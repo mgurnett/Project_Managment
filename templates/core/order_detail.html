@@ -1,0 +1,408 @@
+{% extends "base.html" %}
+
+{% block title %}Order {{ order.order_number }} | Project Manager{% endblock %}
+
+{% block breadcrumb %}
+    <a href="{% url 'order_list' %}" class="text-decoration-none text-muted">Purchase Orders</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>{{ order.order_number }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+
+    <!-- Header -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                <h1 class="h3 fw-bold mb-0 text-custom">{{ order.order_number }}</h1>
+                {% if order.status == 'ORDERED' %}
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1">Placed / In Transit</span>
+                {% elif order.status == 'PENDING' %}
+                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2.5 py-1">Draft / Pending</span>
+                {% elif order.status == 'PARTIALLY_RECEIVED' %}
+                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2.5 py-1">Partially Received</span>
+                {% elif order.status == 'RECEIVED' %}
+                    <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1">Completed / Fully Received</span>
+                {% elif order.status == 'CANCELLED' %}
+                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1">Cancelled</span>
+                {% endif %}
+            </div>
+            <p class="text-muted small mb-0">
+                Supplier: <a href="{% url 'company_detail' order.supplier.pk %}" class="fw-semibold text-body text-decoration-none">{{ order.supplier.name }}</a>
+                &bull; Placed on {{ order.order_date|date:"F j, Y" }}
+            </p>
+        </div>
+
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <a href="{% url 'order_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i> Orders List
+            </a>
+            <button type="button" class="btn btn-sm btn-custom" data-bs-toggle="modal" data-bs-target="#addItemModal">
+                <i class="bi bi-plus-circle me-1"></i> Add Part
+            </button>
+            <a href="{% url 'order_update' order.pk %}" class="btn btn-outline-custom btn-sm">
+                <i class="bi bi-pencil me-1"></i> Edit Order
+            </a>
+            <a href="{% url 'order_delete' order.pk %}" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-trash me-1"></i> Delete
+            </a>
+        </div>
+    </div>
+
+    <!-- Summary KPI Cards -->
+    <div class="row g-3 mb-4">
+        
+        <!-- Expected Delivery & Tracking -->
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Expected Delivery</span>
+                        <h5 class="fw-bold mb-0 mt-1 text-primary">
+                            {% if order.expected_delivery_date %}
+                                {{ order.expected_delivery_date|date:"M d, Y" }}
+                            {% else %}
+                                <span class="text-muted fs-6">Not specified</span>
+                            {% endif %}
+                        </h5>
+                        {% if order.tracking_number %}
+                            <div class="mt-2 small font-monospace text-muted text-truncate" style="max-width: 170px;" title="{{ order.tracking_number }}">
+                                <i class="bi bi-upc-scan me-1"></i>{{ order.tracking_number }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="rounded-circle p-3 bg-primary-subtle text-primary">
+                        <i class="bi bi-truck fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Units Progress -->
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Units Progress</span>
+                        <h4 class="fw-bold mb-0 mt-1 text-body">
+                            {{ order.total_units_received }} / {{ order.total_units_ordered }} pcs
+                        </h4>
+                        <div class="small text-muted mt-1">{{ order.items.count }} line item{{ order.items.count|pluralize }}</div>
+                    </div>
+                    <div class="rounded-circle p-3 bg-info-subtle text-info">
+                        <i class="bi bi-boxes fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Total Value -->
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Order Total</span>
+                        <h4 class="fw-bold mb-0 mt-1 text-custom">${{ order.total_cost|floatformat:2 }}</h4>
+                        <div class="small text-muted mt-1">Estimated committed value</div>
+                    </div>
+                    <div class="rounded-circle p-3 bg-success-subtle text-success">
+                        <i class="bi bi-currency-dollar fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Supplier Info -->
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Supplier</span>
+                        <h6 class="fw-bold mb-0 mt-1 text-body text-truncate" style="max-width: 170px;">
+                            <a href="{% url 'company_detail' order.supplier.pk %}" class="text-decoration-none text-body">
+                                {{ order.supplier.name }}
+                            </a>
+                        </h6>
+                        <div class="small text-muted mt-1">
+                            {% if order.supplier.phone %}{{ order.supplier.phone }}{% elif order.supplier.email %}{{ order.supplier.email }}{% else %}Vendor Account{% endif %}
+                        </div>
+                    </div>
+                    <div class="rounded-circle p-3 bg-secondary-subtle text-secondary">
+                        <i class="bi bi-building fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Order Items Table -->
+    <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
+        <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h5 class="fw-bold mb-0 d-flex align-items-center gap-2">
+                    <i class="bi bi-box-seam text-custom"></i>
+                    <span>Parts on Order</span>
+                </h5>
+                <span class="text-muted small">All component parts included in this purchase order.</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-custom" data-bs-toggle="modal" data-bs-target="#addItemModal">
+                <i class="bi bi-plus-circle me-1"></i> Add Part
+            </button>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light border-bottom small text-uppercase text-muted">
+                    <tr>
+                        <th scope="col" class="ps-4 py-3">Part #</th>
+                        <th scope="col" class="py-3">Name / Description</th>
+                        <th scope="col" class="py-3">Supplier Part #</th>
+                        <th scope="col" class="text-center py-3">Ordered</th>
+                        <th scope="col" class="text-center py-3">Received</th>
+                        <th scope="col" class="text-center py-3">Remaining</th>
+                        <th scope="col" class="text-center py-3">Inventory Status</th>
+                        <th scope="col" class="text-end py-3">Unit Price</th>
+                        <th scope="col" class="text-end py-3">Subtotal</th>
+                        <th scope="col" class="text-end pe-4 py-3">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td class="ps-4 py-3">
+                            <a href="{% url 'part_detail' item.part.pk %}" class="fw-bold text-decoration-none text-custom font-monospace">
+                                {{ item.part.part_number }}
+                            </a>
+                        </td>
+                        <td class="py-3">
+                            <div class="fw-semibold text-body">{{ item.part.name|default:item.part.description|default:"&mdash;" }}</div>
+                            {% if item.notes %}
+                                <div class="text-muted small fst-italic">{{ item.notes }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="py-3 small text-muted font-monospace">
+                            {{ item.part.supplier_part_number|default:"&mdash;" }}
+                        </td>
+                        <td class="text-center py-3 fw-bold text-body">
+                            {{ item.quantity }}
+                        </td>
+                        <td class="text-center py-3">
+                            {% if item.quantity_received >= item.quantity %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
+                                    {{ item.quantity_received }} (Done)
+                                </span>
+                            {% elif item.quantity_received > 0 %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2 py-1">
+                                    {{ item.quantity_received }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center py-3">
+                            {% if item.remaining_to_receive > 0 %}
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1">
+                                    {{ item.remaining_to_receive }} due
+                                </span>
+                            {% else %}
+                                <span class="text-muted">&mdash;</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center py-3 small">
+                            <span class="badge bg-light text-dark border">
+                                On-Hand: <strong>{{ item.part.quantity_on_hand }}</strong> &bull; On-Order: <strong class="text-primary">{{ item.part.quantity_on_order }}</strong>
+                            </span>
+                        </td>
+                        <td class="text-end py-3 small text-muted">
+                            {% if item.unit_price %}
+                                ${{ item.unit_price|floatformat:2 }}
+                            {% elif item.part.price_per %}
+                                ${{ item.part.price_per|floatformat:2 }}
+                            {% else %}
+                                &mdash;
+                            {% endif %}
+                        </td>
+                        <td class="text-end py-3 fw-semibold">
+                            ${{ item.subtotal|floatformat:2 }}
+                        </td>
+                        <td class="text-end pe-4 py-3">
+                            <div class="btn-group btn-group-sm">
+                                {% if item.remaining_to_receive > 0 %}
+                                <button type="button" class="btn btn-outline-success" 
+                                        onclick="openReceiveModal('{{ item.pk }}', '{{ item.part.part_number|escapejs }}', '{{ item.remaining_to_receive }}')"
+                                        title="Receive Units">
+                                    <i class="bi bi-box-arrow-in-down me-1"></i> Receive
+                                </button>
+                                {% endif %}
+                                <a href="{% url 'order_item_delete' item.pk %}" class="btn btn-outline-danger" title="Remove part from order">
+                                    <i class="bi bi-trash"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="10" class="text-center py-5 text-muted">
+                            <div class="my-3">
+                                <i class="bi bi-box-seam fs-2 text-secondary opacity-50 mb-2 d-block"></i>
+                                <span class="d-block mb-2">No parts attached to this order yet.</span>
+                                <button type="button" class="btn btn-sm btn-custom" data-bs-toggle="modal" data-bs-target="#addItemModal">
+                                    <i class="bi bi-plus-circle me-1"></i> Add Component Part
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                {% if items %}
+                <tfoot class="table-light fw-semibold">
+                    <tr>
+                        <td colspan="3" class="ps-4 py-3">Totals</td>
+                        <td class="text-center py-3">{{ order.total_units_ordered }} pcs</td>
+                        <td class="text-center py-3 text-success">{{ order.total_units_received }} pcs</td>
+                        <td class="text-center py-3 text-primary">{{ order.total_units_ordered|add:"-"|add:order.total_units_received }} pcs</td>
+                        <td colspan="2" class="text-end py-3">Estimated Order Total:</td>
+                        <td class="text-end py-3 text-custom fs-6">${{ order.total_cost|floatformat:2 }}</td>
+                        <td class="pe-4 py-3"></td>
+                    </tr>
+                </tfoot>
+                {% endif %}
+            </table>
+        </div>
+    </div>
+
+    <!-- Notes & Logistics Card -->
+    {% if order.notes or order.carrier or order.tracking_number %}
+    <div class="card border-0 shadow-sm rounded-3 bg-body p-4 mb-4">
+        <h5 class="fw-bold mb-3 d-flex align-items-center gap-2">
+            <i class="bi bi-card-text text-custom"></i>
+            <span>Order Notes & Delivery Information</span>
+        </h5>
+        {% if order.carrier or order.tracking_number %}
+        <div class="row g-3 mb-3">
+            {% if order.carrier %}
+            <div class="col-12 col-md-4">
+                <span class="text-muted small text-uppercase fw-semibold d-block">Carrier</span>
+                <span class="fw-semibold text-body">{{ order.carrier }}</span>
+            </div>
+            {% endif %}
+            {% if order.tracking_number %}
+            <div class="col-12 col-md-8">
+                <span class="text-muted small text-uppercase fw-semibold d-block">Tracking Number</span>
+                <span class="font-monospace fw-semibold text-body">{{ order.tracking_number }}</span>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if order.notes %}
+        <div class="article-content border-top pt-3">
+            {{ order.notes|safe }}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- Modal: Add Item to Order -->
+<div class="modal fade" id="addItemModal" tabindex="-1" aria-labelledby="addItemModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form method="post" action="{% url 'order_item_create' order.pk %}">
+                {% csrf_token %}
+                <div class="modal-header border-bottom">
+                    <h5 class="modal-title fw-bold" id="addItemModalLabel">
+                        <i class="bi bi-plus-circle me-1 text-custom"></i> Add Part to Order
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Component Part <span class="text-danger">*</span></label>
+                        {{ item_form.part }}
+                        <div class="form-text small">Select the part to order. On-order count will increase by the specified quantity.</div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold">Quantity to Order <span class="text-danger">*</span></label>
+                            {{ item_form.quantity }}
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold">Unit Price ($)</label>
+                            {{ item_form.unit_price }}
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">Notes</label>
+                        {{ item_form.notes }}
+                    </div>
+                </div>
+                <div class="modal-footer border-top bg-body-tertiary">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-custom btn-sm fw-semibold">
+                        <i class="bi bi-cart-plus me-1"></i> Add Part to Order
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Receive Item Units -->
+<div class="modal fade" id="receiveModal" tabindex="-1" aria-labelledby="receiveModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form method="post" id="receiveForm" action="">
+                {% csrf_token %}
+                <div class="modal-header border-bottom">
+                    <h5 class="modal-title fw-bold" id="receiveModalLabel">
+                        <i class="bi bi-box-arrow-in-down me-1 text-success"></i> Receive Component Units
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="small text-muted mb-3">
+                        Confirm receipt of incoming parts. Receiving will automatically move the quantity from <strong>On-Order</strong> into <strong>On-Hand</strong> inventory.
+                    </p>
+                    <div class="alert alert-secondary py-2 small mb-3">
+                        Part Number: <strong id="receivePartNumber"></strong><br>
+                        Currently Due: <strong id="receiveDueQty"></strong> pcs
+                    </div>
+                    <div class="mb-3">
+                        <label for="receiveQtyInput" class="form-label small fw-semibold">Quantity Received</label>
+                        <input type="number" name="quantity_received" id="receiveQtyInput" class="form-control" min="1" required>
+                    </div>
+                </div>
+                <div class="modal-footer border-top bg-body-tertiary">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success btn-sm fw-semibold">
+                        <i class="bi bi-check2-circle me-1"></i> Confirm Receipt & Update Stock
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function openReceiveModal(itemId, partNumber, remainingQty) {
+    const modalEl = document.getElementById('receiveModal');
+    const form = document.getElementById('receiveForm');
+    const partNumDisplay = document.getElementById('receivePartNumber');
+    const dueQtyDisplay = document.getElementById('receiveDueQty');
+    const qtyInput = document.getElementById('receiveQtyInput');
+
+    form.action = `/orders/{{ order.pk }}/items/${itemId}/receive/`;
+    partNumDisplay.textContent = partNumber;
+    dueQtyDisplay.textContent = remainingQty;
+    qtyInput.value = remainingQty;
+    qtyInput.max = remainingQty;
+
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+}
+</script>
+{% endblock %}
