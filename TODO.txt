@@ -1,10 +1,15 @@
 =============  Bug fixes =================
 [COMPLETED] component numbers must be unique. (Enforced case-insensitive part number uniqueness with prefix formatting in PartForm, and UniqueConstraint on BOM components)
+TODO: when a part is ordered at a price and it is received, that that price needs to be the new price in the price model.  Also, whe a part is ordered, there needs to be an option to create a new part and to chan ge the price and the quanitity that they come in (box of 50 say)
+
 
 ==============  Priority HIGH
 [COMPLETED] We need to add a name to the parts. Then we need to go through the parts list and put put the short descriptions that are there now in the new name column. (Added name field to Part model, migrated database, populated names for all 36 parts, updated admin, forms, catalog views, and CSV export)
 [COMPLETED] We need to make an inventor count sheet. It needs to be grouped by catagory and sorted by part number. It need to have location and on-hand (Created /inventory/count-sheet/ with category grouping, part number sorting, storage locations, on-hand counts, live audit counter, print-ready CSS layout, CSV export, and navbar/catalog links)
 [COMPLETED] We need to be able to upload documents to parts, not just links. (Added document FileField to Part model, created and applied migration 0013, added file upload to PartForm and PartAdmin with file preview/download, updated parts catalog table, part detail view, and CSV export)
+[COMPLETED]: One the parts page, we need to add a button on the right that is a duplicate button.  What it does is add a new part with all the details fromthe original part filled in.  I have one in right now that is the female part.  I want to duplicate it and only change the description, partnumber and name to male.
+TODO: we need to remove the tasks & Milestones part of the landing page.  
+
 
 
 ==============  Priority Medium

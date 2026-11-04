@@ -65,6 +65,7 @@ urlpatterns = [
     # Purchase Orders & Order Action
     path('orders/', views.OrderListView.as_view(), name='order_list'),
     path('orders/create/', views.OrderCreateView.as_view(), name='order_create'),
+    path('orders/quick-create-part/', views.order_quick_create_part, name='order_quick_create_part'),
     path('orders/<int:pk>/', views.OrderDetailView.as_view(), name='order_detail'),
     path('orders/<int:pk>/edit/', views.OrderUpdateView.as_view(), name='order_update'),
     path('orders/<int:pk>/delete/', views.OrderDeleteView.as_view(), name='order_delete'),

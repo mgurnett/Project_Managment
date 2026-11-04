@@ -150,11 +150,16 @@
                                 <i class="bi bi-box-seam text-custom"></i>
                                 <span>Parts on Order</span>
                             </h5>
-                            <span class="text-muted small">Select part numbers and quantities. The on-order count will automatically increase upon order creation.</span>
+                            <span class="text-muted small">Select existing parts or create a new part, and adjust the package quantity (e.g. box of 50) and price.</span>
                         </div>
-                        <button type="button" class="btn btn-sm btn-outline-custom" id="addPartRowBtn">
-                            <i class="bi bi-plus-circle me-1"></i> Add Another Part
-                        </button>
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#quickCreatePartModal">
+                                <i class="bi bi-plus-square me-1"></i> Create New Part
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-custom" id="addPartRowBtn">
+                                <i class="bi bi-plus-circle me-1"></i> Add Another Part
+                            </button>
+                        </div>
                     </div>
 
                     <div class="card-body px-4 py-3">
@@ -162,11 +167,13 @@
                             <table class="table table-bordered align-middle mb-0" id="orderItemsTable">
                                 <thead class="table-light small text-uppercase text-muted">
                                     <tr>
-                                        <th style="min-width: 260px;">Part Number / Component <span class="text-danger">*</span></th>
-                                        <th style="width: 110px;">Qty <span class="text-danger">*</span></th>
-                                        <th style="width: 130px;">Unit Price ($)</th>
-                                        <th style="min-width: 140px;">Notes</th>
-                                        <th style="width: 60px;" class="text-center">Del</th>
+                                        <th style="min-width: 240px;">Part Number / Component <span class="text-danger">*</span></th>
+                                        <th style="width: 110px;" title="Quantity that the part comes in (e.g. 50 for a box of 50)">Comes In <span class="text-muted fw-normal">(Pkg)</span></th>
+                                        <th style="width: 105px;">Order Qty <span class="text-danger">*</span></th>
+                                        <th style="width: 125px;" title="Total price for the package/box">Pkg Price ($)</th>
+                                        <th style="width: 125px;" title="Price per single unit">Unit Price ($)</th>
+                                        <th style="min-width: 120px;">Notes</th>
+                                        <th style="width: 50px;" class="text-center">Del</th>
                                     </tr>
                                 </thead>
                                 <tbody id="orderItemsBody">
@@ -174,14 +181,14 @@
                                 </tbody>
                                 <tfoot class="table-light fw-semibold">
                                     <tr>
-                                        <td colspan="2" class="text-end py-2">Estimated Total:</td>
+                                        <td colspan="4" class="text-end py-2">Estimated Total:</td>
                                         <td colspan="3" class="py-2 text-custom fs-6" id="grandTotalDisplay">$0.00</td>
                                     </tr>
                                 </tfoot>
                             </table>
                         </div>
                         <div class="form-text small mt-2">
-                            <i class="bi bi-info-circle me-1"></i> You can also add more parts or receive parts anytime from the Order Details page.
+                            <i class="bi bi-info-circle me-1"></i> Changing <strong>Comes In (Pkg)</strong> updates the package size the part comes in (e.g. box of 50). Receiving the order updates the part's catalog price.
                         </div>
                     </div>
                 </div>
@@ -218,6 +225,84 @@
 </div>
 
 {% if not object %}
+<!-- Modal: Quick Create New Part -->
+<div class="modal fade" id="quickCreatePartModal" tabindex="-1" aria-labelledby="quickCreatePartModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <h5 class="modal-title fw-bold" id="quickCreatePartModalLabel">
+                    <i class="bi bi-plus-square me-1 text-custom"></i> Create New Part &amp; Add to Order
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div id="quickPartError" class="alert alert-danger py-2 small d-none"></div>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Component Name <span class="text-danger">*</span></label>
+                        <input type="text" id="qpName" class="form-control form-control-sm" placeholder="e.g. M3 Hex Nut, Quick Disconnect">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Category</label>
+                        <select id="qpCategory" class="form-select form-select-sm">
+                            <option value="">-- Select Category --</option>
+                            {% for cat in categories %}
+                                <option value="{{ cat.pk }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Part Number</label>
+                        <input type="text" id="qpPartNumber" class="form-control form-control-sm" placeholder="Leave blank to auto-generate">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Supplier SKU / Part #</label>
+                        <input type="text" id="qpSupplierSku" class="form-control form-control-sm" placeholder="e.g. 296-1389-5-ND">
+                    </div>
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small fw-semibold">Description / Specs</label>
+                        <input type="text" id="qpDescription" class="form-control form-control-sm" placeholder="Detailed specifications or package notes">
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Storage Location</label>
+                        <select id="qpLocation" class="form-select form-select-sm">
+                            <option value="">-- Location --</option>
+                            {% for loc in locations %}
+                                <option value="{{ loc.pk }}">{{ loc.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <hr class="my-1">
+                        <span class="small fw-semibold text-uppercase text-muted" style="font-size: 0.72rem;">Package Quantity &amp; Pricing</span>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Comes In Qty (e.g. Box of 50)</label>
+                        <input type="number" id="qpPkgQty" class="form-control form-control-sm" value="1" min="1">
+                        <div class="form-text small">Units per box/package</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Package / Box Price ($)</label>
+                        <input type="number" step="0.01" id="qpPkgPrice" class="form-control form-control-sm" placeholder="0.00">
+                        <div class="form-text small">Price for the box/package</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Unit Price ($ Per Item)</label>
+                        <input type="number" step="0.01" id="qpUnitPrice" class="form-control form-control-sm" placeholder="0.00">
+                        <div class="form-text small">Auto-calculated from box price</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-top bg-body-tertiary">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-custom btn-sm fw-semibold" id="saveQuickPartBtn">
+                    <i class="bi bi-check2-circle me-1"></i> Create Part &amp; Add to Order
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- JavaScript for Dynamic Line Items -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -227,6 +312,8 @@ document.addEventListener('DOMContentLoaded', function() {
             id: "{{ p.pk }}",
             part_number: "{{ p.part_number|escapejs }}",
             name: "{{ p.name|default:p.description|default:'Part'|escapejs }}",
+            pkg_qty: {{ p.quantity|default:1 }},
+            pkg_price: "{{ p.price|default:'' }}",
             price: "{{ p.price_per|default:'0.00' }}",
             on_hand: {{ p.quantity_on_hand|default:0 }},
             on_order: {{ p.quantity_on_order|default:0 }}
@@ -234,29 +321,73 @@ document.addEventListener('DOMContentLoaded', function() {
         {% endfor %}
     ];
 
+    const categoriesHtml = `
+        <option value="">-- Category (Auto #) --</option>
+        {% for cat in categories %}
+        <option value="{{ cat.pk }}">{{ cat|escapejs }}</option>
+        {% endfor %}
+    `;
+
     const preselectedPartId = "{{ preselected_part_id|default:'' }}";
     const tbody = document.getElementById('orderItemsBody');
     const addBtn = document.getElementById('addPartRowBtn');
     const grandTotalDisplay = document.getElementById('grandTotalDisplay');
 
+    function buildPartOptionsHtml(selectedId = '') {
+        let optionsHtml = '<option value="">-- Select Component Part --</option>';
+        optionsHtml += '<option value="__new__" class="fw-bold text-primary">+ Create New Part...</option>';
+        partsData.forEach(p => {
+            const isSel = (p.id === selectedId) ? 'selected' : '';
+            const pkgLabel = (p.pkg_qty && p.pkg_qty > 1) ? ` [Pkg of ${p.pkg_qty}]` : '';
+            optionsHtml += `<option value="${p.id}" data-price="${p.price}" data-pkg-qty="${p.pkg_qty || 1}" data-pkg-price="${p.pkg_price}" ${isSel}>${p.part_number} &mdash; ${p.name}${pkgLabel} (On-Hand: ${p.on_hand}, On-Order: ${p.on_order})</option>`;
+        });
+        return optionsHtml;
+    }
+
     function createRow(selectedId = '') {
         const tr = document.createElement('tr');
         tr.className = 'item-row';
 
-        let optionsHtml = '<option value="">-- Select Component Part --</option>';
-        partsData.forEach(p => {
-            const isSel = (p.id === selectedId) ? 'selected' : '';
-            optionsHtml += `<option value="${p.id}" data-price="${p.price}" ${isSel}>${p.part_number} &mdash; ${p.name} (On-Hand: ${p.on_hand}, On-Order: ${p.on_order})</option>`;
-        });
-
         tr.innerHTML = `
             <td>
                 <select name="item_part[]" class="form-select form-select-sm part-selector" required>
-                    ${optionsHtml}
+                    ${buildPartOptionsHtml(selectedId)}
                 </select>
+                <!-- Inline New Part Fields (shown when "+ Create New Part..." is selected) -->
+                <div class="inline-new-part-box border rounded p-2 mt-2 bg-body-tertiary d-none">
+                    <div class="small fw-bold text-primary mb-1"><i class="bi bi-plus-circle me-1"></i>New Part Details</div>
+                    <div class="row g-1">
+                        <div class="col-12 col-sm-6">
+                            <input type="text" name="item_new_name[]" class="form-control form-control-sm new-part-name-input" placeholder="Part Name *">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <select name="item_new_category[]" class="form-select form-select-sm">
+                                ${categoriesHtml}
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <input type="text" name="item_new_part_number[]" class="form-control form-control-sm" placeholder="Part # (blank = auto)">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <input type="text" name="item_new_supplier_pn[]" class="form-control form-control-sm" placeholder="Supplier SKU #">
+                        </div>
+                        <div class="col-12">
+                            <input type="text" name="item_new_description[]" class="form-control form-control-sm" placeholder="Description / package specs">
+                        </div>
+                    </div>
+                </div>
+            </td>
+            <td>
+                <input type="number" name="item_package_quantity[]" class="form-control form-control-sm pkg-qty-input" value="1" min="1" title="Quantity it comes in (e.g. 50 for box of 50)">
             </td>
             <td>
                 <input type="number" name="item_quantity[]" class="form-control form-control-sm qty-input" value="1" min="1" required>
+            </td>
+            <td>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">$</span>
+                    <input type="number" step="0.01" name="item_package_price[]" class="form-control form-control-sm pkg-price-input" placeholder="0.00">
+                </div>
             </td>
             <td>
                 <div class="input-group input-group-sm">
@@ -275,29 +406,82 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
 
         const partSelect = tr.querySelector('.part-selector');
-        const priceInput = tr.querySelector('.price-input');
+        const inlineNewBox = tr.querySelector('.inline-new-part-box');
+        const newNameInput = tr.querySelector('.new-part-name-input');
+        const pkgQtyInput = tr.querySelector('.pkg-qty-input');
         const qtyInput = tr.querySelector('.qty-input');
+        const pkgPriceInput = tr.querySelector('.pkg-price-input');
+        const priceInput = tr.querySelector('.price-input');
         const removeBtn = tr.querySelector('.remove-row-btn');
 
-        // If part pre-selected, auto-fill price
-        if (selectedId) {
-            const matched = partsData.find(p => p.id === selectedId);
-            if (matched && matched.price && matched.price !== '0.00') {
+        function applyPartDefaults(partId) {
+            const matched = partsData.find(p => p.id === partId);
+            if (!matched) return;
+            const pQty = (matched.pkg_qty && matched.pkg_qty > 0) ? matched.pkg_qty : 1;
+            pkgQtyInput.value = pQty;
+            qtyInput.value = pQty;
+            if (matched.price && matched.price !== '0.00') {
                 priceInput.value = matched.price;
+                if (matched.pkg_price) {
+                    pkgPriceInput.value = matched.pkg_price;
+                } else {
+                    pkgPriceInput.value = (parseFloat(matched.price) * pQty).toFixed(2);
+                }
+            } else if (matched.pkg_price) {
+                pkgPriceInput.value = matched.pkg_price;
+                priceInput.value = (parseFloat(matched.pkg_price) / pQty).toFixed(2);
             }
         }
 
+        if (selectedId) {
+            applyPartDefaults(selectedId);
+        }
+
         partSelect.addEventListener('change', function() {
-            const opt = partSelect.options[partSelect.selectedIndex];
-            const defPrice = opt.getAttribute('data-price');
-            if (defPrice && defPrice !== '0.00' && !priceInput.value) {
-                priceInput.value = defPrice;
+            if (partSelect.value === '__new__') {
+                inlineNewBox.classList.remove('d-none');
+                newNameInput.required = true;
+            } else {
+                inlineNewBox.classList.add('d-none');
+                newNameInput.required = false;
+                if (partSelect.value) {
+                    applyPartDefaults(partSelect.value);
+                }
+            }
+            recalcTotal();
+        });
+
+        pkgQtyInput.addEventListener('input', function() {
+            const pkgQty = parseFloat(pkgQtyInput.value) || 1;
+            const pkgPrice = parseFloat(pkgPriceInput.value);
+            const unitPrice = parseFloat(priceInput.value);
+            if (!isNaN(pkgPrice) && pkgPrice > 0 && pkgQty > 0) {
+                priceInput.value = (pkgPrice / pkgQty).toFixed(2);
+            } else if (!isNaN(unitPrice) && unitPrice > 0 && pkgQty > 0) {
+                pkgPriceInput.value = (unitPrice * pkgQty).toFixed(2);
+            }
+            recalcTotal();
+        });
+
+        pkgPriceInput.addEventListener('input', function() {
+            const pkgQty = parseFloat(pkgQtyInput.value) || 1;
+            const pkgPrice = parseFloat(pkgPriceInput.value);
+            if (!isNaN(pkgPrice) && pkgQty > 0) {
+                priceInput.value = (pkgPrice / pkgQty).toFixed(2);
+            }
+            recalcTotal();
+        });
+
+        priceInput.addEventListener('input', function() {
+            const pkgQty = parseFloat(pkgQtyInput.value) || 1;
+            const unitPrice = parseFloat(priceInput.value);
+            if (!isNaN(unitPrice) && pkgQty > 0) {
+                pkgPriceInput.value = (unitPrice * pkgQty).toFixed(2);
             }
             recalcTotal();
         });
 
         qtyInput.addEventListener('input', recalcTotal);
-        priceInput.addEventListener('input', recalcTotal);
 
         removeBtn.addEventListener('click', function() {
             if (tbody.querySelectorAll('.item-row').length > 1) {
@@ -310,6 +494,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         tbody.appendChild(tr);
         recalcTotal();
+        return tr;
     }
 
     function recalcTotal() {
@@ -323,6 +508,113 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     addBtn.addEventListener('click', () => createRow(''));
+
+    // Quick Create New Part Modal Logic
+    const qpPkgQty = document.getElementById('qpPkgQty');
+    const qpPkgPrice = document.getElementById('qpPkgPrice');
+    const qpUnitPrice = document.getElementById('qpUnitPrice');
+    const saveQuickPartBtn = document.getElementById('saveQuickPartBtn');
+    const quickPartError = document.getElementById('quickPartError');
+
+    if (qpPkgQty && qpPkgPrice && qpUnitPrice) {
+        function syncQuickModalPrices(source) {
+            const pkgQty = parseFloat(qpPkgQty.value) || 1;
+            const pkgPrice = parseFloat(qpPkgPrice.value);
+            const unitPrice = parseFloat(qpUnitPrice.value);
+            if (source === 'pkg' && !isNaN(pkgPrice) && pkgQty > 0) {
+                qpUnitPrice.value = (pkgPrice / pkgQty).toFixed(2);
+            } else if (source === 'unit' && !isNaN(unitPrice) && pkgQty > 0) {
+                qpPkgPrice.value = (unitPrice * pkgQty).toFixed(2);
+            } else if (source === 'qty') {
+                if (!isNaN(pkgPrice) && pkgQty > 0) {
+                    qpUnitPrice.value = (pkgPrice / pkgQty).toFixed(2);
+                } else if (!isNaN(unitPrice) && pkgQty > 0) {
+                    qpPkgPrice.value = (unitPrice * pkgQty).toFixed(2);
+                }
+            }
+        }
+        qpPkgQty.addEventListener('input', () => syncQuickModalPrices('qty'));
+        qpPkgPrice.addEventListener('input', () => syncQuickModalPrices('pkg'));
+        qpUnitPrice.addEventListener('input', () => syncQuickModalPrices('unit'));
+    }
+
+    if (saveQuickPartBtn) {
+        saveQuickPartBtn.addEventListener('click', function() {
+            quickPartError.classList.add('d-none');
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            const supplierSelect = document.getElementById('id_order_supplier');
+            const formData = new FormData();
+            formData.append('name', document.getElementById('qpName').value);
+            formData.append('category', document.getElementById('qpCategory').value);
+            formData.append('part_number', document.getElementById('qpPartNumber').value);
+            formData.append('supplier_part_number', document.getElementById('qpSupplierSku').value);
+            formData.append('description', document.getElementById('qpDescription').value);
+            formData.append('location', document.getElementById('qpLocation').value);
+            formData.append('package_quantity', qpPkgQty.value || '1');
+            formData.append('package_price', qpPkgPrice.value || '');
+            formData.append('unit_price', qpUnitPrice.value || '');
+            if (supplierSelect && supplierSelect.value) {
+                formData.append('supplier', supplierSelect.value);
+            }
+
+            fetch("{% url 'order_quick_create_part' %}", {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrfToken},
+                body: formData
+            })
+            .then(res => res.json().then(data => ({ok: res.ok, data})))
+            .then(({ok, data}) => {
+                if (!ok || data.status !== 'ok') {
+                    quickPartError.textContent = data.error || 'Could not create part.';
+                    quickPartError.classList.remove('d-none');
+                    return;
+                }
+                const newPart = {
+                    id: data.part.id,
+                    part_number: data.part.part_number,
+                    name: data.part.name,
+                    pkg_qty: data.part.quantity || 1,
+                    pkg_price: data.part.price || '',
+                    price: data.part.price_per || '0.00',
+                    on_hand: data.part.on_hand || 0,
+                    on_order: data.part.on_order || 0
+                };
+                partsData.push(newPart);
+
+                // Refresh all existing dropdowns and select in empty row or add new row
+                let placedInExisting = false;
+                tbody.querySelectorAll('.item-row').forEach(row => {
+                    const sel = row.querySelector('.part-selector');
+                    const currentVal = sel.value;
+                    sel.innerHTML = buildPartOptionsHtml(currentVal);
+                    if (!placedInExisting && !currentVal) {
+                        sel.value = newPart.id;
+                        sel.dispatchEvent(new Event('change'));
+                        placedInExisting = true;
+                    }
+                });
+                if (!placedInExisting) {
+                    createRow(newPart.id);
+                }
+
+                // Reset modal fields and hide
+                document.getElementById('qpName').value = '';
+                document.getElementById('qpPartNumber').value = '';
+                document.getElementById('qpSupplierSku').value = '';
+                document.getElementById('qpDescription').value = '';
+                qpPkgQty.value = '1';
+                qpPkgPrice.value = '';
+                qpUnitPrice.value = '';
+                const modalEl = document.getElementById('quickCreatePartModal');
+                const modalInst = bootstrap.Modal.getInstance(modalEl);
+                if (modalInst) modalInst.hide();
+            })
+            .catch(() => {
+                quickPartError.textContent = 'Network error while creating part.';
+                quickPartError.classList.remove('d-none');
+            });
+        });
+    }
 
     // Create initial row
     createRow(preselectedPartId);

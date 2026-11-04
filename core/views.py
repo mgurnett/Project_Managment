@@ -1,8 +1,9 @@
 import csv
 import re
+from decimal import Decimal, InvalidOperation
 from django.shortcuts import render, get_object_or_404, redirect
 from django.template.loader import render_to_string
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.urls import reverse_lazy, reverse
 from django.contrib import messages
 from django.utils import timezone
@@ -1070,7 +1071,97 @@ class OrderDetailView(DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx['items'] = self.object.items.select_related('part', 'part__company', 'part__location').all()
         ctx['item_form'] = OrderItemForm(order=self.object)
+        ctx['categories'] = Category.objects.all().order_by('prefix', 'name')
+        ctx['locations'] = Location.objects.all().order_by('name')
+        ctx['all_parts'] = Part.objects.select_related('company', 'category').all().order_by('part_number')
         return ctx
+
+
+def order_quick_create_part(request):
+    """
+    AJAX/POST endpoint to quickly create a new Part while placing or editing an order.
+    Supports setting package quantity (the quantity they come in, e.g. box of 50),
+    package price, and unit price.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'error': 'POST required'}, status=405)
+
+    name = (request.POST.get('name') or '').strip()
+    part_number = (request.POST.get('part_number') or '').strip()
+    description = (request.POST.get('description') or '').strip()
+    supplier_part_number = (request.POST.get('supplier_part_number') or '').strip()
+    category_id = (request.POST.get('category') or '').strip()
+    location_id = (request.POST.get('location') or '').strip()
+    supplier_id = (request.POST.get('supplier') or '').strip()
+
+    if not name and not description and not part_number:
+        return JsonResponse({'status': 'error', 'error': 'Please provide a Part Name or Description.'}, status=400)
+
+    try:
+        pkg_qty = int(request.POST.get('package_quantity') or request.POST.get('quantity') or 1)
+        if pkg_qty <= 0:
+            pkg_qty = 1
+    except (ValueError, TypeError):
+        pkg_qty = 1
+
+    pkg_price = None
+    raw_pkg_price = (request.POST.get('package_price') or request.POST.get('price') or '').strip()
+    if raw_pkg_price:
+        try:
+            pkg_price = Decimal(raw_pkg_price)
+        except (InvalidOperation, ValueError):
+            pkg_price = None
+
+    u_price = None
+    raw_u_price = (request.POST.get('unit_price') or request.POST.get('price_per') or '').strip()
+    if raw_u_price:
+        try:
+            u_price = Decimal(raw_u_price)
+        except (InvalidOperation, ValueError):
+            u_price = None
+
+    if pkg_price is not None and pkg_qty > 0 and u_price is None:
+        u_price = (pkg_price / Decimal(str(pkg_qty))).quantize(Decimal('0.01'))
+    elif u_price is not None and pkg_qty > 0 and pkg_price is None:
+        pkg_price = (u_price * Decimal(str(pkg_qty))).quantize(Decimal('0.01'))
+
+    category = Category.objects.filter(pk=int(category_id)).first() if category_id.isdigit() else None
+    location = Location.objects.filter(pk=int(location_id)).first() if location_id.isdigit() else None
+    company = Company.objects.filter(pk=int(supplier_id)).first() if supplier_id.isdigit() else None
+
+    part = Part(
+        part_number=part_number,
+        name=name or description or part_number,
+        description=description or name,
+        supplier_part_number=supplier_part_number,
+        company=company,
+        category=category,
+        location=location,
+        quantity=pkg_qty,
+        price_per=u_price,
+        price=pkg_price,
+    )
+    try:
+        part.clean()
+        part.save()
+    except Exception as exc:
+        err_msg = getattr(exc, 'messages', [str(exc)])
+        return JsonResponse({'status': 'error', 'error': '; '.join(err_msg)}, status=400)
+
+    return JsonResponse({
+        'status': 'ok',
+        'part': {
+            'id': str(part.pk),
+            'part_number': part.part_number,
+            'name': part.name or part.description or 'Part',
+            'description': part.description or '',
+            'quantity': part.quantity or 1,
+            'price': f"{part.price:.2f}" if part.price is not None else '',
+            'price_per': f"{part.price_per:.2f}" if part.price_per is not None else '0.00',
+            'on_hand': part.quantity_on_hand or 0,
+            'on_order': part.quantity_on_order or 0,
+        }
+    })
 
 
 class OrderCreateView(CreateView):
@@ -1078,6 +1169,8 @@ class OrderCreateView(CreateView):
     Action that allows us to make an order.
     The order has a supplier, expected delivery date, tracking number, and part numbers.
     The part numbers have their on-order number increased by the amount ordered.
+    Also allows creating a new part inline and changing the price and package quantity
+    (e.g. box of 50) that the part comes in.
     """
     model = Order
     form_class = OrderForm
@@ -1093,6 +1186,8 @@ class OrderCreateView(CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['all_parts'] = Part.objects.select_related('company', 'category').all().order_by('part_number')
+        ctx['categories'] = Category.objects.all().order_by('prefix', 'name')
+        ctx['locations'] = Location.objects.all().order_by('name')
         ctx['preselected_part_id'] = self.request.GET.get('part')
         return ctx
 
@@ -1103,32 +1198,129 @@ class OrderCreateView(CreateView):
             # Process line items submitted dynamically
             part_ids = self.request.POST.getlist('item_part[]') or self.request.POST.getlist('item_part')
             quantities = self.request.POST.getlist('item_quantity[]') or self.request.POST.getlist('item_quantity')
+            package_quantities = (
+                self.request.POST.getlist('item_package_quantity[]')
+                or self.request.POST.getlist('item_package_quantity')
+            )
+            package_prices = (
+                self.request.POST.getlist('item_package_price[]')
+                or self.request.POST.getlist('item_package_price')
+            )
             unit_prices = self.request.POST.getlist('item_unit_price[]') or self.request.POST.getlist('item_unit_price')
             notes_list = self.request.POST.getlist('item_notes[]') or self.request.POST.getlist('item_notes')
 
+            # Inline new-part creation fields (when item_part is '__new__' or 'new')
+            new_names = self.request.POST.getlist('item_new_name[]') or self.request.POST.getlist('item_new_name')
+            new_part_numbers = (
+                self.request.POST.getlist('item_new_part_number[]')
+                or self.request.POST.getlist('item_new_part_number')
+            )
+            new_categories = (
+                self.request.POST.getlist('item_new_category[]')
+                or self.request.POST.getlist('item_new_category')
+            )
+            new_descriptions = (
+                self.request.POST.getlist('item_new_description[]')
+                or self.request.POST.getlist('item_new_description')
+            )
+            new_supplier_pns = (
+                self.request.POST.getlist('item_new_supplier_pn[]')
+                or self.request.POST.getlist('item_new_supplier_pn')
+            )
+
             items_created = 0
             for i, p_id in enumerate(part_ids):
-                if not p_id or not p_id.isdigit():
+                p_id_str = str(p_id).strip() if p_id else ''
+                if not p_id_str:
                     continue
+
                 try:
-                    qty = int(quantities[i]) if i < len(quantities) and quantities[i] else 1
+                    qty = int(quantities[i]) if i < len(quantities) and str(quantities[i]).strip() else 1
                     if qty <= 0:
                         continue
-                except ValueError:
+                except (ValueError, TypeError):
                     qty = 1
 
-                u_price = None
-                if i < len(unit_prices) and unit_prices[i]:
+                pkg_qty = None
+                if i < len(package_quantities) and str(package_quantities[i]).strip():
                     try:
-                        u_price = Decimal(str(unit_prices[i]))
-                    except Exception:
+                        parsed_pkg_qty = int(package_quantities[i])
+                        if parsed_pkg_qty > 0:
+                            pkg_qty = parsed_pkg_qty
+                    except (ValueError, TypeError):
+                        pkg_qty = None
+
+                pkg_price = None
+                if i < len(package_prices) and str(package_prices[i]).strip():
+                    try:
+                        pkg_price = Decimal(str(package_prices[i]).strip())
+                    except (InvalidOperation, ValueError):
+                        pkg_price = None
+
+                u_price = None
+                if i < len(unit_prices) and str(unit_prices[i]).strip():
+                    try:
+                        u_price = Decimal(str(unit_prices[i]).strip())
+                    except (InvalidOperation, ValueError):
                         u_price = None
+
+                # Compute unit_price from package_price / package_quantity or vice versa
+                effective_pkg_qty_for_calc = pkg_qty if (pkg_qty and pkg_qty > 0) else 1
+                if pkg_price is not None and u_price is None:
+                    u_price = (pkg_price / Decimal(str(effective_pkg_qty_for_calc))).quantize(Decimal('0.01'))
+                elif u_price is not None and pkg_price is None and pkg_qty and pkg_qty > 0:
+                    pkg_price = (u_price * Decimal(str(pkg_qty))).quantize(Decimal('0.01'))
 
                 item_notes = notes_list[i].strip() if i < len(notes_list) and notes_list[i] else ''
 
-                part = get_object_or_404(Part, pk=int(p_id))
-                if u_price is None and part.price_per:
-                    u_price = part.price_per
+                if p_id_str in ['__new__', 'new']:
+                    new_name = new_names[i].strip() if i < len(new_names) and new_names[i] else ''
+                    new_pn = new_part_numbers[i].strip() if i < len(new_part_numbers) and new_part_numbers[i] else ''
+                    new_cat_id = new_categories[i].strip() if i < len(new_categories) and new_categories[i] else ''
+                    new_desc = new_descriptions[i].strip() if i < len(new_descriptions) and new_descriptions[i] else ''
+                    new_sku = new_supplier_pns[i].strip() if i < len(new_supplier_pns) and new_supplier_pns[i] else ''
+
+                    if not new_name and not new_desc and not new_pn:
+                        continue
+
+                    cat_obj = Category.objects.filter(pk=int(new_cat_id)).first() if new_cat_id.isdigit() else None
+                    part = Part.objects.create(
+                        part_number=new_pn,
+                        name=new_name or new_desc or new_pn,
+                        description=new_desc or new_name,
+                        supplier_part_number=new_sku,
+                        company=order.supplier,
+                        category=cat_obj,
+                        quantity=pkg_qty if (pkg_qty and pkg_qty > 0) else 1,
+                        price_per=u_price,
+                        price=pkg_price,
+                    )
+                elif p_id_str.isdigit():
+                    part = get_object_or_404(Part, pk=int(p_id_str))
+                    part_updated_fields = []
+
+                    # If package quantity ("quantity that they come in", e.g. box of 50) was set/changed
+                    if pkg_qty is not None and pkg_qty > 0 and part.quantity != pkg_qty:
+                        part.quantity = pkg_qty
+                        part_updated_fields.append('quantity')
+                        # Recalculate package price if part already has a price_per
+                        if part.price_per is not None:
+                            part.price = (Decimal(str(part.price_per)) * Decimal(str(pkg_qty))).quantize(Decimal('0.01'))
+                            part_updated_fields.append('price')
+
+                    # If pkg_price was explicitly provided without u_price, derive u_price using part.quantity
+                    if u_price is None and pkg_price is not None:
+                        denom = pkg_qty or part.quantity or 1
+                        u_price = (pkg_price / Decimal(str(denom))).quantize(Decimal('0.01'))
+
+                    if u_price is None and part.price_per is not None:
+                        u_price = part.price_per
+
+                    if part_updated_fields:
+                        part_updated_fields.append('updated_at')
+                        part.save(update_fields=part_updated_fields)
+                else:
+                    continue
 
                 OrderItem.objects.create(
                     order=order,
@@ -1189,6 +1381,8 @@ class OrderDeleteView(DeleteView):
 class OrderItemCreateView(CreateView):
     """
     Adds a line item to an existing order and increments the part's quantity_on_order.
+    Supports selecting an existing part OR creating a new part inline, as well as
+    changing the price and package quantity (e.g. box of 50).
     """
     model = OrderItem
     form_class = OrderItemForm
@@ -1196,24 +1390,112 @@ class OrderItemCreateView(CreateView):
     def get_order(self):
         return get_object_or_404(Order, pk=self.kwargs['order_pk'])
 
-    def form_valid(self, form):
+    def post(self, request, *args, **kwargs):
         order = self.get_order()
+        part_val = (request.POST.get('part') or '').strip()
+
+        try:
+            qty = int(request.POST.get('quantity') or 1)
+            if qty <= 0:
+                qty = 1
+        except (ValueError, TypeError):
+            qty = 1
+
+        pkg_qty = None
+        raw_pkg_qty = (request.POST.get('package_quantity') or '').strip()
+        if raw_pkg_qty:
+            try:
+                parsed_pkg = int(raw_pkg_qty)
+                if parsed_pkg > 0:
+                    pkg_qty = parsed_pkg
+            except (ValueError, TypeError):
+                pkg_qty = None
+
+        pkg_price = None
+        raw_pkg_price = (request.POST.get('package_price') or '').strip()
+        if raw_pkg_price:
+            try:
+                pkg_price = Decimal(raw_pkg_price)
+            except (InvalidOperation, ValueError):
+                pkg_price = None
+
+        u_price = None
+        raw_u_price = (request.POST.get('unit_price') or '').strip()
+        if raw_u_price:
+            try:
+                u_price = Decimal(raw_u_price)
+            except (InvalidOperation, ValueError):
+                u_price = None
+
+        notes = (request.POST.get('notes') or '').strip()
+
         with transaction.atomic():
-            form.instance.order = order
-            item = form.save()
-            # Increase on-order count
-            Part.objects.filter(pk=item.part.pk).update(quantity_on_order=F('quantity_on_order') + item.quantity)
+            if part_val in ['__new__', 'new']:
+                new_name = (request.POST.get('new_name') or '').strip()
+                new_pn = (request.POST.get('new_part_number') or '').strip()
+                new_cat_id = (request.POST.get('new_category') or '').strip()
+                new_desc = (request.POST.get('new_description') or '').strip()
+                new_sku = (request.POST.get('new_supplier_part_number') or '').strip()
+
+                if not new_name and not new_desc and not new_pn:
+                    messages.error(request, "Please provide a Part Name or Description for the new part.")
+                    return redirect('order_detail', pk=order.pk)
+
+                effective_pkg = pkg_qty if (pkg_qty and pkg_qty > 0) else 1
+                if pkg_price is not None and u_price is None:
+                    u_price = (pkg_price / Decimal(str(effective_pkg))).quantize(Decimal('0.01'))
+                elif u_price is not None and pkg_price is None:
+                    pkg_price = (u_price * Decimal(str(effective_pkg))).quantize(Decimal('0.01'))
+
+                cat_obj = Category.objects.filter(pk=int(new_cat_id)).first() if new_cat_id.isdigit() else None
+                part = Part.objects.create(
+                    part_number=new_pn,
+                    name=new_name or new_desc or new_pn,
+                    description=new_desc or new_name,
+                    supplier_part_number=new_sku,
+                    company=order.supplier,
+                    category=cat_obj,
+                    quantity=effective_pkg,
+                    price_per=u_price,
+                    price=pkg_price,
+                )
+            elif part_val.isdigit():
+                part = get_object_or_404(Part, pk=int(part_val))
+                part_updated_fields = []
+                if pkg_qty is not None and pkg_qty > 0 and part.quantity != pkg_qty:
+                    part.quantity = pkg_qty
+                    part_updated_fields.append('quantity')
+                    if part.price_per is not None:
+                        part.price = (Decimal(str(part.price_per)) * Decimal(str(pkg_qty))).quantize(Decimal('0.01'))
+                        part_updated_fields.append('price')
+
+                effective_pkg = pkg_qty or part.quantity or 1
+                if pkg_price is not None and u_price is None:
+                    u_price = (pkg_price / Decimal(str(effective_pkg))).quantize(Decimal('0.01'))
+
+                if u_price is None and part.price_per is not None:
+                    u_price = part.price_per
+
+                if part_updated_fields:
+                    part_updated_fields.append('updated_at')
+                    part.save(update_fields=part_updated_fields)
+            else:
+                messages.error(request, "Please select a valid part or create a new part.")
+                return redirect('order_detail', pk=order.pk)
+
+            item = OrderItem.objects.create(
+                order=order,
+                part=part,
+                quantity=qty,
+                unit_price=u_price,
+                notes=notes,
+            )
+            Part.objects.filter(pk=part.pk).update(quantity_on_order=F('quantity_on_order') + item.quantity)
             messages.success(
-                self.request,
+                request,
                 f"Added {item.part.part_number} (Qty: {item.quantity}) to Order {order.order_number}. On-order quantity increased."
             )
             return redirect('order_detail', pk=order.pk)
-
-    def form_invalid(self, form):
-        for field, errs in form.errors.items():
-            for err in errs:
-                messages.error(self.request, f"{err}")
-        return redirect('order_detail', pk=self.kwargs['order_pk'])
 
 
 class OrderItemDeleteView(DeleteView):
@@ -1249,7 +1531,8 @@ class OrderItemDeleteView(DeleteView):
 def order_receive_item(request, order_pk, item_pk):
     """
     Action to receive units for a specific order line item.
-    Increases on_hand and decreases on_order.
+    Increases on_hand, decreases on_order, and updates the Part's price model
+    (price_per, price, and package quantity if provided) to the ordered/received price.
     """
     if request.method != 'POST':
         return redirect('order_detail', pk=order_pk)
@@ -1269,14 +1552,65 @@ def order_receive_item(request, order_pk, item_pk):
     qty_to_receive = min(qty_to_receive, item.remaining_to_receive)
 
     with transaction.atomic():
-        item.quantity_received += qty_to_receive
-        item.save(update_fields=['quantity_received', 'updated_at'])
-
         part = item.part
+
+        # Check if package quantity ("quantity that they come in", e.g. box of 50) was provided/updated
+        raw_pkg_qty = (request.POST.get('package_quantity') or '').strip()
+        if raw_pkg_qty:
+            try:
+                parsed_pkg_qty = int(raw_pkg_qty)
+                if parsed_pkg_qty > 0:
+                    part.quantity = parsed_pkg_qty
+            except (ValueError, TypeError):
+                pass
+
+        # Check if unit_price or package_price was provided/overridden during receipt, else use item.unit_price
+        raw_unit_price = (request.POST.get('unit_price') or '').strip()
+        raw_pkg_price = (request.POST.get('package_price') or '').strip()
+
+        received_pkg_price = None
+        if raw_pkg_price:
+            try:
+                received_pkg_price = Decimal(raw_pkg_price)
+            except (InvalidOperation, ValueError):
+                received_pkg_price = None
+
+        received_unit_price = None
+        if raw_unit_price:
+            try:
+                received_unit_price = Decimal(raw_unit_price)
+            except (InvalidOperation, ValueError):
+                received_unit_price = None
+
+        if received_unit_price is None and received_pkg_price is not None:
+            denom = part.quantity if (part.quantity and part.quantity > 0) else 1
+            received_unit_price = (received_pkg_price / Decimal(str(denom))).quantize(Decimal('0.01'))
+
+        if received_unit_price is not None:
+            item.unit_price = received_unit_price
+        else:
+            received_unit_price = item.unit_price
+
+        item.quantity_received += qty_to_receive
+        item.save(update_fields=['quantity_received', 'unit_price', 'updated_at'])
+
         # Decrease on order, increase on hand
         part.quantity_on_order = max(0, (part.quantity_on_order or 0) - qty_to_receive)
         part.quantity_on_hand = (part.quantity_on_hand or 0) + qty_to_receive
-        part.save(update_fields=['quantity_on_order', 'quantity_on_hand', 'updated_at'])
+
+        # Update the price in the Part model when ordered at a price and received
+        part_update_fields = ['quantity_on_order', 'quantity_on_hand', 'quantity', 'updated_at']
+        if received_unit_price is not None:
+            part.price_per = received_unit_price
+            if received_pkg_price is not None:
+                part.price = received_pkg_price
+            elif part.quantity and part.quantity > 0:
+                part.price = (received_unit_price * Decimal(str(part.quantity))).quantize(Decimal('0.01'))
+            else:
+                part.price = received_unit_price
+            part_update_fields.extend(['price_per', 'price'])
+
+        part.save(update_fields=part_update_fields)
 
         # Update order status
         if order.is_fully_received:
@@ -1285,9 +1619,10 @@ def order_receive_item(request, order_pk, item_pk):
             order.status = 'PARTIALLY_RECEIVED'
         order.save(update_fields=['status', 'updated_at'])
 
+        price_msg = f" Price updated to ${part.price_per:.2f}/unit." if received_unit_price is not None else ""
         messages.success(
             request,
-            f"Received {qty_to_receive} units of {part.part_number}! On-hand is now {part.quantity_on_hand}, On-order is {part.quantity_on_order}."
+            f"Received {qty_to_receive} units of {part.part_number}! On-hand is now {part.quantity_on_hand}, On-order is {part.quantity_on_order}.{price_msg}"
         )
 
     return redirect('order_detail', pk=order_pk)
