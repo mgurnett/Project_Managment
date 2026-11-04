@@ -1,9 +1,6 @@
 agent dialog.txt
 
 
-Active Orders
-1
-101 units on order
-There are only 2 parts on this order.
+This is looking GREAT.  Thank you so much.  
 
-We need to make this button take us to active orders  http://127.0.0.1:8000/orders/
+Let's start using it.  So please set all quantity to 0, price to $0 and remove all journal enteries.  I will then go do a full inventory and place some orders and I can start using this new tool.
