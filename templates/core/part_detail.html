@@ -399,6 +399,62 @@
                 </div>
             </div>
 
+            <!-- Transaction & Movement Journal Section -->
+            <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
+                <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                            <i class="bi bi-journal-text me-2 text-custom"></i>Transaction &amp; Movement Journal ({{ journal_entries|length }})
+                        </h3>
+                    </div>
+                    <span class="badge bg-light text-muted border small">Audit Log</span>
+                </div>
+                <div class="card-body p-0 pt-2">
+                    {% if journal_entries %}
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light border-top border-bottom small text-uppercase text-muted">
+                                    <tr>
+                                        <th scope="col" class="ps-4 py-2.5">Date &amp; Time</th>
+                                        <th scope="col" class="py-2.5">Transaction / Action</th>
+                                        <th scope="col" class="py-2.5">Inventory &amp; Price Movements</th>
+                                        <th scope="col" class="text-end pe-4 py-2.5">User</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for entry in journal_entries %}
+                                    <tr>
+                                        <td class="ps-4 py-2.5 small text-muted font-monospace">
+                                            {{ entry.datetime|date:"M d, Y H:i:s" }}
+                                        </td>
+                                        <td class="py-2.5">
+                                            <span class="badge {{ entry.badge_class }} border px-2 py-1 small">
+                                                {{ entry.action }}
+                                            </span>
+                                        </td>
+                                        <td class="py-2.5 small">
+                                            {% for chg in entry.changes %}
+                                                <span class="badge bg-body-tertiary text-body border font-monospace me-1 mb-1">{{ chg }}</span>
+                                            {% endfor %}
+                                        </td>
+                                        <td class="text-end pe-4 py-2.5 small text-muted">
+                                            {{ entry.user }}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="p-4 pt-1">
+                            <div class="text-center py-3 border rounded-3 bg-body-tertiary text-muted small">
+                                No inventory movements recorded yet for this part.
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
         </div>
 
         <!-- Right Column: Sourcing & Pricing -->

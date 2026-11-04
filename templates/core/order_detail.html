@@ -506,11 +506,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     const pPrice = opt.getAttribute('data-pkg-price') || '';
                     const uPrice = opt.getAttribute('data-price') || '';
                     if (pkgQtyInput) pkgQtyInput.value = pQty;
-                    if (qtyInput) qtyInput.value = pQty;
-                    if (uPrice && uPrice !== '0.00' && unitPriceInput) {
+                    if (qtyInput) qtyInput.value = 1;
+                    if (pPrice && pkgPriceInput) {
+                        pkgPriceInput.value = pPrice;
+                        if (unitPriceInput) {
+                            unitPriceInput.value = (uPrice && uPrice !== '0.00')
+                                ? uPrice
+                                : (parseFloat(pPrice) / pQty).toFixed(2);
+                        }
+                    } else if (uPrice && uPrice !== '0.00' && unitPriceInput) {
                         unitPriceInput.value = uPrice;
                         if (pkgPriceInput) {
-                            pkgPriceInput.value = pPrice || (parseFloat(uPrice) * pQty).toFixed(2);
+                            pkgPriceInput.value = (parseFloat(uPrice) * pQty).toFixed(2);
                         }
                     }
                 }

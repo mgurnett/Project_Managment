@@ -272,6 +272,40 @@ class OrderActionTestCase(TestCase):
         self.assertEqual(self.part1.price_per, Decimal("0.40"))
         self.assertEqual(self.part1.price, Decimal("20.00"))
 
+        # Also test ordering Qty=1 of a [Pkg of 50] part priced at $20.20 ($0.40/unit) ->
+        # should order 1 package (50 units) with an Estimated Total / Subtotal of $20.20 (not $0.40)
+        qd_part = Part.objects.create(
+            part_number="600-003",
+            name="Quick Disconnect plug",
+            company=self.supplier,
+            category=self.category,
+            quantity=50,
+            price=Decimal("20.20"),
+            price_per=Decimal("0.40"),
+            quantity_on_hand=50,
+            quantity_on_order=0,
+        )
+        res_qd = self.client.post(reverse('order_create'), {
+            'supplier': self.supplier.pk,
+            'order_number': 'PO-QD-600-003',
+            'order_date': timezone.now().date().isoformat(),
+            'status': 'ORDERED',
+            'item_part': [qd_part.pk],
+            'item_package_quantity': [50],
+            'item_quantity': [1],
+            'item_package_price': ['20.20'],
+            'item_unit_price': ['0.40'],
+            'item_notes': ['1 package of 50'],
+        })
+        self.assertEqual(res_qd.status_code, 302)
+        qd_order = Order.objects.get(order_number='PO-QD-600-003')
+        qd_item = qd_order.items.first()
+        self.assertEqual(qd_item.quantity, 50)
+        self.assertEqual(qd_item.subtotal, Decimal("20.20"))
+        self.assertEqual(qd_order.total_cost, Decimal("20.20"))
+        qd_part.refresh_from_db()
+        self.assertEqual(qd_part.quantity_on_order, 50)
+
     def test_order_create_with_inline_new_part_and_quick_create_endpoint(self):
         """
         Tests creating a brand new part directly during order creation (both via inline '__new__'
@@ -616,6 +650,8 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         )
 
     def test_full_purchase_order_receive_kit_and_close_kit_workflow(self):
+        from django.conf import settings
+        settings.TEST = True
         # --- STEP 0: Verify initial inventory state ---
         self.part.refresh_from_db()
         self.assertEqual(self.part.quantity_on_hand, 5)
@@ -722,10 +758,11 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertEqual(self.part.quantity_committed, 0)
         self.assertEqual(self.part.quantity_availible, 13)
 
-        # --- STEP 6: Verify Take Inventory Sheet reflects 13 on hand and test an audit adjustment to 12 ---
+        # --- STEP 6: Verify Take Inventory Sheet reflects 13 on hand and unit price $9.50, then adjust to 12 ---
         res_inv_get = self.client.get(reverse('take_inventory'))
         self.assertEqual(res_inv_get.status_code, 200)
         self.assertContains(res_inv_get, '400-001')
+        self.assertContains(res_inv_get, '$9.50')
 
         res_inv_post = self.client.post(reverse('take_inventory'), {
             f'actual_count_{self.part.pk}': '12',
@@ -737,5 +774,15 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertEqual(self.part.quantity_on_order, 0)
         self.assertEqual(self.part.quantity_committed, 0)
         self.assertEqual(self.part.quantity_availible, 12)
+
+        # --- STEP 7: Verify Part Detail page displays the Transaction & Movement Journal ---
+        res_part_detail = self.client.get(reverse('part_detail', kwargs={'pk': self.part.pk}))
+        self.assertEqual(res_part_detail.status_code, 200)
+        self.assertContains(res_part_detail, 'Transaction &amp; Movement Journal')
+        self.assertContains(res_part_detail, 'Purchase Order')
+        self.assertContains(res_part_detail, 'Order Received')
+        self.assertContains(res_part_detail, 'Kit Picked')
+        self.assertContains(res_part_detail, 'Kit Closed / Built')
+        self.assertContains(res_part_detail, 'Inventory Adjustment')
 
 

@@ -419,17 +419,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!matched) return;
             const pQty = (matched.pkg_qty && matched.pkg_qty > 0) ? matched.pkg_qty : 1;
             pkgQtyInput.value = pQty;
-            qtyInput.value = pQty;
-            if (matched.price && matched.price !== '0.00') {
-                priceInput.value = matched.price;
-                if (matched.pkg_price) {
-                    pkgPriceInput.value = matched.pkg_price;
-                } else {
-                    pkgPriceInput.value = (parseFloat(matched.price) * pQty).toFixed(2);
-                }
-            } else if (matched.pkg_price) {
+            qtyInput.value = 1;
+            if (matched.pkg_price) {
                 pkgPriceInput.value = matched.pkg_price;
-                priceInput.value = (parseFloat(matched.pkg_price) / pQty).toFixed(2);
+                priceInput.value = (matched.price && matched.price !== '0.00')
+                    ? matched.price
+                    : (parseFloat(matched.pkg_price) / pQty).toFixed(2);
+            } else if (matched.price && matched.price !== '0.00') {
+                priceInput.value = matched.price;
+                pkgPriceInput.value = (parseFloat(matched.price) * pQty).toFixed(2);
             }
         }
 
@@ -501,8 +499,20 @@ document.addEventListener('DOMContentLoaded', function() {
         let total = 0.0;
         tbody.querySelectorAll('.item-row').forEach(row => {
             const qty = parseFloat(row.querySelector('.qty-input').value) || 0;
-            const price = parseFloat(row.querySelector('.price-input').value) || 0;
-            total += (qty * price);
+            const pkgQty = parseFloat(row.querySelector('.pkg-qty-input').value) || 1;
+            const pkgPrice = parseFloat(row.querySelector('.pkg-price-input').value);
+            const unitPrice = parseFloat(row.querySelector('.price-input').value) || 0;
+
+            if (!isNaN(pkgPrice) && pkgPrice > 0) {
+                // Order Qty is number of packages (or if user entered total units as a multiple of pkgQty >= pkgQty)
+                if (pkgQty > 1 && qty >= pkgQty && qty % pkgQty === 0) {
+                    total += (qty / pkgQty) * pkgPrice;
+                } else {
+                    total += (qty * pkgPrice);
+                }
+            } else {
+                total += (qty * unitPrice * (pkgQty > 1 && qty < pkgQty ? pkgQty : 1));
+            }
         });
         grandTotalDisplay.textContent = '$' + total.toFixed(2);
     }

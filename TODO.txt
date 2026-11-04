@@ -4,7 +4,6 @@ TODO:
 ==============  Priority HIGH
 TODO: 
 
-
 ==============  Priority Medium
 TODO: 
 
@@ -14,6 +13,7 @@ TODO:
 
 
 ==============  COMPLETED =============
+[COMPLETED] Just to make sure: 1. unit price in catalog (Yes, Part.price_per), 2. unit price in order (Yes, OrderItem.unit_price), 3. unit price in take inventory (Added Unit Price column to templates/core/take_inventory.html showing Part.price_per), 4. price in catalog is price of last purchase (Yes, updated on order receipt), 5. Transaction & Movement Journal on Part detail page (Added Transaction & Movement Journal table on templates/core/part_detail.html powered by easyaudit CRUDEvent so every PO, receipt, kit pick, kit close, and inventory adjustment is visible on the part page)
 [COMPLETED] We need to remove all referances to projects.   There are no projects, so if there is a model for projects it needs to be removed too. (Verified no Project model exists in models.py; removed all references to projects, New Project buttons/modals, and mock project data from core/views.py, templates/home.html, templates/base.html, inventory/settings.py, and all core templates)
 [COMPLETED] Bills of Materials (BoMs) needs to be just BoMs, Companies / Suppliers , Manufacturers, Categories Storage Locations need to be removed from the side bar. (Renamed Bills of Materials (BoMs) to BoMs and removed Companies / Suppliers, Manufacturers, Categories, and Storage Locations from the left sidebar in templates/base.html)
 [COMPLETED] change Purchase Orders, Pick Kit, Take Inventory to Orders,  Kits,  Inventory (Renamed sidebar links under Actions in templates/base.html to Orders, Kits, and Inventory)

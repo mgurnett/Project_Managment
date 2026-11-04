@@ -31,9 +31,12 @@ def home(request):
     total_locations = Location.objects.count()
     total_boms = BOM.objects.count()
     total_orders = Order.objects.count()
-    active_orders = Order.objects.filter(status__in=['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED']).count()
+    active_orders_qs = Order.objects.filter(status__in=['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED'])
+    active_orders = active_orders_qs.count()
+    active_order_items_qs = OrderItem.objects.filter(order__status__in=['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED'])
+    active_order_parts = active_order_items_qs.count()
     total_on_hand = Part.objects.aggregate(total=Sum('quantity_on_hand'))['total'] or 0
-    total_on_order = Part.objects.aggregate(total=Sum('quantity_on_order'))['total'] or 0
+    total_on_order = active_order_items_qs.aggregate(total=Sum('quantity'))['total'] or 0
     total_committed = Part.objects.aggregate(total=Sum('quantity_committed'))['total'] or 0
 
     context = {
@@ -47,6 +50,7 @@ def home(request):
             'total_boms': total_boms,
             'total_orders': total_orders,
             'active_orders': active_orders,
+            'active_order_parts': active_order_parts,
             'total_on_hand': total_on_hand,
             'total_on_order': total_on_order,
             'total_committed': total_committed,
@@ -211,6 +215,90 @@ class PartDetailView(DetailView):
             .select_related('order', 'order__supplier')
             .order_by('-order__order_date', '-created_at')
         )
+
+        # Build Transaction & Movement Journal from easyaudit CRUDEvent
+        journal_entries = []
+        try:
+            import json
+            from django.contrib.contenttypes.models import ContentType
+            from easyaudit.models import CRUDEvent
+
+            part_ct = ContentType.objects.get_for_model(Part)
+            events = (
+                CRUDEvent.objects.filter(content_type=part_ct, object_id=str(self.object.pk))
+                .select_related('user')
+                .order_by('-datetime', '-id')[:50]
+            )
+            field_labels = {
+                'quantity_on_hand': 'On Hand',
+                'quantity_on_order': 'On Order',
+                'quantity_committed': 'Committed (Kit)',
+                'quantity_availible': 'Available',
+                'price_per': 'Unit Price ($)',
+                'price': 'Package Price ($)',
+                'quantity': 'Pkg Qty',
+            }
+            for ev in events:
+                if ev.event_type == CRUDEvent.CREATE:
+                    journal_entries.append({
+                        'datetime': ev.datetime,
+                        'action': 'Part Created',
+                        'badge_class': 'bg-success-subtle text-success border-success-subtle',
+                        'changes': [f"Initial catalog record created (On Hand: {self.object.quantity_on_hand})"],
+                        'user': ev.user.username if ev.user else 'System',
+                    })
+                elif ev.event_type == CRUDEvent.UPDATE and ev.changed_fields:
+                    try:
+                        changed = json.loads(ev.changed_fields)
+                    except Exception:
+                        changed = {}
+                    if not isinstance(changed, dict):
+                        continue
+
+                    change_descriptions = []
+                    for f_key, label in field_labels.items():
+                        if f_key in changed and isinstance(changed[f_key], list) and len(changed[f_key]) == 2:
+                            old_v, new_v = changed[f_key][0], changed[f_key][1]
+                            if old_v != new_v:
+                                change_descriptions.append(f"{label}: {old_v} → {new_v}")
+
+                    if not change_descriptions:
+                        other_keys = [k for k in changed.keys() if k != 'updated_at']
+                        if other_keys:
+                            change_descriptions.append(f"Updated {', '.join(other_keys)}")
+
+                    if change_descriptions:
+                        # Infer high-level movement type from the fields that changed
+                        if 'quantity_on_order' in changed and 'quantity_on_hand' in changed:
+                            action_label = 'Order Received'
+                            badge_class = 'bg-success-subtle text-success border-success-subtle'
+                        elif 'quantity_on_order' in changed:
+                            action_label = 'Purchase Order'
+                            badge_class = 'bg-primary-subtle text-primary border-primary-subtle'
+                        elif 'quantity_committed' in changed and 'quantity_on_hand' in changed:
+                            action_label = 'Kit Closed / Built'
+                            badge_class = 'bg-warning-subtle text-warning-emphasis border-warning-subtle'
+                        elif 'quantity_committed' in changed:
+                            action_label = 'Kit Picked'
+                            badge_class = 'bg-info-subtle text-info border-info-subtle'
+                        elif 'quantity_on_hand' in changed:
+                            action_label = 'Inventory Adjustment'
+                            badge_class = 'bg-secondary-subtle text-secondary border-secondary-subtle'
+                        else:
+                            action_label = 'Part Updated'
+                            badge_class = 'bg-light text-dark border'
+
+                        journal_entries.append({
+                            'datetime': ev.datetime,
+                            'action': action_label,
+                            'badge_class': badge_class,
+                            'changes': change_descriptions,
+                            'user': ev.user.username if ev.user else 'System',
+                        })
+        except Exception:
+            pass
+
+        ctx['journal_entries'] = journal_entries
         return ctx
 
 
@@ -1121,9 +1209,11 @@ class OrderListView(ListView):
         ctx['total_orders_count'] = all_orders.count()
         ctx['active_orders_count'] = all_orders.filter(status__in=['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED']).count()
         ctx['received_orders_count'] = all_orders.filter(status='RECEIVED').count()
-        ctx['total_on_order_units'] = OrderItem.objects.filter(
+        active_items_qs = OrderItem.objects.filter(
             order__status__in=['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED']
-        ).aggregate(total=Sum('quantity'))['total'] or 0
+        )
+        ctx['active_order_parts_count'] = active_items_qs.count()
+        ctx['total_on_order_units'] = active_items_qs.aggregate(total=Sum('quantity'))['total'] or 0
 
         ctx['current_q'] = self.request.GET.get('q', '')
         ctx['current_status'] = self.request.GET.get('status', '')
@@ -1375,9 +1465,15 @@ class OrderCreateView(CreateView):
                         part.quantity = pkg_qty
                         part_updated_fields.append('quantity')
                         # Recalculate package price if part already has a price_per
-                        if part.price_per is not None:
+                        if pkg_price is not None:
+                            part.price = pkg_price
+                            part_updated_fields.append('price')
+                        elif part.price_per is not None:
                             part.price = (Decimal(str(part.price_per)) * Decimal(str(pkg_qty))).quantize(Decimal('0.01'))
                             part_updated_fields.append('price')
+                    elif pkg_price is not None and part.price != pkg_price:
+                        part.price = pkg_price
+                        part_updated_fields.append('price')
 
                     # If pkg_price was explicitly provided without u_price, derive u_price using part.quantity
                     if u_price is None and pkg_price is not None:
@@ -1393,16 +1489,25 @@ class OrderCreateView(CreateView):
                 else:
                     continue
 
+                # If part comes in a package (e.g. pkg_qty=50) and the user entered package count (e.g. qty=1 box of 50),
+                # convert to total individual units ordered (1 * 50 = 50 units) so inventory & subtotal match $20.20
+                effective_pkg_size = pkg_qty if (pkg_qty and pkg_qty > 0) else (part.quantity if (part.quantity and part.quantity > 0) else 1)
+                if effective_pkg_size > 1 and qty < effective_pkg_size:
+                    total_units_qty = qty * effective_pkg_size
+                else:
+                    total_units_qty = qty
+
                 OrderItem.objects.create(
                     order=order,
                     part=part,
-                    quantity=qty,
+                    quantity=total_units_qty,
                     unit_price=u_price,
                     notes=item_notes
                 )
 
                 # Increase the part's on order number
-                Part.objects.filter(pk=part.pk).update(quantity_on_order=F('quantity_on_order') + qty)
+                part.quantity_on_order = (part.quantity_on_order or 0) + total_units_qty
+                part.save(update_fields=['quantity_on_order', 'updated_at'])
                 items_created += 1
 
             messages.success(
@@ -1438,13 +1543,9 @@ class OrderDeleteView(DeleteView):
             for item in order.items.select_related('part').all():
                 remaining = max(0, item.quantity - item.quantity_received)
                 if remaining > 0 and order.status not in ['CANCELLED', 'RECEIVED']:
-                    Part.objects.filter(pk=item.part.pk).update(
-                        quantity_on_order=Case(
-                            When(quantity_on_order__gt=remaining, then=F('quantity_on_order') - remaining),
-                            default=Value(0),
-                            output_field=IntegerField()
-                        )
-                    )
+                    part = item.part
+                    part.quantity_on_order = max(0, (part.quantity_on_order or 0) - remaining)
+                    part.save(update_fields=['quantity_on_order', 'updated_at'])
             messages.success(self.request, f"Order '{order.order_number}' was deleted and on-order quantities adjusted.")
             return super().form_valid(form)
 
@@ -1554,14 +1655,21 @@ class OrderItemCreateView(CreateView):
                 messages.error(request, "Please select a valid part or create a new part.")
                 return redirect('order_detail', pk=order.pk)
 
+            effective_pkg_size = pkg_qty if (pkg_qty and pkg_qty > 0) else (part.quantity if (part.quantity and part.quantity > 0) else 1)
+            if effective_pkg_size > 1 and qty < effective_pkg_size:
+                total_units_qty = qty * effective_pkg_size
+            else:
+                total_units_qty = qty
+
             item = OrderItem.objects.create(
                 order=order,
                 part=part,
-                quantity=qty,
+                quantity=total_units_qty,
                 unit_price=u_price,
                 notes=notes,
             )
-            Part.objects.filter(pk=part.pk).update(quantity_on_order=F('quantity_on_order') + item.quantity)
+            part.quantity_on_order = (part.quantity_on_order or 0) + item.quantity
+            part.save(update_fields=['quantity_on_order', 'updated_at'])
             messages.success(
                 request,
                 f"Added {item.part.part_number} (Qty: {item.quantity}) to Order {order.order_number}. On-order quantity increased."
@@ -1582,13 +1690,9 @@ class OrderItemDeleteView(DeleteView):
         with transaction.atomic():
             remaining = max(0, item.quantity - item.quantity_received)
             if remaining > 0 and item.order.status not in ['CANCELLED', 'RECEIVED']:
-                Part.objects.filter(pk=item.part.pk).update(
-                    quantity_on_order=Case(
-                        When(quantity_on_order__gt=remaining, then=F('quantity_on_order') - remaining),
-                        default=Value(0),
-                        output_field=IntegerField()
-                    )
-                )
+                part = item.part
+                part.quantity_on_order = max(0, (part.quantity_on_order or 0) - remaining)
+                part.save(update_fields=['quantity_on_order', 'updated_at'])
             messages.success(
                 self.request,
                 f"Removed {item.part.part_number} from order. On-order quantity adjusted."
@@ -1673,9 +1777,12 @@ def order_receive_item(request, order_pk, item_pk):
         # Update the price in the Part model when ordered at a price and received
         part_update_fields = ['quantity_on_order', 'quantity_on_hand', 'quantity_availible', 'quantity', 'updated_at']
         if received_unit_price is not None:
+            old_price_per = part.price_per
             part.price_per = received_unit_price
             if received_pkg_price is not None:
                 part.price = received_pkg_price
+            elif part.price is not None and old_price_per == received_unit_price:
+                pass
             elif part.quantity and part.quantity > 0:
                 part.price = (received_unit_price * Decimal(str(part.quantity))).quantize(Decimal('0.01'))
             else:
@@ -1726,8 +1833,11 @@ def _receive_all_items_for_order(order):
 
         part_update_fields = ['quantity_on_order', 'quantity_on_hand', 'quantity_availible', 'updated_at']
         if item.unit_price is not None:
+            old_price_per = part.price_per
             part.price_per = item.unit_price
-            if part.quantity and part.quantity > 0:
+            if part.price is not None and old_price_per == item.unit_price:
+                pass
+            elif part.quantity and part.quantity > 0:
                 part.price = (item.unit_price * Decimal(str(part.quantity))).quantize(Decimal('0.01'))
             else:
                 part.price = item.unit_price

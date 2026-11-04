@@ -769,8 +769,18 @@ class OrderItem(models.Model):
 
     @property
     def subtotal(self):
+        if (
+            self.part
+            and self.part.price is not None
+            and self.part.quantity
+            and self.part.quantity > 1
+            and self.quantity % self.part.quantity == 0
+            and (self.unit_price is None or self.unit_price == self.part.price_per)
+        ):
+            pkgs = self.quantity // self.part.quantity
+            return (Decimal(str(self.part.price)) * Decimal(str(pkgs))).quantize(Decimal('0.01'))
         price = self.unit_price if self.unit_price is not None else (self.part.price_per or Decimal('0.00'))
-        return Decimal(str(price)) * Decimal(str(self.quantity))
+        return (Decimal(str(price)) * Decimal(str(self.quantity))).quantize(Decimal('0.01'))
 
     @property
     def remaining_to_receive(self):

@@ -85,13 +85,14 @@
                 <table class="table table-hover align-middle mb-0">
                     <thead class="table-light border-bottom small text-uppercase text-muted">
                         <tr>
-                            <th class="ps-4 py-2" style="width: 14%;">Part #</th>
-                            <th class="py-2" style="width: 28%;">Component Name &amp; Description</th>
-                            <th class="py-2" style="width: 14%;">Storage Location</th>
-                            <th class="text-center py-2" style="width: 10%;">Committed</th>
-                            <th class="text-center py-2" style="width: 10%;">On Order</th>
+                            <th class="ps-4 py-2" style="width: 12%;">Part #</th>
+                            <th class="py-2" style="width: 24%;">Component Name &amp; Description</th>
+                            <th class="py-2" style="width: 12%;">Storage Location</th>
+                            <th class="text-end py-2" style="width: 10%;">Unit Price</th>
+                            <th class="text-center py-2" style="width: 9%;">Committed</th>
+                            <th class="text-center py-2" style="width: 9%;">On Order</th>
                             <th class="text-center py-2" style="width: 10%;">Should Be (On-Hand)</th>
-                            <th class="text-center py-2" style="width: 14%;">Actual Count</th>
+                            <th class="text-center py-2" style="width: 12%;">Actual Count</th>
                             <th class="text-end pe-4 py-2" style="width: 10%;">Adjustment</th>
                         </tr>
                     </thead>
@@ -113,6 +114,9 @@
                                 {% else %}
                                     <span class="text-muted">&mdash;</span>
                                 {% endif %}
+                            </td>
+                            <td class="text-end py-2 small text-muted font-monospace">
+                                {% if part.price_per %}${{ part.price_per|floatformat:2 }}{% else %}&mdash;{% endif %}
                             </td>
                             <td class="text-center py-2 small text-info fw-semibold">
                                 {{ part.quantity_committed|default:0 }}
