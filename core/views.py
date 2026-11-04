@@ -64,19 +64,52 @@ def home(request):
 
 
 # ==============================================================================
+# PERSISTENT FILTER HELPER
+# ==============================================================================
+
+def resolve_persistent_filters(request, session_key, filter_keys):
+    """
+    Persists filter parameters in `request.session[session_key]` until explicitly
+    cleared via `?clear=1` (or `?reset=1`).
+    Returns a dict of `{key: str_value}` for all `filter_keys`.
+    """
+    saved = dict(request.session.get(session_key, {}))
+
+    if request.GET.get('clear') or request.GET.get('reset'):
+        request.session.pop(session_key, None)
+        return {k: '' for k in filter_keys}
+
+    has_filter_in_get = any(k in request.GET for k in filter_keys)
+    if has_filter_in_get:
+        for k in filter_keys:
+            if k in request.GET:
+                saved[k] = (request.GET.get(k) or '').strip()
+        request.session[session_key] = saved
+
+    return {k: saved.get(k, '') for k in filter_keys}
+
+
+# ==============================================================================
 # PART CRUD VIEWS & CSV EXPORT
 # ==============================================================================
+
+PART_FILTER_KEYS = ['q', 'company', 'category', 'location', 'confirmed']
+COUNT_SHEET_FILTER_KEYS = ['q', 'category', 'location', 'stock']
+ORDER_FILTER_KEYS = ['q', 'status', 'supplier']
+
 
 def get_parts_filtered_queryset(request):
     """
     Applies search query, supplier, category, location, and confirmed status filters to the Part queryset.
+    Persists filters in session until cleared.
     """
+    filters = resolve_persistent_filters(request, 'part_list_filters', PART_FILTER_KEYS)
     qs = Part.objects.select_related('company', 'manufacturer', 'category', 'location', 'superseded_by').all()
-    q = request.GET.get('q', '').strip()
-    company_id = request.GET.get('company')
-    category_id = request.GET.get('category')
-    location_id = request.GET.get('location')
-    confirmed = request.GET.get('confirmed')
+    q = filters['q']
+    company_id = filters['company']
+    category_id = filters['category']
+    location_id = filters['location']
+    confirmed = filters['confirmed']
 
     if q:
         qs = qs.filter(
@@ -183,17 +216,21 @@ class PartListView(ListView):
         return get_parts_filtered_queryset(self.request)
 
     def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('part_list_filters', None)
+            return redirect('part_list')
         if request.GET.get('export') == 'csv':
             return generate_parts_csv(self.get_queryset())
         return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['current_q'] = self.request.GET.get('q', '')
-        ctx['current_company'] = self.request.GET.get('company', '')
-        ctx['current_category'] = self.request.GET.get('category', '')
-        ctx['current_location'] = self.request.GET.get('location', '')
-        ctx['current_confirmed'] = self.request.GET.get('confirmed', '')
+        filters = resolve_persistent_filters(self.request, 'part_list_filters', PART_FILTER_KEYS)
+        ctx['current_q'] = filters['q']
+        ctx['current_company'] = filters['company']
+        ctx['current_category'] = filters['category']
+        ctx['current_location'] = filters['location']
+        ctx['current_confirmed'] = filters['confirmed']
         ctx['companies'] = Company.objects.all()
         ctx['categories'] = Category.objects.all()
         ctx['locations'] = Location.objects.all()
@@ -314,8 +351,9 @@ class PartCreateView(CreateView):
         if duplicate_id:
             try:
                 source = Part.objects.get(pk=duplicate_id)
+                next_pn = Part.generate_next_part_number(source.category) if source.category else Part.generate_next_part_number('PART')
                 initial.update({
-                    'part_number': source.part_number,
+                    'part_number': next_pn,
                     'name': source.name,
                     'description': source.description,
                     'company': source.company_id,
@@ -348,7 +386,7 @@ class PartCreateView(CreateView):
 class PartDuplicateView(CreateView):
     """
     Creates a new part pre-filled with all specifications and details
-    from an existing part, ready to be customized (e.g. name, part number, description).
+    from an existing part, with a newly generated part number ready to save.
     """
     model = Part
     form_class = PartForm
@@ -361,8 +399,9 @@ class PartDuplicateView(CreateView):
     def get_initial(self):
         initial = super().get_initial()
         source = self.get_source_part()
+        next_pn = Part.generate_next_part_number(source.category) if source.category else Part.generate_next_part_number('PART')
         initial.update({
-            'part_number': source.part_number,
+            'part_number': next_pn,
             'name': source.name,
             'description': source.description,
             'company': source.company_id,
@@ -447,9 +486,16 @@ class CompanyListView(ListView):
     context_object_name = 'companies'
     paginate_by = 20
 
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('company_list_filters', None)
+            return redirect('company_list')
+        return super().get(request, *args, **kwargs)
+
     def get_queryset(self):
+        filters = resolve_persistent_filters(self.request, 'company_list_filters', ['q'])
         qs = Company.objects.annotate(parts_count=Count('parts')).all()
-        q = self.request.GET.get('q', '').strip()
+        q = filters['q']
         if q:
             qs = qs.filter(
                 Q(name__icontains=q) |
@@ -461,7 +507,8 @@ class CompanyListView(ListView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['current_q'] = self.request.GET.get('q', '')
+        filters = resolve_persistent_filters(self.request, 'company_list_filters', ['q'])
+        ctx['current_q'] = filters['q']
         ctx['total_count'] = self.get_queryset().count()
         return ctx
 
@@ -522,16 +569,24 @@ class ManufacturerListView(ListView):
     context_object_name = 'manufacturers'
     paginate_by = 25
 
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('manufacturer_list_filters', None)
+            return redirect('manufacturer_list')
+        return super().get(request, *args, **kwargs)
+
     def get_queryset(self):
+        filters = resolve_persistent_filters(self.request, 'manufacturer_list_filters', ['q'])
         qs = Manufacturer.objects.annotate(parts_count=Count('parts')).all()
-        q = self.request.GET.get('q', '').strip()
+        q = filters['q']
         if q:
             qs = qs.filter(name__icontains=q)
         return qs.order_by('name')
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['current_q'] = self.request.GET.get('q', '')
+        filters = resolve_persistent_filters(self.request, 'manufacturer_list_filters', ['q'])
+        ctx['current_q'] = filters['q']
         return ctx
 
 
@@ -591,7 +646,14 @@ class CategoryListView(ListView):
     context_object_name = 'categories'
     paginate_by = 25
 
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('category_list_filters', None)
+            return redirect('category_list')
+        return super().get(request, *args, **kwargs)
+
     def get_queryset(self):
+        filters = resolve_persistent_filters(self.request, 'category_list_filters', ['q'])
         qs = Category.objects.select_related('parent').annotate(
             parts_count=Count('parts'),
             empty_prefix=Case(
@@ -601,14 +663,15 @@ class CategoryListView(ListView):
                 output_field=IntegerField()
             )
         ).all()
-        q = self.request.GET.get('q', '').strip()
+        q = filters['q']
         if q:
             qs = qs.filter(Q(name__icontains=q) | Q(prefix__icontains=q) | Q(description__icontains=q))
         return qs.order_by('empty_prefix', 'prefix', 'name')
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['current_q'] = self.request.GET.get('q', '')
+        filters = resolve_persistent_filters(self.request, 'category_list_filters', ['q'])
+        ctx['current_q'] = filters['q']
         return ctx
 
 
@@ -668,16 +731,24 @@ class LocationListView(ListView):
     context_object_name = 'locations'
     paginate_by = 25
 
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('location_list_filters', None)
+            return redirect('location_list')
+        return super().get(request, *args, **kwargs)
+
     def get_queryset(self):
+        filters = resolve_persistent_filters(self.request, 'location_list_filters', ['q'])
         qs = Location.objects.annotate(parts_count=Count('parts')).all()
-        q = self.request.GET.get('q', '').strip()
+        q = filters['q']
         if q:
             qs = qs.filter(Q(name__icontains=q) | Q(code__icontains=q) | Q(description__icontains=q))
         return qs.order_by('name')
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['current_q'] = self.request.GET.get('q', '')
+        filters = resolve_persistent_filters(self.request, 'location_list_filters', ['q'])
+        ctx['current_q'] = filters['q']
         return ctx
 
 
@@ -801,16 +872,24 @@ class BOMListView(ListView):
     context_object_name = 'boms'
     paginate_by = 20
 
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('bom_list_filters', None)
+            return redirect('bom_list')
+        return super().get(request, *args, **kwargs)
+
     def get_queryset(self):
+        filters = resolve_persistent_filters(self.request, 'bom_list_filters', ['q'])
         qs = BOM.objects.annotate(items_count=Count('items')).all()
-        q = self.request.GET.get('q', '').strip()
+        q = filters['q']
         if q:
             qs = qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
         return qs.order_by('name')
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['current_q'] = self.request.GET.get('q', '')
+        filters = resolve_persistent_filters(self.request, 'bom_list_filters', ['q'])
+        ctx['current_q'] = filters['q']
         ctx['total_count'] = self.get_queryset().count()
         return ctx
 
@@ -984,16 +1063,17 @@ class BOMItemDeleteView(DeleteView):
 # INVENTORY COUNT SHEET & AUDIT VIEWS
 # ==============================================================================
 
-def get_count_sheet_queryset(request):
+def get_count_sheet_queryset(request, session_key='count_sheet_filters'):
     """
-    Returns filtered Part queryset for the Inventory Count Sheet:
+    Returns filtered Part queryset for the Inventory Count Sheet / Take Inventory:
     Grouped by Category (by category prefix/name) and sorted by part_number.
     """
+    filters = resolve_persistent_filters(request, session_key, COUNT_SHEET_FILTER_KEYS)
     qs = Part.objects.select_related('category', 'location', 'company', 'manufacturer').order_by(
         'category__prefix', 'category__name', 'part_number'
     )
 
-    q = request.GET.get('q', '').strip()
+    q = filters['q']
     if q:
         qs = qs.filter(
             Q(part_number__icontains=q) |
@@ -1002,21 +1082,21 @@ def get_count_sheet_queryset(request):
             Q(supplier_part_number__icontains=q)
         )
 
-    category_id = request.GET.get('category', '').strip()
+    category_id = filters['category']
     if category_id:
         if category_id == 'none':
             qs = qs.filter(category__isnull=True)
         else:
             qs = qs.filter(category_id=category_id)
 
-    location_id = request.GET.get('location', '').strip()
+    location_id = filters['location']
     if location_id:
         if location_id == 'none':
             qs = qs.filter(location__isnull=True)
         else:
             qs = qs.filter(location_id=location_id)
 
-    stock = request.GET.get('stock', '').strip()
+    stock = filters['stock']
     if stock == 'in_stock':
         qs = qs.filter(quantity_on_hand__gt=0)
     elif stock == 'zero_stock':
@@ -1030,9 +1110,16 @@ def get_count_sheet_queryset(request):
 class InventoryCountSheetView(TemplateView):
     template_name = 'core/inventory_count_sheet.html'
 
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('count_sheet_filters', None)
+            return redirect('inventory_count_sheet')
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        qs = get_count_sheet_queryset(self.request)
+        filters = resolve_persistent_filters(self.request, 'count_sheet_filters', COUNT_SHEET_FILTER_KEYS)
+        qs = get_count_sheet_queryset(self.request, session_key='count_sheet_filters')
 
         # Group parts by category while maintaining sort order
         category_map = {}
@@ -1060,10 +1147,10 @@ class InventoryCountSheetView(TemplateView):
         ctx['total_on_hand'] = sum(g['total_on_hand'] for g in groups)
         ctx['categories'] = Category.objects.all().order_by('prefix', 'name')
         ctx['locations'] = Location.objects.all().order_by('name')
-        ctx['current_category'] = self.request.GET.get('category', '')
-        ctx['current_location'] = self.request.GET.get('location', '')
-        ctx['current_stock'] = self.request.GET.get('stock', '')
-        ctx['current_q'] = self.request.GET.get('q', '')
+        ctx['current_category'] = filters['category']
+        ctx['current_location'] = filters['location']
+        ctx['current_stock'] = filters['stock']
+        ctx['current_q'] = filters['q']
         ctx['generated_at'] = timezone.now()
         return ctx
 
@@ -1176,13 +1263,20 @@ class OrderListView(ListView):
     context_object_name = 'orders'
     paginate_by = 20
 
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('order_list_filters', None)
+            return redirect('order_list')
+        return super().get(request, *args, **kwargs)
+
     def get_queryset(self):
+        filters = resolve_persistent_filters(self.request, 'order_list_filters', ORDER_FILTER_KEYS)
         qs = Order.objects.select_related('supplier').annotate(
             items_count=Count('items'),
             total_ordered=Sum('items__quantity'),
             total_received=Sum('items__quantity_received')
         )
-        q = self.request.GET.get('q', '').strip()
+        q = filters['q']
         if q:
             qs = qs.filter(
                 Q(order_number__icontains=q) |
@@ -1193,11 +1287,11 @@ class OrderListView(ListView):
                 Q(items__part__name__icontains=q)
             ).distinct()
 
-        status_filter = self.request.GET.get('status', '').strip()
+        status_filter = filters['status']
         if status_filter:
             qs = qs.filter(status=status_filter)
 
-        supplier_filter = self.request.GET.get('supplier', '').strip()
+        supplier_filter = filters['supplier']
         if supplier_filter.isdigit():
             qs = qs.filter(supplier_id=int(supplier_filter))
 
@@ -1205,6 +1299,7 @@ class OrderListView(ListView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        filters = resolve_persistent_filters(self.request, 'order_list_filters', ORDER_FILTER_KEYS)
         all_orders = Order.objects.all()
         ctx['total_orders_count'] = all_orders.count()
         ctx['active_orders_count'] = all_orders.filter(status__in=['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED']).count()
@@ -1215,9 +1310,9 @@ class OrderListView(ListView):
         ctx['active_order_parts_count'] = active_items_qs.count()
         ctx['total_on_order_units'] = active_items_qs.aggregate(total=Sum('quantity'))['total'] or 0
 
-        ctx['current_q'] = self.request.GET.get('q', '')
-        ctx['current_status'] = self.request.GET.get('status', '')
-        ctx['current_supplier'] = self.request.GET.get('supplier', '')
+        ctx['current_q'] = filters['q']
+        ctx['current_status'] = filters['status']
+        ctx['current_supplier'] = filters['supplier']
         ctx['suppliers'] = Company.objects.filter(orders__isnull=False).distinct().order_by('name')
         ctx['status_choices'] = Order.STATUS_CHOICES
         return ctx
@@ -2281,9 +2376,16 @@ class TakeInventoryView(TemplateView):
     """
     template_name = 'core/take_inventory.html'
 
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('take_inventory_filters', None)
+            return redirect('take_inventory')
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        qs = get_count_sheet_queryset(self.request)
+        filters = resolve_persistent_filters(self.request, 'take_inventory_filters', COUNT_SHEET_FILTER_KEYS)
+        qs = get_count_sheet_queryset(self.request, session_key='take_inventory_filters')
 
         category_map = {}
         for part in qs:
@@ -2309,10 +2411,10 @@ class TakeInventoryView(TemplateView):
         ctx['total_on_hand'] = sum(g['total_on_hand'] for g in groups)
         ctx['categories'] = Category.objects.all().order_by('prefix', 'name')
         ctx['locations'] = Location.objects.all().order_by('name')
-        ctx['current_category'] = self.request.GET.get('category', '')
-        ctx['current_location'] = self.request.GET.get('location', '')
-        ctx['current_stock'] = self.request.GET.get('stock', '')
-        ctx['current_q'] = self.request.GET.get('q', '')
+        ctx['current_category'] = filters['category']
+        ctx['current_location'] = filters['location']
+        ctx['current_stock'] = filters['stock']
+        ctx['current_q'] = filters['q']
         ctx['generated_at'] = timezone.now()
         return ctx
 

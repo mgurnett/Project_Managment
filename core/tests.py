@@ -785,4 +785,44 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertContains(res_part_detail, 'Kit Closed / Built')
         self.assertContains(res_part_detail, 'Inventory Adjustment')
 
+    def test_duplicate_part_generates_new_part_number_and_persistent_filters(self):
+        """
+        Tests that duplicating a part pre-fills the form with the next sequential part number
+        (not the old part number), and that list filters persist across requests until cleared.
+        """
+        # 1. Duplicate part 400-001 -> form initial part_number should be 400-002
+        dup_res = self.client.get(reverse('part_duplicate', kwargs={'pk': self.part.pk}))
+        self.assertEqual(dup_res.status_code, 200)
+        self.assertEqual(dup_res.context['form'].initial['part_number'], '400-002')
+        self.assertNotEqual(dup_res.context['form'].initial['part_number'], self.part.part_number)
+
+        # Create a second category and part to test filter persistence
+        other_cat = Category.objects.create(name='Connectors', prefix='600')
+        other_part = Part.objects.create(
+            part_number='600-001',
+            name='SMA Bulkhead Jack',
+            category=other_cat,
+        )
+
+        # 2. Set category filter on part_list -> only 400-001 should appear
+        res_filtered = self.client.get(reverse('part_list'), {'category': str(self.category.pk)})
+        self.assertEqual(res_filtered.status_code, 200)
+        self.assertContains(res_filtered, '400-001')
+        self.assertNotContains(res_filtered, '600-001')
+
+        # 3. Revisit part_list with no query params -> filter stays active from session
+        res_persisted = self.client.get(reverse('part_list'))
+        self.assertEqual(res_persisted.status_code, 200)
+        self.assertContains(res_persisted, '400-001')
+        self.assertNotContains(res_persisted, '600-001')
+        self.assertEqual(res_persisted.context['current_category'], str(self.category.pk))
+
+        # 4. Hit Clear Filter (?clear=1) -> redirects to part_list with all parts shown
+        res_clear = self.client.get(reverse('part_list'), {'clear': '1'}, follow=True)
+        self.assertEqual(res_clear.status_code, 200)
+        self.assertContains(res_clear, '400-001')
+        self.assertContains(res_clear, '600-001')
+        self.assertEqual(res_clear.context['current_category'], '')
+
+
 

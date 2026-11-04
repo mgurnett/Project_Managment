@@ -53,7 +53,7 @@
 
                 <!-- Company Filter -->
                 <div class="col-6 col-md-2">
-                    <select name="company" class="form-select form-select-sm">
+                    <select name="company" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="">All Companies</option>
                         {% for c in companies %}
                             <option value="{{ c.id }}" {% if current_company == c.id|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
@@ -63,7 +63,7 @@
 
                 <!-- Category Filter -->
                 <div class="col-6 col-md-2">
-                    <select name="category" class="form-select form-select-sm">
+                    <select name="category" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="">All Categories</option>
                         {% for cat in categories %}
                             <option value="{{ cat.id }}" {% if current_category == cat.id|stringformat:"s" %}selected{% endif %}>{{ cat.name }}</option>
@@ -73,7 +73,7 @@
 
                 <!-- Location Filter -->
                 <div class="col-6 col-md-2">
-                    <select name="location" class="form-select form-select-sm">
+                    <select name="location" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="">All Locations</option>
                         {% for loc in locations %}
                             <option value="{{ loc.id }}" {% if current_location == loc.id|stringformat:"s" %}selected{% endif %}>{{ loc.name }}</option>
@@ -83,7 +83,7 @@
 
                 <!-- Confirmed Filter -->
                 <div class="col-6 col-md-2">
-                    <select name="confirmed" class="form-select form-select-sm">
+                    <select name="confirmed" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="">All Statuses</option>
                         <option value="1" {% if current_confirmed == "1" %}selected{% endif %}>Confirmed</option>
                         <option value="0" {% if current_confirmed == "0" %}selected{% endif %}>Unconfirmed</option>
@@ -96,7 +96,7 @@
                         <i class="bi bi-filter"></i>
                     </button>
                     {% if current_q or current_company or current_category or current_location or current_confirmed %}
-                        <a href="{% url 'part_list' %}" class="btn btn-sm btn-outline-secondary" title="Clear Filters">
+                        <a href="{% url 'part_list' %}?clear=1" class="btn btn-sm btn-outline-secondary" title="Clear Filters">
                             <i class="bi bi-x-lg"></i>
                         </a>
                     {% endif %}
@@ -270,11 +270,11 @@
             </span>
             <ul class="pagination pagination-sm m-0">
                 {% if page_obj.has_previous %}
-                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}&q={{ current_q }}">&laquo;</a></li>
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">&laquo;</a></li>
                 {% endif %}
                 <li class="page-item active"><span class="page-link">{{ page_obj.number }}</span></li>
                 {% if page_obj.has_next %}
-                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}&q={{ current_q }}">&raquo;</a></li>
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">&raquo;</a></li>
                 {% endif %}
             </ul>
         </div>

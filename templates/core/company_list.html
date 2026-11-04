@@ -39,7 +39,7 @@
                 <div class="col-auto d-flex gap-1">
                     <button type="submit" class="btn btn-sm btn-outline-custom">Filter</button>
                     {% if current_q %}
-                        <a href="{% url 'company_list' %}" class="btn btn-sm btn-outline-secondary">Clear</a>
+                        <a href="{% url 'company_list' %}?clear=1" class="btn btn-sm btn-outline-secondary">Clear</a>
                     {% endif %}
                 </div>
             </form>

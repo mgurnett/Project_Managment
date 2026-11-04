@@ -34,24 +34,37 @@
             size: letter portrait;
             margin: 10mm 8mm;
         }
-        body {
-            background-color: #fff !important;
-            color: #000 !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-            font-size: 11px !important;
+        html, body, [data-bs-theme="dark"], [data-bs-theme="light"] {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            font-size: 10pt !important;
+            line-height: 1.35 !important;
+            --bs-body-color: #000000 !important;
+            --bs-body-bg: #ffffff !important;
+            --bs-secondary-color: #1e293b !important;
+            --bs-tertiary-bg: #ffffff !important;
+            --bs-border-color: #334155 !important;
         }
-        .sidebar, .top-navbar, .no-print, nav.breadcrumb-nav, .btn, .card-header .btn {
+        .sidebar, .top-navbar, .footer, .alert, .no-print, nav.breadcrumb-nav, .btn, .card-header .btn, .offcanvas, .offcanvas-lg {
             display: none !important;
         }
-        .content-wrapper {
+        .d-flex.min-vh-100 {
+            display: block !important;
+            min-height: auto !important;
+        }
+        .content-wrapper, .main-content {
             margin: 0 !important;
             padding: 0 !important;
-            background: #fff !important;
+            background: #ffffff !important;
+            display: block !important;
+            width: 100% !important;
         }
         .container-fluid {
             padding: 0 !important;
             max-width: 100% !important;
+            width: 100% !important;
         }
         .print-only {
             display: block !important;
@@ -59,46 +72,94 @@
         .card {
             border: none !important;
             box-shadow: none !important;
-            background: transparent !important;
+            background: #ffffff !important;
+        }
+        .table-responsive {
+            overflow: visible !important;
         }
         .table {
-            border: 1px solid #1f2937 !important;
-            font-size: 10px !important;
+            width: 100% !important;
+            border-collapse: collapse !important;
+            border: 1.5px solid #0f172a !important;
+            font-size: 9.5pt !important;
+            color: #000000 !important;
         }
         .table th, .table td {
-            border: 1px solid #9ca3af !important;
-            padding: 4px 6px !important;
-            color: #000 !important;
+            border: 1px solid #334155 !important;
+            padding: 6px 8px !important;
+            color: #000000 !important;
+            background-color: #ffffff !important;
+            vertical-align: middle !important;
         }
         .table thead th {
-            background-color: #f3f4f6 !important;
-            color: #111827 !important;
+            background-color: #e2e8f0 !important;
+            color: #000000 !important;
             font-weight: 800 !important;
+            font-size: 8.5pt !important;
+            text-transform: uppercase !important;
+            border: 1px solid #1e293b !important;
+        }
+        .table tbody tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+        .table tbody tr:nth-child(even) td {
+            background-color: #f8fafc !important;
+        }
+        .text-body, .text-muted, .text-secondary, .text-custom, a {
+            color: #000000 !important;
+            text-decoration: none !important;
+        }
+        .text-truncate {
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            max-width: none !important;
         }
         .category-group-card {
-            break-inside: avoid;
-            page-break-inside: avoid;
-            margin-bottom: 12px !important;
+            break-inside: auto !important;
+            page-break-inside: auto !important;
+            margin-bottom: 16px !important;
         }
         .category-group-header {
-            background-color: #e5e7eb !important;
-            border-left: 4px solid #111827 !important;
-            padding: 6px 10px !important;
+            background: #0f172a !important;
+            color: #ffffff !important;
+            border-left: none !important;
+            border-top-left-radius: 4px !important;
+            border-top-right-radius: 4px !important;
+            padding: 7px 10px !important;
+            break-inside: avoid !important;
+            page-break-after: avoid !important;
+        }
+        .category-group-header h3,
+        .category-group-header span,
+        .category-group-header strong,
+        .category-group-header .text-body,
+        .category-group-header .text-muted {
+            color: #ffffff !important;
+        }
+        .category-group-header .badge {
+            background-color: #0284c7 !important;
+            color: #ffffff !important;
+            border: none !important;
         }
         .count-input {
             display: none !important;
         }
         .print-box {
             display: inline-block !important;
-            width: 55px;
-            height: 18px;
-            border: 1px dashed #4b5563;
+            width: 58px;
+            height: 22px;
+            border: 1.5px solid #0f172a;
+            border-radius: 3px;
+            background: #ffffff !important;
         }
         .print-box-lg {
             display: inline-block !important;
-            width: 80px;
-            height: 18px;
-            border-bottom: 1px solid #4b5563;
+            width: 100%;
+            min-width: 80px;
+            height: 20px;
+            border-bottom: 1.5px solid #0f172a;
         }
     }
 
@@ -245,7 +306,7 @@
 
                 <!-- Category Filter -->
                 <div class="col-6 col-md-3">
-                    <select name="category" class="form-select form-select-sm">
+                    <select name="category" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="">All Categories</option>
                         {% for cat in categories %}
                             <option value="{{ cat.id }}" {% if current_category == cat.id|stringformat:"s" %}selected{% endif %}>
@@ -257,7 +318,7 @@
 
                 <!-- Location Filter -->
                 <div class="col-6 col-md-3">
-                    <select name="location" class="form-select form-select-sm">
+                    <select name="location" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="">All Locations</option>
                         {% for loc in locations %}
                             <option value="{{ loc.id }}" {% if current_location == loc.id|stringformat:"s" %}selected{% endif %}>{{ loc.name }}</option>
@@ -267,7 +328,7 @@
 
                 <!-- Stock Filter -->
                 <div class="col-6 col-md-2">
-                    <select name="stock" class="form-select form-select-sm">
+                    <select name="stock" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="">All Stock Levels</option>
                         <option value="in_stock" {% if current_stock == "in_stock" %}selected{% endif %}>In Stock Only (&gt; 0)</option>
                         <option value="zero_stock" {% if current_stock == "zero_stock" %}selected{% endif %}>Zero Stock (= 0)</option>
@@ -280,7 +341,7 @@
                         <i class="bi bi-filter"></i>
                     </button>
                     {% if current_q or current_category or current_location or current_stock %}
-                        <a href="{% url 'inventory_count_sheet' %}" class="btn btn-sm btn-outline-secondary" title="Clear Filters">
+                        <a href="{% url 'inventory_count_sheet' %}?clear=1" class="btn btn-sm btn-outline-secondary" title="Clear Filters">
                             <i class="bi bi-x-lg"></i>
                         </a>
                     {% endif %}

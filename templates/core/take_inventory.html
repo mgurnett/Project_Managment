@@ -3,6 +3,80 @@
 {% block title %}Take Inventory Sheet & Adjustments | Inventory Manager{% endblock %}
 {% block breadcrumb %}Take Inventory Sheet{% endblock %}
 
+{% block extra_head %}
+<style>
+    @media print {
+        @page {
+            size: letter portrait;
+            margin: 10mm 8mm;
+        }
+        html, body, [data-bs-theme="dark"], [data-bs-theme="light"] {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            font-size: 10pt !important;
+            line-height: 1.35 !important;
+            --bs-body-color: #000000 !important;
+            --bs-body-bg: #ffffff !important;
+            --bs-secondary-color: #1e293b !important;
+            --bs-tertiary-bg: #ffffff !important;
+            --bs-border-color: #334155 !important;
+        }
+        .sidebar, .top-navbar, .footer, .alert, .btn, form[method="get"], .offcanvas, .offcanvas-lg {
+            display: none !important;
+        }
+        .d-flex.min-vh-100 {
+            display: block !important;
+            min-height: auto !important;
+        }
+        .content-wrapper, .main-content, .container-fluid {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        .card {
+            border: 1px solid #334155 !important;
+            box-shadow: none !important;
+            background: #ffffff !important;
+            break-inside: auto !important;
+        }
+        .table-responsive {
+            overflow: visible !important;
+        }
+        .table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            font-size: 9.5pt !important;
+            color: #000000 !important;
+        }
+        .table th, .table td {
+            border: 1px solid #334155 !important;
+            padding: 6px 8px !important;
+            color: #000000 !important;
+            background-color: #ffffff !important;
+        }
+        .table thead th {
+            background-color: #e2e8f0 !important;
+            color: #000000 !important;
+            font-weight: 800 !important;
+        }
+        .text-body, .text-muted, .text-secondary, .text-custom, .text-info, .text-primary, a {
+            color: #000000 !important;
+            text-decoration: none !important;
+        }
+        .actual-count-input {
+            border: 1.5px solid #0f172a !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid p-0">
 
@@ -58,7 +132,7 @@
                 <div class="col-auto d-flex gap-1">
                     <button type="submit" class="btn btn-sm btn-outline-custom">Filter</button>
                     {% if current_q or current_category or current_location or current_stock %}
-                        <a href="{% url 'take_inventory' %}" class="btn btn-sm btn-outline-secondary">Reset</a>
+                        <a href="{% url 'take_inventory' %}?clear=1" class="btn btn-sm btn-outline-secondary">Clear</a>
                     {% endif %}
                 </div>
             </form>

@@ -1,6 +1,3 @@
 agent dialog.txt
+When I print the inventory count sheet or even the PDF of it, the print looks terrible.  It is hard to read.
 
-
-This is looking GREAT.  Thank you so much.  
-
-Let's start using it.  So please set all quantity to 0, price to $0 and remove all journal enteries.  I will then go do a full inventory and place some orders and I can start using this new tool.
