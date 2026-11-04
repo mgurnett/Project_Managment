@@ -907,6 +907,7 @@ class BOMDetailView(DetailView):
         if items:
             max_kits = []
             max_builds = []
+            kitted_sets = []
             for item in items:
                 req = item.quantity or 1
                 on_hand = item.part.quantity_on_hand or 0
@@ -914,11 +915,14 @@ class BOMDetailView(DetailView):
                 uncommitted = max(0, on_hand - committed)
                 max_kits.append(uncommitted // req)
                 max_builds.append(on_hand // req)
+                kitted_sets.append(committed // req)
             ctx['max_kits_available'] = min(max_kits)
             ctx['max_builds_possible'] = min(max_builds)
+            ctx['kitted_sets'] = min(kitted_sets)
         else:
             ctx['max_kits_available'] = 0
             ctx['max_builds_possible'] = 0
+            ctx['kitted_sets'] = 0
         return ctx
 
 
@@ -1031,9 +1035,33 @@ class BOMItemCreateView(CreateView):
         return kwargs
 
     def form_valid(self, form):
-        form.instance.bom = self.get_bom()
-        response = super().form_valid(form)
-        messages.success(self.request, f"Added {self.object.part.part_number} to {self.object.bom.name}!")
+        bom = self.get_bom()
+        form.instance.bom = bom
+
+        # Check how many active kits this BoM already had before adding the new component
+        existing_items = list(bom.items.select_related('part').all())
+        if existing_items:
+            active_kits = min(
+                (i.part.quantity_committed or 0) // max(1, i.quantity)
+                for i in existing_items
+            )
+        else:
+            active_kits = 0
+
+        with transaction.atomic():
+            response = super().form_valid(form)
+            part = self.object.part
+            if active_kits > 0:
+                commit_qty = (self.object.quantity or 1) * active_kits
+                part.quantity_committed = (part.quantity_committed or 0) + commit_qty
+                part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+                messages.success(
+                    self.request,
+                    f"Added {part.part_number} to {bom.name} and committed {commit_qty} unit(s) for {active_kits} active kit(s)!"
+                )
+            else:
+                messages.success(self.request, f"Added {part.part_number} to {bom.name}!")
         return response
 
     def form_invalid(self, form):
@@ -1046,14 +1074,120 @@ class BOMItemCreateView(CreateView):
         return reverse('bom_detail', kwargs={'pk': self.kwargs['bom_pk']})
 
 
+def _get_bom_active_kit_count(bom, exclude_item_pk=None):
+    """
+    Returns the number of active kits currently committed for `bom`.
+    """
+    items = [
+        i for i in bom.items.select_related('part').all()
+        if exclude_item_pk is None or i.pk != exclude_item_pk
+    ]
+    if not items:
+        return 0
+    return min((i.part.quantity_committed or 0) // max(1, i.quantity) for i in items)
+
+
+def bom_item_update_action(request, pk):
+    """
+    POST action to adjust a BOMItem's required quantity (or reference/notes),
+    supporting mode='add', 'subtract', 'set', or 'delete'.
+    Also syncs the component part's `quantity_committed` if the BoM has active kits.
+    """
+    if request.method != 'POST':
+        return redirect('bom_list')
+
+    item = get_object_or_404(BOMItem.objects.select_related('bom', 'part'), pk=pk)
+    bom = item.bom
+    part = item.part
+    bom_pk = bom.pk
+    next_url = request.POST.get('next') or reverse('bom_detail', kwargs={'pk': bom_pk})
+    mode = (request.POST.get('mode') or 'set').strip().lower()
+
+    active_kits = _get_bom_active_kit_count(bom)
+    old_qty = item.quantity or 1
+
+    def _release_item_committed(qty_per_kit):
+        if active_kits > 0:
+            release_units = qty_per_kit * active_kits
+            old_c = part.quantity_committed or 0
+            part.quantity_committed = max(0, old_c - min(old_c, release_units))
+            part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+            part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+
+    if mode == 'delete':
+        with transaction.atomic():
+            _release_item_committed(old_qty)
+            part_num = part.part_number
+            bom_name = bom.name
+            item.delete()
+        messages.success(request, f"Removed {part_num} from {bom_name}.")
+        return redirect(next_url)
+
+    if mode == 'add':
+        new_qty = old_qty + 1
+    elif mode == 'subtract':
+        if old_qty <= 1:
+            with transaction.atomic():
+                _release_item_committed(old_qty)
+                part_num = part.part_number
+                bom_name = bom.name
+                item.delete()
+            messages.success(request, f"Removed {part_num} from {bom_name} (quantity reached 0).")
+            return redirect(next_url)
+        new_qty = old_qty - 1
+    else:
+        try:
+            new_qty = int(request.POST.get('quantity', old_qty))
+        except (ValueError, TypeError):
+            new_qty = old_qty
+        if new_qty <= 0:
+            with transaction.atomic():
+                _release_item_committed(old_qty)
+                part_num = part.part_number
+                bom_name = bom.name
+                item.delete()
+            messages.success(request, f"Removed {part_num} from {bom_name} (quantity set to 0).")
+            return redirect(next_url)
+
+    with transaction.atomic():
+        item.quantity = new_qty
+        if 'reference' in request.POST:
+            item.reference = request.POST.get('reference', '').strip()
+        if 'notes' in request.POST:
+            item.notes = request.POST.get('notes', '').strip()
+        item.save()
+
+        if active_kits > 0 and new_qty != old_qty:
+            delta_units = (new_qty - old_qty) * active_kits
+            part.quantity_committed = max(0, (part.quantity_committed or 0) + delta_units)
+            part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+            part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+
+    messages.success(
+        request,
+        f"Updated {part.part_number} in {bom.name}: Qty {old_qty} → {item.quantity}."
+    )
+    return redirect(next_url)
+
+
 class BOMItemDeleteView(DeleteView):
     model = BOMItem
     template_name = 'core/confirm_delete.html'
 
     def form_valid(self, form):
-        bom_pk = self.object.bom.pk
-        messages.success(self.request, f"Removed {self.object.part.part_number} from {self.object.bom.name}.")
-        return super().form_valid(form)
+        item = self.get_object()
+        bom = item.bom
+        part = item.part
+        active_kits = _get_bom_active_kit_count(bom)
+        with transaction.atomic():
+            if active_kits > 0:
+                release_units = (item.quantity or 1) * active_kits
+                old_c = part.quantity_committed or 0
+                part.quantity_committed = max(0, old_c - min(old_c, release_units))
+                part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+            messages.success(self.request, f"Removed {part.part_number} from {bom.name}.")
+            return super().form_valid(form)
 
     def get_success_url(self):
         return reverse('bom_detail', kwargs={'pk': self.object.bom.pk})
@@ -2278,31 +2412,308 @@ def bom_close_kit_action(request, pk):
     return redirect('bom_detail', pk=bom.pk)
 
 
+def _compute_bom_kit_metrics(bom):
+    """
+    Computes `max_kits`, `kitted_sets`, `max_builds`, and `total_committed_parts` for a BoM.
+    """
+    items = list(bom.items.all())
+    if items:
+        bom.max_kits = min(
+            max(0, (i.part.quantity_on_hand or 0) - (i.part.quantity_committed or 0)) // max(1, i.quantity)
+            for i in items
+        )
+        bom.kitted_sets = min(
+            (i.part.quantity_committed or 0) // max(1, i.quantity)
+            for i in items
+        )
+        bom.max_builds = min(
+            max(0, i.part.quantity_on_hand or 0) // max(1, i.quantity)
+            for i in items
+        )
+        bom.total_committed_parts = sum((i.part.quantity_committed or 0) for i in items)
+    else:
+        bom.max_kits = 0
+        bom.kitted_sets = 0
+        bom.max_builds = 0
+        bom.total_committed_parts = 0
+    return bom
+
+
+def bom_adjust_kit_action(request, pk):
+    """
+    POST action to adjust a BoM's kit quantity:
+    - mode='add': add `quantity` kits (commits components)
+    - mode='subtract' / 'return': subtract `quantity` kits and return components to available stock
+    - mode='set': set kitted sets to exact target `target_kits` (adds or returns the difference)
+    - mode='delete' / 'clear': delete/clear all kitted sets for this BoM and return committed parts to stock
+    - mode='build' / 'close': close & build `quantity` (or all) kitted sets, deducting from on-hand and committed
+    """
+    if request.method != 'POST':
+        return redirect('kit_action')
+
+    bom = get_object_or_404(BOM.objects.prefetch_related('items__part'), pk=pk)
+    next_url = request.POST.get('next') or reverse('kit_action')
+
+    if not bom.items.exists():
+        messages.warning(request, f"BOM '{bom.name}' has no components.")
+        return redirect(next_url)
+
+    _compute_bom_kit_metrics(bom)
+    current_kits = bom.kitted_sets
+    mode = (request.POST.get('mode') or 'set').strip().lower()
+
+    try:
+        qty = int(request.POST.get('quantity', 1))
+    except (ValueError, TypeError):
+        qty = 1
+
+    try:
+        target_kits = int(request.POST.get('target_kits', current_kits))
+        if target_kits < 0:
+            target_kits = 0
+    except (ValueError, TypeError):
+        target_kits = current_kits
+
+    if mode == 'add':
+        qty = max(1, qty)
+        with transaction.atomic():
+            comp_count, total_kitted, shortages = _execute_bom_kit(bom, kits_count=qty)
+        msg = f"Added {qty} kit(s) of '{bom.name}' ({total_kitted} total component parts committed)."
+        if shortages:
+            messages.warning(request, f"{msg} Note: Shortages on {', '.join(shortages)}.")
+        else:
+            messages.success(request, msg)
+        return redirect(next_url)
+
+    elif mode in ('subtract', 'return'):
+        qty = max(1, qty)
+        with transaction.atomic():
+            items = list(bom.items.select_related('part').all())
+            total_returned = 0
+            for item in items:
+                part = item.part
+                req_qty = item.quantity * qty
+                old_committed = part.quantity_committed or 0
+                released = min(old_committed, req_qty)
+                if released > 0:
+                    part.quantity_committed = max(0, old_committed - released)
+                    part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                    part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+                    total_returned += released
+        messages.success(
+            request,
+            f"Subtracted {qty} kit(s) from '{bom.name}' and returned {total_returned} committed part(s) to available stock."
+        )
+        return redirect(next_url)
+
+    elif mode in ('delete', 'clear'):
+        kits_to_clear = max(1, current_kits)
+        with transaction.atomic():
+            items = list(bom.items.select_related('part').all())
+            total_returned = 0
+            for item in items:
+                part = item.part
+                old_committed = part.quantity_committed or 0
+                req_qty = item.quantity * kits_to_clear
+                released = min(old_committed, req_qty) if current_kits > 0 else old_committed
+                if released > 0:
+                    part.quantity_committed = max(0, old_committed - released)
+                    part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                    part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+                    total_returned += released
+        messages.success(
+            request,
+            f"Deleted active kit(s) for '{bom.name}' and returned {total_returned} committed part(s) back to available inventory."
+        )
+        return redirect(next_url)
+
+    elif mode in ('build', 'close'):
+        kits_to_build = max(1, qty if 'quantity' in request.POST else current_kits)
+        with transaction.atomic():
+            comp_count, total_consumed, shortages = _execute_bom_build(
+                bom,
+                build_count=kits_to_build,
+                consume_committed=True
+            )
+        msg = f"Closed & built {kits_to_build} kit(s) of '{bom.name}' ({total_consumed} parts deducted from inventory)."
+        if shortages:
+            messages.warning(request, f"{msg} Note: Shortages on {', '.join(shortages)}.")
+        else:
+            messages.success(request, msg)
+        return redirect(next_url)
+
+    else:
+        # mode == 'set': adjust from current_kits to target_kits
+        delta = target_kits - current_kits
+        if delta > 0:
+            with transaction.atomic():
+                comp_count, total_kitted, shortages = _execute_bom_kit(bom, kits_count=delta)
+            msg = f"Adjusted '{bom.name}' kits from {current_kits} to {target_kits} (+{delta} kit(s), {total_kitted} parts committed)."
+            if shortages:
+                messages.warning(request, f"{msg} Note: Shortages on {', '.join(shortages)}.")
+            else:
+                messages.success(request, msg)
+        elif delta < 0:
+            remove_kits = abs(delta)
+            with transaction.atomic():
+                items = list(bom.items.select_related('part').all())
+                total_returned = 0
+                for item in items:
+                    part = item.part
+                    req_qty = item.quantity * remove_kits
+                    old_committed = part.quantity_committed or 0
+                    released = min(old_committed, req_qty)
+                    if released > 0:
+                        part.quantity_committed = max(0, old_committed - released)
+                        part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                        part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+                        total_returned += released
+            messages.success(
+                request,
+                f"Adjusted '{bom.name}' kits from {current_kits} to {target_kits} (-{remove_kits} kit(s), {total_returned} parts returned to stock)."
+            )
+        else:
+            # Even when target_kits == current_kits, ensure any newly added component
+            # whose quantity_committed is below (item.quantity * target_kits) gets synced up
+            synced_units = 0
+            if target_kits > 0:
+                with transaction.atomic():
+                    for item in bom.items.select_related('part').all():
+                        part = item.part
+                        expected_c = (item.quantity or 1) * target_kits
+                        old_c = part.quantity_committed or 0
+                        if old_c < expected_c:
+                            diff_c = expected_c - old_c
+                            part.quantity_committed = expected_c
+                            part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                            part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+                            synced_units += diff_c
+            if synced_units > 0:
+                messages.success(
+                    request,
+                    f"Synced '{bom.name}' to {target_kits} kit(s) and committed {synced_units} missing component unit(s)."
+                )
+            else:
+                messages.info(request, f"Kit quantity for '{bom.name}' is already {target_kits}.")
+        return redirect(next_url)
+
+
+def part_adjust_committed_action(request, pk):
+    """
+    POST action to directly adjust, add, subtract, or clear/delete a specific Part's
+    `quantity_committed` (kitted quantity), or consume it from on-hand inventory.
+    """
+    if request.method != 'POST':
+        return redirect('kit_action')
+
+    part = get_object_or_404(Part, pk=pk)
+    next_url = request.POST.get('next') or reverse('kit_action')
+    mode = (request.POST.get('mode') or 'set').strip().lower()
+    old_committed = part.quantity_committed or 0
+    old_on_hand = part.quantity_on_hand or 0
+
+    try:
+        qty = int(request.POST.get('quantity', 1))
+    except (ValueError, TypeError):
+        qty = 1
+
+    try:
+        target_committed = int(request.POST.get('target_committed', old_committed))
+        if target_committed < 0:
+            target_committed = 0
+    except (ValueError, TypeError):
+        target_committed = old_committed
+
+    with transaction.atomic():
+        if mode == 'add':
+            qty = max(1, qty)
+            part.quantity_committed = old_committed + qty
+            part.quantity_availible = max(0, old_on_hand - part.quantity_committed)
+            part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+            messages.success(
+                request,
+                f"Added {qty} to committed kit count for {part.part_number} (Committed: {old_committed} → {part.quantity_committed})."
+            )
+        elif mode in ('subtract', 'return'):
+            qty = max(1, qty)
+            part.quantity_committed = max(0, old_committed - qty)
+            part.quantity_availible = max(0, old_on_hand - part.quantity_committed)
+            part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+            messages.success(
+                request,
+                f"Returned {min(old_committed, qty)} committed unit(s) of {part.part_number} to available stock (Committed: {old_committed} → {part.quantity_committed})."
+            )
+        elif mode in ('delete', 'clear'):
+            part.quantity_committed = 0
+            part.quantity_availible = max(0, old_on_hand)
+            part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+            messages.success(
+                request,
+                f"Cleared committed kit allocation for {part.part_number} ({old_committed} unit(s) returned to available stock)."
+            )
+        elif mode in ('consume', 'build'):
+            consume_qty = max(1, qty if 'quantity' in request.POST else old_committed)
+            part.quantity_on_hand = max(0, old_on_hand - consume_qty)
+            part.quantity_committed = max(0, old_committed - consume_qty)
+            part.quantity_availible = max(0, part.quantity_on_hand - part.quantity_committed)
+            part.save(update_fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible', 'updated_at'])
+            messages.success(
+                request,
+                f"Consumed {consume_qty} kitted unit(s) of {part.part_number} from inventory (On-Hand: {old_on_hand} → {part.quantity_on_hand}, Committed: {old_committed} → {part.quantity_committed})."
+            )
+        else:
+            # mode == 'set'
+            if target_committed != old_committed:
+                part.quantity_committed = target_committed
+                part.quantity_availible = max(0, old_on_hand - part.quantity_committed)
+                part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+                messages.success(
+                    request,
+                    f"Updated committed kit quantity for {part.part_number}: {old_committed} → {part.quantity_committed}."
+                )
+            else:
+                messages.info(request, f"Committed quantity for {part.part_number} is already {old_committed}.")
+
+    return redirect(next_url)
+
+
 class KitActionView(TemplateView):
     """
-    Dedicated 'Make a Kit' action page where users can select a BoM Assembly, preview
-    component requirements vs uncommitted stock, and move everything from the BoM into a Kit.
+    Dedicated 'Kits Management & Pick/Adjust Kits' page where users can:
+    - View all active Kits and all BoM Assemblies with their kitted counts
+    - Add (+), subtract (-), set exact kit quantities, close/build kits, or delete/uncommit kits
+    - View and directly adjust, add, subtract, or clear every individual kitted/committed component part
     """
     template_name = 'core/kit_action.html'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         boms = list(BOM.objects.prefetch_related('items__part', 'items__part__location').order_by('name'))
+        active_kits_count = 0
+        total_kitted_sets = 0
         for bom in boms:
-            items = list(bom.items.all())
-            if items:
-                bom.max_kits = min(
-                    max(0, (i.part.quantity_on_hand or 0) - (i.part.quantity_committed or 0)) // max(1, i.quantity)
-                    for i in items
-                )
-                bom.kitted_sets = min(
-                    (i.part.quantity_committed or 0) // max(1, i.quantity)
-                    for i in items
-                )
-            else:
-                bom.max_kits = 0
-                bom.kitted_sets = 0
+            _compute_bom_kit_metrics(bom)
+            if bom.kitted_sets > 0:
+                active_kits_count += 1
+                total_kitted_sets += bom.kitted_sets
+
+        committed_parts = list(
+            Part.objects.filter(quantity_committed__gt=0)
+            .select_related('category', 'location', 'company')
+            .prefetch_related('bom_items__bom')
+            .order_by('part_number')
+        )
+        total_committed_units = sum((p.quantity_committed or 0) for p in committed_parts)
+
         ctx['boms'] = boms
+        ctx['active_kits'] = [b for b in boms if b.kitted_sets > 0 or b.total_committed_parts > 0]
+        ctx['active_kits_count'] = active_kits_count
+        ctx['total_kitted_sets'] = total_kitted_sets
+        ctx['committed_parts'] = committed_parts
+        ctx['committed_parts_count'] = len(committed_parts)
+        ctx['total_committed_units'] = total_committed_units
+        ctx['all_parts'] = Part.objects.select_related('category', 'location').order_by('part_number')
+
         selected_id = self.request.GET.get('bom')
         if selected_id and selected_id.isdigit():
             ctx['selected_bom'] = next((b for b in boms if b.pk == int(selected_id)), None)
@@ -2313,6 +2724,21 @@ class KitActionView(TemplateView):
         return ctx
 
     def post(self, request, *args, **kwargs):
+        action = (request.POST.get('action') or '').strip()
+        if action == 'adjust_part':
+            part_id = request.POST.get('part_id')
+            if part_id and str(part_id).isdigit():
+                return part_adjust_committed_action(request, pk=int(part_id))
+            messages.error(request, "Please select a valid component part to adjust.")
+            return redirect('kit_action')
+
+        if action == 'adjust_bom':
+            bom_id = request.POST.get('bom')
+            if bom_id and str(bom_id).isdigit():
+                return bom_adjust_kit_action(request, pk=int(bom_id))
+            messages.error(request, "Please select a valid Bill of Materials (BoM) to adjust.")
+            return redirect('kit_action')
+
         bom_id = request.POST.get('bom')
         if not bom_id or not str(bom_id).isdigit():
             messages.error(request, "Please select a valid Bill of Materials (BoM) to kit.")

@@ -1,3 +1,2 @@
 agent dialog.txt
-When I print the inventory count sheet or even the PDF of it, the print looks terrible.  It is hard to read.
-
+I added a part to a BOM.  There was a kit associated with that bom.  The part shows up on the the kit's list of parts, but that part does not show it as being commited.  

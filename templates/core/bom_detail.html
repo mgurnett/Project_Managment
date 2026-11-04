@@ -160,9 +160,26 @@
                                 {% endif %}
                             </td>
                             <td class="text-center py-3">
-                                <span class="badge bg-body-tertiary text-body border fw-bold px-2 py-1">
-                                    &times; {{ item.quantity }}
-                                </span>
+                                <div class="d-inline-flex align-items-center justify-content-center gap-1">
+                                    <form method="post" action="{% url 'bom_item_update' item.pk %}" class="d-inline">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="mode" value="subtract">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-1.5" title="Subtract 1">&minus;</button>
+                                    </form>
+                                    <form method="post" action="{% url 'bom_item_update' item.pk %}" class="d-inline-flex align-items-center">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="mode" value="set">
+                                        <div class="input-group input-group-sm" style="width: 90px;">
+                                            <input type="number" name="quantity" class="form-control text-center fw-bold font-monospace px-1" min="0" value="{{ item.quantity }}">
+                                            <button type="submit" class="btn btn-outline-custom px-1.5" title="Set Quantity">Set</button>
+                                        </div>
+                                    </form>
+                                    <form method="post" action="{% url 'bom_item_update' item.pk %}" class="d-inline">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="mode" value="add">
+                                        <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-1.5" title="Add 1">+</button>
+                                    </form>
+                                </div>
                             </td>
                             <td class="text-center py-3">
                                 {% if item.part.quantity_on_hand >= item.quantity %}

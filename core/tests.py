@@ -824,5 +824,98 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertContains(res_clear, '600-001')
         self.assertEqual(res_clear.context['current_category'], '')
 
+    def test_kits_list_and_adjustments_add_subtract_set_delete(self):
+        """
+        Tests listing kits and adjusting kit quantities (add, subtract, set exact target, delete/clear)
+        as well as adjusting individual committed part quantities and BoM item quantities.
+        """
+        self.part.quantity_on_hand = 30
+        self.part.quantity_committed = 0
+        self.part.quantity_availible = 30
+        self.part.save()
+
+        bom = BOM.objects.create(name='Node Sensor Kit')
+        bom_item = BOMItem.objects.create(bom=bom, part=self.part, quantity=2)
+
+        # 1. Add 3 kits -> commits 6 parts
+        self.client.post(reverse('bom_adjust_kit_action', kwargs={'pk': bom.pk}), {
+            'mode': 'add',
+            'quantity': '3',
+        })
+        self.part.refresh_from_db()
+        self.assertEqual(self.part.quantity_committed, 6)
+        self.assertEqual(self.part.quantity_availible, 24)
+
+        # 2. Subtract 1 kit -> returns 2 parts to available (4 committed)
+        self.client.post(reverse('bom_adjust_kit_action', kwargs={'pk': bom.pk}), {
+            'mode': 'subtract',
+            'quantity': '1',
+        })
+        self.part.refresh_from_db()
+        self.assertEqual(self.part.quantity_committed, 4)
+        self.assertEqual(self.part.quantity_availible, 26)
+
+        # 3. Set exact kit count to 5 -> commits +3 kits = 10 committed
+        self.client.post(reverse('bom_adjust_kit_action', kwargs={'pk': bom.pk}), {
+            'mode': 'set',
+            'target_kits': '5',
+        })
+        self.part.refresh_from_db()
+        self.assertEqual(self.part.quantity_committed, 10)
+        self.assertEqual(self.part.quantity_availible, 20)
+
+        # 4. Adjust individual part committed count directly (set to 8)
+        self.client.post(reverse('part_adjust_committed_action', kwargs={'pk': self.part.pk}), {
+            'mode': 'set',
+            'target_committed': '8',
+        })
+        self.part.refresh_from_db()
+        self.assertEqual(self.part.quantity_committed, 8)
+        self.assertEqual(self.part.quantity_availible, 22)
+
+        # 5. Delete / clear kit -> returns all 8 committed parts to available stock
+        self.client.post(reverse('bom_adjust_kit_action', kwargs={'pk': bom.pk}), {
+            'mode': 'delete',
+        })
+        self.part.refresh_from_db()
+        self.assertEqual(self.part.quantity_committed, 0)
+        self.assertEqual(self.part.quantity_availible, 30)
+
+        # 6. Adjust BOMItem quantity (+1 -> 3)
+        self.client.post(reverse('bom_item_update', kwargs={'pk': bom_item.pk}), {
+            'mode': 'add',
+        })
+        bom_item.refresh_from_db()
+        self.assertEqual(bom_item.quantity, 3)
+
+        # 7. When a BoM has an active kit (e.g. 2 kits of Node Sensor Kit = 6 of self.part),
+        # adding a new component part to that BoM automatically commits (qty * active_kits)
+        self.client.post(reverse('bom_adjust_kit_action', kwargs={'pk': bom.pk}), {
+            'mode': 'set',
+            'target_kits': '2',
+        })
+        self.part.refresh_from_db()
+        self.assertEqual(self.part.quantity_committed, 6)
+
+        box_part = Part.objects.create(
+            part_number='500-004',
+            name='Blue project box',
+            category=self.category,
+            quantity_on_hand=5,
+            quantity_committed=0,
+            quantity_availible=5,
+        )
+        self.client.post(reverse('bom_item_create', kwargs={'bom_pk': bom.pk}), {
+            'part': box_part.pk,
+            'quantity': 1,
+            'reference': 'ENC1',
+            'notes': 'Enclosure',
+        })
+        box_part.refresh_from_db()
+        self.assertEqual(box_part.quantity_committed, 2)
+        self.assertEqual(box_part.quantity_availible, 3)
+
+
+
 
 

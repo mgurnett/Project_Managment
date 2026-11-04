@@ -55,10 +55,13 @@ urlpatterns = [
     path('boms/<int:pk>/edit/', views.BOMUpdateView.as_view(), name='bom_update'),
     path('boms/<int:pk>/delete/', views.BOMDeleteView.as_view(), name='bom_delete'),
     path('boms/<int:bom_pk>/items/add/', views.BOMItemCreateView.as_view(), name='bom_item_create'),
+    path('bom-items/<int:pk>/update/', views.bom_item_update_action, name='bom_item_update'),
     path('bom-items/<int:pk>/delete/', views.BOMItemDeleteView.as_view(), name='bom_item_delete'),
     path('boms/<int:pk>/kit/', views.bom_kit_action, name='bom_kit_action'),
+    path('boms/<int:pk>/adjust-kit/', views.bom_adjust_kit_action, name='bom_adjust_kit_action'),
     path('boms/<int:pk>/close-kit/', views.bom_close_kit_action, name='bom_close_kit_action'),
     path('boms/<int:pk>/build/', views.bom_build_action, name='bom_build_action'),
+    path('parts/<int:pk>/adjust-committed/', views.part_adjust_committed_action, name='part_adjust_committed_action'),
 
     # Kit & Build Actions
     path('actions/kit/', views.KitActionView.as_view(), name='kit_action'),
