@@ -22,51 +22,39 @@ from .forms import (
 
 def home(request):
     """
-    Landing / Dashboard view for Project Manager.
+    Landing / Dashboard view for Inventory Manager.
     """
     total_parts = Part.objects.count()
     total_companies = Company.objects.count()
+    total_manufacturers = Manufacturer.objects.count()
     total_categories = Category.objects.count()
     total_locations = Location.objects.count()
     total_boms = BOM.objects.count()
     total_orders = Order.objects.count()
+    active_orders = Order.objects.filter(status__in=['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED']).count()
+    total_on_hand = Part.objects.aggregate(total=Sum('quantity_on_hand'))['total'] or 0
+    total_on_order = Part.objects.aggregate(total=Sum('quantity_on_order'))['total'] or 0
+    total_committed = Part.objects.aggregate(total=Sum('quantity_committed'))['total'] or 0
 
     context = {
         'page_title': 'Dashboard Overview',
         'metrics': {
-            'active_projects': 8,
-            'pending_tasks': 24,
-            'completed_tasks': 67,
-            'team_members': 5,
             'total_parts': total_parts,
             'total_companies': total_companies,
+            'total_manufacturers': total_manufacturers,
             'total_categories': total_categories,
             'total_locations': total_locations,
             'total_boms': total_boms,
             'total_orders': total_orders,
+            'active_orders': active_orders,
+            'total_on_hand': total_on_hand,
+            'total_on_order': total_on_order,
+            'total_committed': total_committed,
         },
-        'recent_orders': Order.objects.select_related('supplier').order_by('-order_date', '-created_at')[:4],
-        'recent_boms': BOM.objects.annotate(item_count=Count('items')).order_by('-created_at')[:4],
+        'recent_orders': Order.objects.select_related('supplier').order_by('-order_date', '-created_at')[:5],
+        'recent_boms': BOM.objects.annotate(item_count=Count('items')).order_by('-created_at')[:5],
         'recent_parts': Part.objects.select_related('company', 'category', 'location').order_by('-created_at')[:8],
         'recent_companies': Company.objects.annotate(part_count=Count('parts')).order_by('-created_at')[:5],
-        'recent_projects': [
-            {'name': 'Warehouse Inventory Audit', 'category': 'Supply Chain Ops', 'progress': 75, 'status': 'In Progress', 'status_class': 'success', 'due_date': 'Nov 15, 2026'},
-            {'name': 'Hardware Asset Tracking', 'category': 'IT Infrastructure', 'progress': 45, 'status': 'In Progress', 'status_class': 'warning', 'due_date': 'Nov 28, 2026'},
-            {'name': 'Supplier Integration API', 'category': 'External Logistics', 'progress': 90, 'status': 'Review', 'status_class': 'info', 'due_date': 'Nov 10, 2026'},
-            {'name': 'Quarterly Maintenance Schedule', 'category': 'Facilities', 'progress': 20, 'status': 'Planning', 'status_class': 'secondary', 'due_date': 'Dec 05, 2026'},
-        ],
-        'upcoming_tasks': [
-            {'title': 'Review sensory node telemetry report', 'project': 'Warehouse Audit', 'due': 'Tomorrow', 'priority': 'High', 'priority_class': 'danger'},
-            {'title': 'Verify database replication status', 'project': 'IT Infrastructure', 'due': 'In 3 days', 'priority': 'Medium', 'priority_class': 'warning'},
-            {'title': 'Update stock replenishment thresholds', 'project': 'Logistics', 'due': 'Nov 08', 'priority': 'Low', 'priority_class': 'info'},
-            {'title': 'Sync user permissions with LDAP / DB groups', 'project': 'Security', 'due': 'Nov 12', 'priority': 'Medium', 'priority_class': 'warning'},
-        ],
-        'recent_activities': [
-            {'user': 'Michael G.', 'action': 'updated milestone for Warehouse Audit', 'time': '15m ago', 'icon': 'bi-check2-circle', 'color': 'text-success'},
-            {'user': 'System', 'action': 'completed daily database sync', 'time': '1h ago', 'icon': 'bi-database-check', 'color': 'text-primary'},
-            {'user': 'Team Ops', 'action': 'assigned 3 new tasks to Inventory', 'time': '3h ago', 'icon': 'bi-list-task', 'color': 'text-warning'},
-            {'user': 'Michael G.', 'action': 'logged in via local console', 'time': 'Today', 'icon': 'bi-shield-check', 'color': 'text-info'},
-        ],
     }
     return render(request, 'home.html', context)
 

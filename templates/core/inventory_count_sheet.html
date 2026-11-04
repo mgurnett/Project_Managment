@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Inventory Count Sheet | Project Manager{% endblock %}
+{% block title %}Inventory Count Sheet | Inventory Manager{% endblock %}
 {% block breadcrumb %}
     <a href="{% url 'part_list' %}" class="text-decoration-none text-muted">Parts</a>
     <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
@@ -121,7 +121,7 @@
         <div class="d-flex justify-content-between align-items-center">
             <div>
                 <h2 class="h4 fw-bold text-uppercase mb-0" style="letter-spacing: 0.05em;">PHYSICAL INVENTORY COUNT SHEET</h2>
-                <div class="small text-muted">Project Manager &bull; Grouped by Category &bull; Sorted by Part Number</div>
+                <div class="small text-muted">Inventory Manager &bull; Grouped by Category &bull; Sorted by Part Number</div>
             </div>
             <div class="text-end small">
                 <div><strong>Generated:</strong> {{ generated_at|date:"Y-m-d H:i" }}</div>
@@ -427,7 +427,7 @@
     <div class="print-only mt-4 pt-3 border-top border-dark">
         <div class="row small text-muted">
             <div class="col-6">
-                <strong>Project Manager &bull; Inventory Count Sheet</strong> &bull; Printed on {{ generated_at|date:"Y-m-d H:i:s" }}
+                <strong>Inventory Manager &bull; Inventory Count Sheet</strong> &bull; Printed on {{ generated_at|date:"Y-m-d H:i:s" }}
             </div>
             <div class="col-6 text-end">
                 Page verification and sign-off required for inventory reconciliation.

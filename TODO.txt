@@ -5,7 +5,6 @@ TODO:
 TODO: 
 
 
-
 ==============  Priority Medium
 TODO: 
 
@@ -15,6 +14,8 @@ TODO:
 
 
 ==============  COMPLETED =============
+[COMPLETED] We need to remove all referances to projects.   There are no projects, so if there is a model for projects it needs to be removed too. (Verified no Project model exists in models.py; removed all references to projects, New Project buttons/modals, and mock project data from core/views.py, templates/home.html, templates/base.html, inventory/settings.py, and all core templates)
+[COMPLETED] Bills of Materials (BoMs) needs to be just BoMs, Companies / Suppliers , Manufacturers, Categories Storage Locations need to be removed from the side bar. (Renamed Bills of Materials (BoMs) to BoMs and removed Companies / Suppliers, Manufacturers, Categories, and Storage Locations from the left sidebar in templates/base.html)
 [COMPLETED] change Purchase Orders, Pick Kit, Take Inventory to Orders,  Kits,  Inventory (Renamed sidebar links under Actions in templates/base.html to Orders, Kits, and Inventory)
 [COMPLETED] Remove recieve orders as the button for that is at the top of Purchase Orders. (Removed Receive Orders from the left sidebar in templates/base.html)
 [COMPLETED] Remove build assembly from side bar.  Change the name of the button at the top of Make a kit to Close kit.  Rename Make a kit to pick kit (Removed Build Assembly from the left sidebar, renamed Make a Kit to Pick Kit in templates/base.html and templates/core/kit_action.html, and changed the top action button in kit_action.html to Close Kit)

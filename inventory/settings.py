@@ -156,11 +156,11 @@ MAILERS = {
 }
 
 JAZZMIN_SETTINGS = {
-    "site_title": "Project Manager Admin",
-    "site_header": "Project Manager",
-    "site_brand": "Project Manager",
-    "welcome_sign": "Welcome to Project Manager",
-    "copyright": "Project Manager",
+    "site_title": "Inventory Manager Admin",
+    "site_header": "Inventory Manager",
+    "site_brand": "Inventory Manager",
+    "welcome_sign": "Welcome to Inventory Manager",
+    "copyright": "Inventory Manager",
     "icons": {
         "auth": "fas fa-users-cog",
         "auth.Group": "fas fa-users",
