@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}Make a Kit | Project Manager{% endblock %}
+{% block breadcrumb %}Make a Kit{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+
+    <!-- Header -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
+        <div>
+            <h1 class="h3 fw-bold mb-1 text-custom">
+                <i class="bi bi-box-seam me-2"></i>Make a Kit (Move BoM to Kit)
+            </h1>
+            <p class="text-muted small mb-0">Select a Bill of Materials (BoM) assembly to move all required component parts into Committed Kit inventory.</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <a href="{% url 'bom_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-diagram-3 me-1"></i> Manage BoMs
+            </a>
+            <a href="{% url 'build_action' %}{% if selected_bom %}?bom={{ selected_bom.pk }}{% endif %}" class="btn btn-outline-warning text-dark btn-sm fw-semibold">
+                <i class="bi bi-tools me-1"></i> Go to Build Action
+            </a>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- Left Column: Select BoM & Execute Kit Action -->
+        <div class="col-12 col-lg-4">
+            <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+                <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2">
+                    <h5 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                        <i class="bi bi-sliders me-2 text-custom"></i>1. Select Assembly &amp; Kit Quantity
+                    </h5>
+                </div>
+                <div class="card-body p-4">
+                    {% if boms %}
+                    <form method="get" class="mb-3">
+                        <label class="form-label small fw-semibold">Select BoM Assembly</label>
+                        <select name="bom" class="form-select" onchange="this.form.submit()">
+                            {% for b in boms %}
+                                <option value="{{ b.pk }}" {% if selected_bom and selected_bom.pk == b.pk %}selected{% endif %}>
+                                    {{ b.name }} ({{ b.items.count }} items &bull; {{ b.max_kits }} ready to kit)
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </form>
+
+                    {% if selected_bom %}
+                    <form method="post" action="{% url 'kit_action' %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="bom" value="{{ selected_bom.pk }}">
+                        <input type="hidden" name="next" value="{% url 'kit_action' %}?bom={{ selected_bom.pk }}">
+
+                        <div class="p-3 rounded-3 bg-body-tertiary border mb-3 small">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Unique Components:</span>
+                                <strong>{{ selected_bom.items.count }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Total Parts / Kit:</span>
+                                <strong>{{ selected_bom.total_parts_quantity }} pcs</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Currently Kitted Sets:</span>
+                                <strong class="text-info">{{ selected_bom.kitted_sets }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Max Kits from Uncommitted:</span>
+                                <strong class="text-success">{{ selected_bom.max_kits }}</strong>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Number of Kits to Prepare <span class="text-danger">*</span></label>
+                            <input type="number" name="quantity" class="form-control" value="1" min="1" required>
+                            <div class="form-text small">Moves required parts for each kit into Committed status.</div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100 fw-semibold">
+                            <i class="bi bi-box-seam me-1"></i> Move BoM Parts to Kit
+                        </button>
+                    </form>
+
+                    {% if selected_bom.kitted_sets > 0 %}
+                    <hr class="my-3">
+                    <form method="post" action="{% url 'bom_close_kit_action' selected_bom.pk %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{% url 'kit_action' %}?bom={{ selected_bom.pk }}">
+                        <label class="form-label small fw-semibold text-success">Close / Complete Kit ({{ selected_bom.kitted_sets }} kitted)</label>
+                        <div class="input-group input-group-sm mb-2">
+                            <span class="input-group-text">Kits</span>
+                            <input type="number" name="quantity" class="form-control" value="1" min="1" max="{{ selected_bom.kitted_sets }}">
+                            <button type="submit" name="action_type" value="build" class="btn btn-success fw-semibold">
+                                <i class="bi bi-check2-circle me-1"></i> Close Kit &amp; Build
+                            </button>
+                        </div>
+                        <div class="form-text small">Closing the kit consumes the committed parts out of inventory.</div>
+                    </form>
+                    {% endif %}
+                    {% endif %}
+                    {% else %}
+                    <div class="text-center py-4 text-muted">
+                        <p class="small mb-3">No Bills of Materials (BoMs) exist yet.</p>
+                        <a href="{% url 'bom_create' %}" class="btn btn-sm btn-custom">Create a BoM</a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Selected BoM Component Checklist -->
+        <div class="col-12 col-lg-8">
+            <div class="card border-0 shadow-sm rounded-3 bg-body overflow-hidden">
+                <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center">
+                    <h5 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                        <i class="bi bi-list-check me-2 text-custom"></i>2. Kit Pull Sheet: {% if selected_bom %}{{ selected_bom.name }}{% else %}None Selected{% endif %}
+                    </h5>
+                    {% if selected_bom %}
+                        <a href="{% url 'bom_detail' selected_bom.pk %}" class="btn btn-sm btn-outline-secondary py-0">View BoM</a>
+                    {% endif %}
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light border-bottom small text-uppercase text-muted">
+                            <tr>
+                                <th class="ps-4 py-2">Part #</th>
+                                <th class="py-2">Component</th>
+                                <th class="py-2">Storage Location</th>
+                                <th class="text-center py-2">Qty / Kit</th>
+                                <th class="text-center py-2">On Hand</th>
+                                <th class="text-center py-2">Committed (Kitted)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if selected_bom %}
+                                {% for item in selected_bom.items.all %}
+                                <tr>
+                                    <td class="ps-4 py-2 font-monospace fw-bold">
+                                        <a href="{% url 'part_detail' item.part.pk %}" class="text-decoration-none text-custom">{{ item.part.part_number }}</a>
+                                    </td>
+                                    <td class="py-2 small">
+                                        <div class="fw-semibold text-body">{{ item.part.name|default:item.part.description }}</div>
+                                        {% if item.reference %}<span class="text-muted font-monospace" style="font-size: 0.75rem;">Ref: {{ item.reference }}</span>{% endif %}
+                                    </td>
+                                    <td class="py-2 small">
+                                        {% if item.part.location %}
+                                            <span class="badge bg-light text-dark border font-monospace">{{ item.part.location.name }}</span>
+                                        {% else %}
+                                            <span class="text-muted">&mdash;</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center py-2 fw-bold">&times; {{ item.quantity }}</td>
+                                    <td class="text-center py-2">
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle">{{ item.part.quantity_on_hand }}</span>
+                                    </td>
+                                    <td class="text-center py-2">
+                                        <span class="badge bg-info-subtle text-info border border-info-subtle">{{ item.part.quantity_committed|default:0 }}</span>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center py-4 text-muted">This BoM has no component items yet.</td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center py-4 text-muted">Select a BoM to view its kit pull list.</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+

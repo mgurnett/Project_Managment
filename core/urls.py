@@ -56,17 +56,28 @@ urlpatterns = [
     path('boms/<int:pk>/delete/', views.BOMDeleteView.as_view(), name='bom_delete'),
     path('boms/<int:bom_pk>/items/add/', views.BOMItemCreateView.as_view(), name='bom_item_create'),
     path('bom-items/<int:pk>/delete/', views.BOMItemDeleteView.as_view(), name='bom_item_delete'),
+    path('boms/<int:pk>/kit/', views.bom_kit_action, name='bom_kit_action'),
+    path('boms/<int:pk>/close-kit/', views.bom_close_kit_action, name='bom_close_kit_action'),
+    path('boms/<int:pk>/build/', views.bom_build_action, name='bom_build_action'),
 
-    # Inventory Count Sheet & Audit
+    # Kit & Build Actions
+    path('actions/kit/', views.KitActionView.as_view(), name='kit_action'),
+    path('actions/build/', views.BuildActionView.as_view(), name='build_action'),
+
+    # Inventory Count Sheet & Take Inventory Adjustments
     path('inventory/count-sheet/', views.InventoryCountSheetView.as_view(), name='inventory_count_sheet'),
     path('inventory/count-sheet/export/csv/', views.inventory_count_sheet_export_csv, name='inventory_count_sheet_csv'),
     path('inventory/count-sheet/pdf/', views.inventory_count_sheet_pdf, name='inventory_count_sheet_pdf'),
+    path('inventory/take-inventory/', views.TakeInventoryView.as_view(), name='take_inventory'),
 
-    # Purchase Orders & Order Action
+    # Purchase Orders & Order / Receive Actions
     path('orders/', views.OrderListView.as_view(), name='order_list'),
     path('orders/create/', views.OrderCreateView.as_view(), name='order_create'),
+    path('orders/receive/', views.OrderReceiveActionView.as_view(), name='order_receive_action'),
+    path('orders/receive-all/', views.orders_receive_everything, name='orders_receive_everything'),
     path('orders/quick-create-part/', views.order_quick_create_part, name='order_quick_create_part'),
     path('orders/<int:pk>/', views.OrderDetailView.as_view(), name='order_detail'),
+    path('orders/<int:pk>/receive-all/', views.order_receive_all, name='order_receive_all'),
     path('orders/<int:pk>/edit/', views.OrderUpdateView.as_view(), name='order_update'),
     path('orders/<int:pk>/delete/', views.OrderDeleteView.as_view(), name='order_delete'),
     path('orders/<int:order_pk>/items/add/', views.OrderItemCreateView.as_view(), name='order_item_create'),

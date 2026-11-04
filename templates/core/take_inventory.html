@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}Take Inventory Sheet & Adjustments | Project Manager{% endblock %}
+{% block breadcrumb %}Take Inventory Sheet{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+
+    <!-- Header -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
+        <div>
+            <h1 class="h3 fw-bold mb-1 text-custom">
+                <i class="bi bi-sliders me-2"></i>Take Inventory &amp; Adjust Stock
+            </h1>
+            <p class="text-muted small mb-0">
+                Compare expected system quantities against physical bin counts and apply stock adjustments directly to inventory.
+            </p>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <a href="{% url 'inventory_count_sheet' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-printer me-1"></i> Printable Count Sheet
+            </a>
+            <button type="button" class="btn btn-outline-primary btn-sm" id="fillExpectedBtn">
+                <i class="bi bi-check2-square me-1"></i> Match All to Expected
+            </button>
+            <button type="submit" form="takeInventoryForm" class="btn btn-custom btn-sm fw-semibold shadow-sm">
+                <i class="bi bi-save me-1"></i> Apply Inventory Adjustments
+            </button>
+        </div>
+    </div>
+
+    <!-- Filter Toolbar -->
+    <div class="card border-0 shadow-sm rounded-3 mb-4 bg-body">
+        <div class="card-body p-3">
+            <form method="get" class="row g-2 align-items-center">
+                <div class="col-12 col-md-4">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-body border-end-0"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" name="q" class="form-control bg-body border-start-0" placeholder="Search part #, name, description..." value="{{ current_q }}">
+                    </div>
+                </div>
+                <div class="col-12 col-sm-6 col-md-3">
+                    <select name="category" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="">-- All Categories --</option>
+                        {% for cat in categories %}
+                            <option value="{{ cat.pk }}" {% if current_category == cat.pk|stringformat:"s" %}selected{% endif %}>{{ cat }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12 col-sm-6 col-md-3">
+                    <select name="location" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="">-- All Storage Locations --</option>
+                        {% for loc in locations %}
+                            <option value="{{ loc.pk }}" {% if current_location == loc.pk|stringformat:"s" %}selected{% endif %}>{{ loc.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto d-flex gap-1">
+                    <button type="submit" class="btn btn-sm btn-outline-custom">Filter</button>
+                    {% if current_q or current_category or current_location or current_stock %}
+                        <a href="{% url 'take_inventory' %}" class="btn btn-sm btn-outline-secondary">Reset</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Interactive Take Inventory Form -->
+    <form method="post" action="{% url 'take_inventory' %}" id="takeInventoryForm">
+        {% csrf_token %}
+
+        {% for group in groups %}
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
+            <div class="card-header bg-transparent border-bottom py-3 px-4 d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    {% if group.prefix %}
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace">{{ group.prefix }}</span>
+                    {% endif %}
+                    <h5 class="h6 fw-bold mb-0 text-body">{{ group.category_name }}</h5>
+                </div>
+                <span class="badge bg-light text-muted border">{{ group.total_items }} part{{ group.total_items|pluralize }} &bull; Expected: {{ group.total_on_hand }} pcs</span>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light border-bottom small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-4 py-2" style="width: 14%;">Part #</th>
+                            <th class="py-2" style="width: 28%;">Component Name &amp; Description</th>
+                            <th class="py-2" style="width: 14%;">Storage Location</th>
+                            <th class="text-center py-2" style="width: 10%;">Committed</th>
+                            <th class="text-center py-2" style="width: 10%;">On Order</th>
+                            <th class="text-center py-2" style="width: 10%;">Should Be (On-Hand)</th>
+                            <th class="text-center py-2" style="width: 14%;">Actual Count</th>
+                            <th class="text-end pe-4 py-2" style="width: 10%;">Adjustment</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for part in group.parts %}
+                        <tr class="inventory-row" data-expected="{{ part.quantity_on_hand|default:0 }}">
+                            <td class="ps-4 py-2 font-monospace fw-bold">
+                                <a href="{% url 'part_detail' part.pk %}" class="text-decoration-none text-custom">{{ part.part_number }}</a>
+                            </td>
+                            <td class="py-2 small">
+                                <div class="fw-semibold text-body">{{ part.name|default:part.description }}</div>
+                                {% if part.description and part.name and part.description != part.name %}
+                                    <div class="text-muted" style="font-size: 0.75rem;">{{ part.description|truncatechars:65 }}</div>
+                                {% endif %}
+                            </td>
+                            <td class="py-2 small">
+                                {% if part.location %}
+                                    <span class="badge bg-light text-dark border font-monospace">{{ part.location.name }}</span>
+                                {% else %}
+                                    <span class="text-muted">&mdash;</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center py-2 small text-info fw-semibold">
+                                {{ part.quantity_committed|default:0 }}
+                            </td>
+                            <td class="text-center py-2 small text-primary fw-semibold">
+                                {{ part.quantity_on_order|default:0 }}
+                            </td>
+                            <td class="text-center py-2">
+                                <span class="badge bg-secondary-subtle text-body border fw-bold px-2.5 py-1 fs-6">
+                                    {{ part.quantity_on_hand|default:0 }}
+                                </span>
+                            </td>
+                            <td class="text-center py-2">
+                                <input type="hidden" name="part_id[]" value="{{ part.pk }}">
+                                <input type="number"
+                                       name="actual_count_{{ part.pk }}"
+                                       class="form-control form-control-sm text-center fw-bold actual-count-input mx-auto"
+                                       style="max-width: 100px;"
+                                       min="0"
+                                       placeholder="{{ part.quantity_on_hand|default:0 }}"
+                                       value="">
+                            </td>
+                            <td class="text-end pe-4 py-2 font-monospace fw-bold delta-cell text-muted small">
+                                &mdash;
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% empty %}
+        <div class="card border-0 shadow-sm rounded-3 bg-body p-5 text-center mb-4">
+            <p class="text-muted mb-0">No parts match the selected filters.</p>
+        </div>
+        {% endfor %}
+
+        {% if groups %}
+        <div class="d-flex justify-content-end gap-2 mb-5">
+            <button type="submit" class="btn btn-custom px-4 fw-semibold shadow-sm">
+                <i class="bi bi-save me-1"></i> Apply Inventory Adjustments
+            </button>
+        </div>
+        {% endif %}
+    </form>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const rows = document.querySelectorAll('.inventory-row');
+    const fillExpectedBtn = document.getElementById('fillExpectedBtn');
+
+    function updateRowDelta(row) {
+        const expected = parseInt(row.getAttribute('data-expected')) || 0;
+        const input = row.querySelector('.actual-count-input');
+        const deltaCell = row.querySelector('.delta-cell');
+        if (!input || !deltaCell) return;
+
+        const raw = input.value.trim();
+        if (raw === '') {
+            deltaCell.textContent = '—';
+            deltaCell.className = 'text-end pe-4 py-2 font-monospace fw-bold delta-cell text-muted small';
+            return;
+        }
+        const actual = parseInt(raw);
+        if (isNaN(actual)) return;
+        const diff = actual - expected;
+        if (diff === 0) {
+            deltaCell.textContent = '0 (Match)';
+            deltaCell.className = 'text-end pe-4 py-2 font-monospace fw-bold delta-cell text-success small';
+        } else if (diff > 0) {
+            deltaCell.textContent = '+' + diff;
+            deltaCell.className = 'text-end pe-4 py-2 font-monospace fw-bold delta-cell text-primary small';
+        } else {
+            deltaCell.textContent = String(diff);
+            deltaCell.className = 'text-end pe-4 py-2 font-monospace fw-bold delta-cell text-danger small';
+        }
+    }
+
+    rows.forEach(row => {
+        const input = row.querySelector('.actual-count-input');
+        if (input) {
+            input.addEventListener('input', () => updateRowDelta(row));
+        }
+    });
+
+    if (fillExpectedBtn) {
+        fillExpectedBtn.addEventListener('click', function() {
+            rows.forEach(row => {
+                const expected = row.getAttribute('data-expected') || '0';
+                const input = row.querySelector('.actual-count-input');
+                if (input && input.value.trim() === '') {
+                    input.value = expected;
+                    updateRowDelta(row);
+                }
+            });
+        });
+    }
+});
+</script>
+{% endblock %}
+

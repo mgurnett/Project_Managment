@@ -1,24 +1,29 @@
 =============  Bug fixes =================
-[COMPLETED] component numbers must be unique. (Enforced case-insensitive part number uniqueness with prefix formatting in PartForm, and UniqueConstraint on BOM components)
-TODO: when a part is ordered at a price and it is received, that that price needs to be the new price in the price model.  Also, whe a part is ordered, there needs to be an option to create a new part and to chan ge the price and the quanitity that they come in (box of 50 say)
-
+TODO: 
 
 ==============  Priority HIGH
+[COMPLETED] We need to make a test that test all the actions.  We need to add a purchae order, then we need to receive it.  Then that order needs to be received.  Then we need to make a kit from the part number that was on the order.  Then close the kit and make sure the whole time that the numbers are correct. (Added EndToEndAllActionsWorkflowTestCase in core/tests.py and bom_close_kit_action at /boms/<pk>/close-kit/ verifying every inventory counter at each step of the PO -> Receive -> BoM -> Kit -> Close Kit -> Take Inventory workflow)
+
+
+==============  Priority Medium
+TODO: 
+
+
+==============  Priority Low
+TODO: 
+
+
+==============  COMPLETED =============
+[COMPLETED] component numbers must be unique. (Enforced case-insensitive part number uniqueness with prefix formatting in PartForm, and UniqueConstraint on BOM components)
+[COMPLETED] when a part is ordered at a price and it is received, that that price needs to be the new price in the price model.  Also, whe a part is ordered, there needs to be an option to create a new part and to chan ge the price and the quanitity that they come in (box of 50 say) (Updated order_receive_item to update Part.price_per, Part.price, and Part.quantity upon receipt; added inline and modal new-part creation, package/box quantity, and package/unit price auto-calculation to OrderCreateView and OrderDetailView)
 [COMPLETED] We need to add a name to the parts. Then we need to go through the parts list and put put the short descriptions that are there now in the new name column. (Added name field to Part model, migrated database, populated names for all 36 parts, updated admin, forms, catalog views, and CSV export)
 [COMPLETED] We need to make an inventor count sheet. It needs to be grouped by catagory and sorted by part number. It need to have location and on-hand (Created /inventory/count-sheet/ with category grouping, part number sorting, storage locations, on-hand counts, live audit counter, print-ready CSS layout, CSV export, and navbar/catalog links)
 [COMPLETED] We need to be able to upload documents to parts, not just links. (Added document FileField to Part model, created and applied migration 0013, added file upload to PartForm and PartAdmin with file preview/download, updated parts catalog table, part detail view, and CSV export)
 [COMPLETED]: One the parts page, we need to add a button on the right that is a duplicate button.  What it does is add a new part with all the details fromthe original part filled in.  I have one in right now that is the female part.  I want to duplicate it and only change the description, partnumber and name to male.
-TODO: we need to remove the tasks & Milestones part of the landing page.  
-
-
-
-==============  Priority Medium
+[COMPLETED] we need to remove the tasks & Milestones part of the landing page. (Renamed Core sidebar section to Assets & Inventory, removed Projects and Tasks & Milestones from the left sidebar, and created an Actions section above System & Admin containing Purchase Orders)
 [COMPLETED] Make a order action - We can create an action that allows us to make an order.  The order will have a supplier, part numbers and expected delivery date and tracking number.  The part numbers need to have their on order number increased by the amount on order. (Implemented Order & OrderItem models with migration 0014, dynamic multi-item order placement at /orders/create/ with supplier selection, tracking number, carrier, expected delivery date, automatic quantity_on_order increment, order list/detail views with receipt modal, and full test suite)
-
-==============  Priority Low
-TODO: 
-TODO: Make a recieve action - can recieve everything that wa on order.
-TODO: Make a BOM - you can make up what it takes to build someihtng.
-TODO: MAke a kit action. - You move everything form a BoM to a kit
-TODO: Make a build action - that takes all the parts out of inventory 
-TODO: Make a take inventory sheet that shows what should be there and allows for adjustments.
+[COMPLETED] Make a recieve action - can recieve everything that wa on order. (Added OrderReceiveActionView at /orders/receive/, order_receive_all at /orders/<pk>/receive-all/, and orders_receive_everything at /orders/receive-all/)
+[COMPLETED] Make a BOM - you can make up what it takes to build someihtng. (Enhanced BOMCreateView and bom_form.html with dynamic multi-row component builder so full BOM assemblies can be defined in one step)
+[COMPLETED] MAke a kit action. - You move everything form a BoM to a kit (Added KitActionView at /actions/kit/ and bom_kit_action at /boms/<pk>/kit/ to commit BOM components into Committed Kit inventory)
+[COMPLETED] Make a build action - that takes all the parts out of inventory (Added BuildActionView at /actions/build/ and bom_build_action at /boms/<pk>/build/ to deduct BOM components from on-hand and committed stock)
+[COMPLETED] Make a take inventory sheet that shows what should be there and allows for adjustments. (Added TakeInventoryView at /inventory/take-inventory/ showing expected quantities by category with live discrepancy calculation and one-click stock adjustments)

@@ -195,26 +195,12 @@
             <!-- Sidebar Navigation Links -->
             <div class="flex-grow-1 py-2">
                 
-                <div class="sidebar-heading">Core</div>
+                <div class="sidebar-heading">Assets & Inventory</div>
                 
                 <a href="{% url 'home' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'home' %}active{% endif %}">
                     <i class="bi bi-grid-1x2-fill"></i>
                     <span>Dashboard</span>
                 </a>
-                
-                <a href="{% url 'home' %}#projects" class="nav-link-custom">
-                    <i class="bi bi-folder-check"></i>
-                    <span>Projects</span>
-                    <span class="badge bg-secondary-subtle text-secondary ms-auto rounded-pill px-2">8</span>
-                </a>
-
-                <a href="{% url 'home' %}#tasks" class="nav-link-custom">
-                    <i class="bi bi-check2-square"></i>
-                    <span>Tasks & Milestones</span>
-                    <span class="badge bg-danger-subtle text-danger ms-auto rounded-pill px-2">4 Due</span>
-                </a>
-
-                <div class="sidebar-heading">Assets & Inventory</div>
 
                 <a href="{% url 'part_list' %}" class="nav-link-custom {% if 'parts' in request.path %}active{% endif %}">
                     <i class="bi bi-cpu"></i>
@@ -226,23 +212,13 @@
                     <span>Bills of Materials (BoMs)</span>
                 </a>
 
-                <a href="{% url 'order_list' %}" class="nav-link-custom {% if 'orders' in request.path %}active{% endif %}">
-                    <i class="bi bi-cart3"></i>
-                    <span>Purchase Orders</span>
-                </a>
-
-                <a href="{% url 'inventory_count_sheet' %}" class="nav-link-custom {% if 'count-sheet' in request.path %}active{% endif %}">
-                    <i class="bi bi-clipboard2-check"></i>
-                    <span>Inventory Count Sheet</span>
-                </a>
-
                 <a href="{% url 'company_list' %}" class="nav-link-custom {% if 'companies' in request.path %}active{% endif %}">
                     <i class="bi bi-building"></i>
                     <span>Companies / Suppliers</span>
                 </a>
 
                 <a href="{% url 'manufacturer_list' %}" class="nav-link-custom {% if 'manufacturers' in request.path %}active{% endif %}">
-                    <i class="bi bi-industry"></i>
+                    <i class="bi bi-building-gear"></i>
                     <span>Manufacturers</span>
                 </a>
 
@@ -256,12 +232,41 @@
                     <span>Storage Locations</span>
                 </a>
 
-
-
-
                 <a href="{% url 'home' %}#reports" class="nav-link-custom">
                     <i class="bi bi-graph-up-arrow"></i>
                     <span>Analytics & Reports</span>
+                </a>
+
+                <div class="sidebar-heading">Actions</div>
+
+                <a href="{% url 'order_list' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'order_list' or request.resolver_match.url_name == 'order_create' or request.resolver_match.url_name == 'order_detail' or request.resolver_match.url_name == 'order_update' %}active{% endif %}">
+                    <i class="bi bi-cart3"></i>
+                    <span>Purchase Orders</span>
+                </a>
+
+                <a href="{% url 'order_receive_action' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'order_receive_action' %}active{% endif %}">
+                    <i class="bi bi-box-arrow-in-down"></i>
+                    <span>Receive Orders</span>
+                </a>
+
+                <a href="{% url 'kit_action' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'kit_action' %}active{% endif %}">
+                    <i class="bi bi-box-seam"></i>
+                    <span>Make a Kit</span>
+                </a>
+
+                <a href="{% url 'build_action' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'build_action' %}active{% endif %}">
+                    <i class="bi bi-tools"></i>
+                    <span>Build Assembly</span>
+                </a>
+
+                <a href="{% url 'take_inventory' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'take_inventory' %}active{% endif %}">
+                    <i class="bi bi-sliders"></i>
+                    <span>Take Inventory</span>
+                </a>
+
+                <a href="{% url 'inventory_count_sheet' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'inventory_count_sheet' %}active{% endif %}">
+                    <i class="bi bi-clipboard2-check"></i>
+                    <span>Inventory Count Sheet</span>
                 </a>
 
                 <div class="sidebar-heading">System & Admin</div>

@@ -218,6 +218,11 @@ class PartDetailView(DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx['documents'] = self.object.documents.all()
         ctx['document_form'] = PartDocumentForm()
+        ctx['order_items'] = (
+            self.object.order_items
+            .select_related('order', 'order__supplier')
+            .order_by('-order__order_date', '-created_at')
+        )
         return ctx
 
 
@@ -741,8 +746,24 @@ class BOMDetailView(DetailView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['items'] = self.object.items.select_related('part', 'part__company').all()
+        items = list(self.object.items.select_related('part', 'part__company', 'part__location').all())
+        ctx['items'] = items
         ctx['item_form'] = BOMItemForm(bom=self.object)
+        if items:
+            max_kits = []
+            max_builds = []
+            for item in items:
+                req = item.quantity or 1
+                on_hand = item.part.quantity_on_hand or 0
+                committed = item.part.quantity_committed or 0
+                uncommitted = max(0, on_hand - committed)
+                max_kits.append(uncommitted // req)
+                max_builds.append(on_hand // req)
+            ctx['max_kits_available'] = min(max_kits)
+            ctx['max_builds_possible'] = min(max_builds)
+        else:
+            ctx['max_kits_available'] = 0
+            ctx['max_builds_possible'] = 0
         return ctx
 
 
@@ -750,24 +771,86 @@ class BOMCreateView(CreateView):
     model = BOM
     form_class = BOMForm
     template_name = 'core/bom_form.html'
-    success_url = reverse_lazy('bom_list')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['all_parts'] = Part.objects.select_related('company', 'category').all().order_by('part_number')
+        return ctx
 
     def form_valid(self, form):
-        response = super().form_valid(form)
-        messages.success(self.request, f"BOM Assembly '{self.object.name}' was created successfully!")
-        return response
+        with transaction.atomic():
+            bom = form.save()
+            self.object = bom
+
+            part_ids = self.request.POST.getlist('item_part[]') or self.request.POST.getlist('item_part')
+            quantities = self.request.POST.getlist('item_quantity[]') or self.request.POST.getlist('item_quantity')
+            references = self.request.POST.getlist('item_reference[]') or self.request.POST.getlist('item_reference')
+            notes_list = self.request.POST.getlist('item_notes[]') or self.request.POST.getlist('item_notes')
+
+            added_count = 0
+            for i, p_id in enumerate(part_ids):
+                p_str = str(p_id).strip() if p_id else ''
+                if not p_str or not p_str.isdigit():
+                    continue
+                part = Part.objects.filter(pk=int(p_str)).first()
+                if not part:
+                    continue
+
+                try:
+                    qty = int(quantities[i]) if i < len(quantities) and str(quantities[i]).strip() else 1
+                    if qty <= 0:
+                        qty = 1
+                except (ValueError, TypeError):
+                    qty = 1
+
+                ref = references[i].strip() if i < len(references) and references[i] else ''
+                item_note = notes_list[i].strip() if i < len(notes_list) and notes_list[i] else ''
+
+                existing_item = BOMItem.objects.filter(bom=bom, part=part).first()
+                if existing_item:
+                    existing_item.quantity += qty
+                    if ref and not existing_item.reference:
+                        existing_item.reference = ref
+                    if item_note and not existing_item.notes:
+                        existing_item.notes = item_note
+                    existing_item.save()
+                else:
+                    BOMItem.objects.create(
+                        bom=bom,
+                        part=part,
+                        quantity=qty,
+                        reference=ref,
+                        notes=item_note,
+                    )
+                    added_count += 1
+
+            if added_count > 0:
+                messages.success(
+                    self.request,
+                    f"BOM Assembly '{bom.name}' was created with {added_count} component(s)!"
+                )
+            else:
+                messages.success(self.request, f"BOM Assembly '{bom.name}' was created successfully!")
+            return redirect('bom_detail', pk=bom.pk)
 
 
 class BOMUpdateView(UpdateView):
     model = BOM
     form_class = BOMForm
     template_name = 'core/bom_form.html'
-    success_url = reverse_lazy('bom_list')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['all_parts'] = Part.objects.select_related('company', 'category').all().order_by('part_number')
+        return ctx
 
     def form_valid(self, form):
         response = super().form_valid(form)
         messages.success(self.request, f"BOM Assembly '{self.object.name}' was updated successfully!")
         return response
+
+    def get_success_url(self):
+        return reverse('bom_detail', kwargs={'pk': self.object.pk})
 
 
 class BOMDeleteView(DeleteView):
@@ -1597,9 +1680,10 @@ def order_receive_item(request, order_pk, item_pk):
         # Decrease on order, increase on hand
         part.quantity_on_order = max(0, (part.quantity_on_order or 0) - qty_to_receive)
         part.quantity_on_hand = (part.quantity_on_hand or 0) + qty_to_receive
+        part.quantity_availible = max(0, part.quantity_on_hand - (part.quantity_committed or 0))
 
         # Update the price in the Part model when ordered at a price and received
-        part_update_fields = ['quantity_on_order', 'quantity_on_hand', 'quantity', 'updated_at']
+        part_update_fields = ['quantity_on_order', 'quantity_on_hand', 'quantity_availible', 'quantity', 'updated_at']
         if received_unit_price is not None:
             part.price_per = received_unit_price
             if received_pkg_price is not None:
@@ -1625,5 +1709,567 @@ def order_receive_item(request, order_pk, item_pk):
             f"Received {qty_to_receive} units of {part.part_number}! On-hand is now {part.quantity_on_hand}, On-order is {part.quantity_on_order}.{price_msg}"
         )
 
+    next_url = request.POST.get('next')
+    if next_url:
+        return redirect(next_url)
     return redirect('order_detail', pk=order_pk)
+
+
+def _receive_all_items_for_order(order):
+    """
+    Receives all remaining unreceived items on the given Order.
+    Returns (items_received_count, total_units_received).
+    """
+    items_received_count = 0
+    total_units_received = 0
+
+    for item in order.items.select_related('part').all():
+        remaining = item.remaining_to_receive
+        if remaining <= 0:
+            continue
+
+        part = item.part
+        item.quantity_received += remaining
+        item.save(update_fields=['quantity_received', 'updated_at'])
+
+        part.quantity_on_order = max(0, (part.quantity_on_order or 0) - remaining)
+        part.quantity_on_hand = (part.quantity_on_hand or 0) + remaining
+        part.quantity_availible = max(0, part.quantity_on_hand - (part.quantity_committed or 0))
+
+        part_update_fields = ['quantity_on_order', 'quantity_on_hand', 'quantity_availible', 'updated_at']
+        if item.unit_price is not None:
+            part.price_per = item.unit_price
+            if part.quantity and part.quantity > 0:
+                part.price = (item.unit_price * Decimal(str(part.quantity))).quantize(Decimal('0.01'))
+            else:
+                part.price = item.unit_price
+            part_update_fields.extend(['price_per', 'price'])
+
+        part.save(update_fields=part_update_fields)
+        items_received_count += 1
+        total_units_received += remaining
+
+    if order.items.exists():
+        order.status = 'RECEIVED'
+        order.save(update_fields=['status', 'updated_at'])
+
+    return items_received_count, total_units_received
+
+
+def order_receive_all(request, pk):
+    """
+    Action to receive all remaining items on a specific Purchase Order at once.
+    """
+    if request.method != 'POST':
+        return redirect('order_detail', pk=pk)
+
+    order = get_object_or_404(Order, pk=pk)
+    with transaction.atomic():
+        items_count, units_count = _receive_all_items_for_order(order)
+
+    if units_count > 0:
+        messages.success(
+            request,
+            f"Received all remaining items on Order {order.order_number} ({items_count} line item(s), {units_count} total units)! Inventory on-hand and part prices updated."
+        )
+    else:
+        messages.info(request, f"Order {order.order_number} has no remaining unreceived items.")
+
+    next_url = request.POST.get('next')
+    if next_url:
+        return redirect(next_url)
+    return redirect('order_detail', pk=order.pk)
+
+
+def orders_receive_everything(request):
+    """
+    Action to receive everything currently on order across all active Purchase Orders
+    (and any standalone on-order quantities on parts).
+    """
+    if request.method != 'POST':
+        return redirect('order_receive_action')
+
+    orders_updated = 0
+    total_items = 0
+    total_units = 0
+
+    with transaction.atomic():
+        active_orders = Order.objects.filter(
+            status__in=['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED']
+        ).prefetch_related('items__part')
+
+        for order in active_orders:
+            i_count, u_count = _receive_all_items_for_order(order)
+            if u_count > 0:
+                orders_updated += 1
+                total_items += i_count
+                total_units += u_count
+
+        # Also handle any parts that had standalone quantity_on_order > 0 not tied to an active Order
+        standalone_parts = Part.objects.filter(quantity_on_order__gt=0)
+        for part in standalone_parts:
+            rem = part.quantity_on_order
+            part.quantity_on_hand = (part.quantity_on_hand or 0) + rem
+            part.quantity_on_order = 0
+            part.quantity_availible = max(0, part.quantity_on_hand - (part.quantity_committed or 0))
+            part.save(update_fields=['quantity_on_hand', 'quantity_on_order', 'quantity_availible', 'updated_at'])
+            total_units += rem
+            total_items += 1
+
+    if total_units > 0:
+        messages.success(
+            request,
+            f"Received everything on order! Processed {orders_updated} purchase order(s) and moved {total_units} total unit(s) across {total_items} item(s) into on-hand inventory."
+        )
+    else:
+        messages.info(request, "There are currently no outstanding items on order to receive.")
+
+    next_url = request.POST.get('next')
+    if next_url:
+        return redirect(next_url)
+    return redirect('order_receive_action')
+
+
+class OrderReceiveActionView(TemplateView):
+    """
+    Dedicated 'Receive Orders' action center where users can see all pending/open orders
+    and unreceived line items, and either receive individual items, receive an entire PO,
+    or receive everything that was on order with one click.
+    """
+    template_name = 'core/order_receive_action.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        active_orders = list(
+            Order.objects.filter(status__in=['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED'])
+            .select_related('supplier')
+            .prefetch_related('items__part', 'items__part__location', 'items__part__category')
+            .order_by('expected_delivery_date', '-order_date')
+        )
+
+        orders_with_pending = []
+        total_pending_units = 0
+        total_pending_items = 0
+
+        for order in active_orders:
+            pending_items = [item for item in order.items.all() if item.remaining_to_receive > 0]
+            if pending_items:
+                order.pending_items = pending_items
+                order.pending_units = sum(item.remaining_to_receive for item in pending_items)
+                orders_with_pending.append(order)
+                total_pending_units += order.pending_units
+                total_pending_items += len(pending_items)
+
+        ctx['active_orders'] = orders_with_pending
+        ctx['total_pending_orders'] = len(orders_with_pending)
+        ctx['total_pending_items'] = total_pending_items
+        ctx['total_pending_units'] = total_pending_units
+        ctx['recently_received_orders'] = (
+            Order.objects.filter(status='RECEIVED')
+            .select_related('supplier')
+            .order_by('-updated_at')[:5]
+        )
+        return ctx
+
+
+# ==============================================================================
+# KIT ACTION & BUILD ACTION VIEWS
+# ==============================================================================
+
+def _execute_bom_kit(bom, kits_count=1):
+    """
+    Moves all components for `kits_count` units of `bom` into a kit by increasing
+    each part's `quantity_committed` and updating `quantity_availible`.
+    Returns (components_count, total_units_kitted, shortages_list).
+    """
+    items = list(bom.items.select_related('part').all())
+    shortages = []
+    for item in items:
+        part = item.part
+        req_qty = item.quantity * kits_count
+        on_hand = part.quantity_on_hand or 0
+        committed = part.quantity_committed or 0
+        uncommitted = max(0, on_hand - committed)
+        if uncommitted < req_qty:
+            shortages.append(f"{part.part_number} (need {req_qty}, uncommitted available {uncommitted})")
+
+    total_units_kitted = 0
+    for item in items:
+        part = item.part
+        req_qty = item.quantity * kits_count
+        part.quantity_committed = (part.quantity_committed or 0) + req_qty
+        part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+        part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+        total_units_kitted += req_qty
+
+    return len(items), total_units_kitted, shortages
+
+
+def bom_kit_action(request, pk):
+    """
+    POST action to move everything from a BoM into a Kit (increases committed quantity).
+    """
+    if request.method != 'POST':
+        return redirect('bom_detail', pk=pk)
+
+    bom = get_object_or_404(BOM, pk=pk)
+    try:
+        kits_count = int(request.POST.get('quantity', 1))
+        if kits_count <= 0:
+            kits_count = 1
+    except (ValueError, TypeError):
+        kits_count = 1
+
+    if not bom.items.exists():
+        messages.warning(request, f"BOM '{bom.name}' has no components to kit.")
+        return redirect('bom_detail', pk=bom.pk)
+
+    with transaction.atomic():
+        comp_count, total_kitted, shortages = _execute_bom_kit(bom, kits_count=kits_count)
+
+    msg = (
+        f"Moved {kits_count} kit(s) of '{bom.name}' ({comp_count} unique component(s), "
+        f"{total_kitted} total parts) to Committed Kit inventory!"
+    )
+    if shortages:
+        messages.warning(
+            request,
+            f"{msg} Note: Shortages detected on {', '.join(shortages)}."
+        )
+    else:
+        messages.success(request, msg)
+
+    next_url = request.POST.get('next')
+    if next_url:
+        return redirect(next_url)
+    return redirect('bom_detail', pk=bom.pk)
+
+
+def _execute_bom_build(bom, build_count=1, consume_committed=True):
+    """
+    Takes all required parts for `build_count` units of `bom` out of inventory:
+    - Decreases `quantity_on_hand` by required quantity (floored at 0)
+    - If `consume_committed` is True, also decreases `quantity_committed` up to the required quantity
+    - Recalculates `quantity_availible`
+    Returns (components_count, total_units_consumed, shortages_list).
+    """
+    items = list(bom.items.select_related('part').all())
+    shortages = []
+    for item in items:
+        part = item.part
+        req_qty = item.quantity * build_count
+        on_hand = part.quantity_on_hand or 0
+        if on_hand < req_qty:
+            shortages.append(f"{part.part_number} (need {req_qty}, on hand {on_hand})")
+
+    total_consumed = 0
+    for item in items:
+        part = item.part
+        req_qty = item.quantity * build_count
+        old_on_hand = part.quantity_on_hand or 0
+        old_committed = part.quantity_committed or 0
+
+        part.quantity_on_hand = max(0, old_on_hand - req_qty)
+        if consume_committed and old_committed > 0:
+            part.quantity_committed = max(0, old_committed - min(old_committed, req_qty))
+        part.quantity_availible = max(0, part.quantity_on_hand - (part.quantity_committed or 0))
+        part.save(update_fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible', 'updated_at'])
+        total_consumed += req_qty
+
+    return len(items), total_consumed, shortages
+
+
+def bom_build_action(request, pk):
+    """
+    POST action to build an assembly from a BoM, taking all required parts out of inventory.
+    """
+    if request.method != 'POST':
+        return redirect('bom_detail', pk=pk)
+
+    bom = get_object_or_404(BOM, pk=pk)
+    try:
+        build_count = int(request.POST.get('quantity', 1))
+        if build_count <= 0:
+            build_count = 1
+    except (ValueError, TypeError):
+        build_count = 1
+
+    consume_committed = request.POST.get('consume_committed', '1') != '0'
+
+    if not bom.items.exists():
+        messages.warning(request, f"BOM '{bom.name}' has no components to build.")
+        return redirect('bom_detail', pk=bom.pk)
+
+    with transaction.atomic():
+        comp_count, total_consumed, shortages = _execute_bom_build(
+            bom,
+            build_count=build_count,
+            consume_committed=consume_committed
+        )
+
+    msg = (
+        f"Built {build_count} unit(s) of '{bom.name}'! Removed {total_consumed} total component(s) "
+        f"across {comp_count} part number(s) from on-hand inventory."
+    )
+    if shortages:
+        messages.warning(
+            request,
+            f"{msg} Note: Insufficient on-hand stock for {', '.join(shortages)} (floored at 0)."
+        )
+    else:
+        messages.success(request, msg)
+
+    next_url = request.POST.get('next')
+    if next_url:
+        return redirect(next_url)
+    return redirect('bom_detail', pk=bom.pk)
+
+
+def bom_close_kit_action(request, pk):
+    """
+    POST action to close/complete a Kit for a BoM (consumes the committed kit parts out of
+    inventory, or if action_type == 'return' returns them to uncommitted available stock).
+    """
+    if request.method != 'POST':
+        return redirect('bom_detail', pk=pk)
+
+    bom = get_object_or_404(BOM, pk=pk)
+    try:
+        kits_count = int(request.POST.get('quantity', 1))
+        if kits_count <= 0:
+            kits_count = 1
+    except (ValueError, TypeError):
+        kits_count = 1
+
+    action_type = request.POST.get('action_type', 'build').strip().lower()
+
+    if not bom.items.exists():
+        messages.warning(request, f"BOM '{bom.name}' has no components.")
+        return redirect('bom_detail', pk=bom.pk)
+
+    with transaction.atomic():
+        if action_type == 'return':
+            items = list(bom.items.select_related('part').all())
+            total_returned = 0
+            for item in items:
+                part = item.part
+                req_qty = item.quantity * kits_count
+                old_committed = part.quantity_committed or 0
+                released = min(old_committed, req_qty)
+                part.quantity_committed = max(0, old_committed - released)
+                part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+                total_returned += released
+            messages.success(
+                request,
+                f"Closed {kits_count} kit(s) of '{bom.name}' and returned {total_returned} committed part(s) back to available stock."
+            )
+        else:
+            comp_count, total_consumed, shortages = _execute_bom_build(
+                bom,
+                build_count=kits_count,
+                consume_committed=True
+            )
+            msg = (
+                f"Closed {kits_count} kit(s) of '{bom.name}'! Consumed {total_consumed} committed part(s) "
+                f"across {comp_count} component(s) out of inventory."
+            )
+            if shortages:
+                messages.warning(request, f"{msg} Note: Shortages on {', '.join(shortages)}.")
+            else:
+                messages.success(request, msg)
+
+    next_url = request.POST.get('next')
+    if next_url:
+        return redirect(next_url)
+    return redirect('bom_detail', pk=bom.pk)
+
+
+class KitActionView(TemplateView):
+    """
+    Dedicated 'Make a Kit' action page where users can select a BoM Assembly, preview
+    component requirements vs uncommitted stock, and move everything from the BoM into a Kit.
+    """
+    template_name = 'core/kit_action.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        boms = list(BOM.objects.prefetch_related('items__part', 'items__part__location').order_by('name'))
+        for bom in boms:
+            items = list(bom.items.all())
+            if items:
+                bom.max_kits = min(
+                    max(0, (i.part.quantity_on_hand or 0) - (i.part.quantity_committed or 0)) // max(1, i.quantity)
+                    for i in items
+                )
+                bom.kitted_sets = min(
+                    (i.part.quantity_committed or 0) // max(1, i.quantity)
+                    for i in items
+                )
+            else:
+                bom.max_kits = 0
+                bom.kitted_sets = 0
+        ctx['boms'] = boms
+        selected_id = self.request.GET.get('bom')
+        if selected_id and selected_id.isdigit():
+            ctx['selected_bom'] = next((b for b in boms if b.pk == int(selected_id)), None)
+        elif boms:
+            ctx['selected_bom'] = boms[0]
+        else:
+            ctx['selected_bom'] = None
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        bom_id = request.POST.get('bom')
+        if not bom_id or not str(bom_id).isdigit():
+            messages.error(request, "Please select a valid Bill of Materials (BoM) to kit.")
+            return redirect('kit_action')
+        if request.POST.get('close_kit') == '1':
+            return bom_close_kit_action(request, pk=int(bom_id))
+        return bom_kit_action(request, pk=int(bom_id))
+
+
+class BuildActionView(TemplateView):
+    """
+    Dedicated 'Build Assembly' action page where users select a BoM Assembly, specify build
+    quantity, and deduct all required parts from on-hand (and committed kit) inventory.
+    """
+    template_name = 'core/build_action.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        boms = list(BOM.objects.prefetch_related('items__part', 'items__part__location').order_by('name'))
+        for bom in boms:
+            items = list(bom.items.all())
+            if items:
+                bom.max_builds = min(
+                    max(0, i.part.quantity_on_hand or 0) // max(1, i.quantity)
+                    for i in items
+                )
+                bom.kitted_sets = min(
+                    (i.part.quantity_committed or 0) // max(1, i.quantity)
+                    for i in items
+                )
+            else:
+                bom.max_builds = 0
+                bom.kitted_sets = 0
+        ctx['boms'] = boms
+        selected_id = self.request.GET.get('bom')
+        if selected_id and selected_id.isdigit():
+            ctx['selected_bom'] = next((b for b in boms if b.pk == int(selected_id)), None)
+        elif boms:
+            ctx['selected_bom'] = boms[0]
+        else:
+            ctx['selected_bom'] = None
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        bom_id = request.POST.get('bom')
+        if not bom_id or not str(bom_id).isdigit():
+            messages.error(request, "Please select a valid Bill of Materials (BoM) to build.")
+            return redirect('build_action')
+        return bom_build_action(request, pk=int(bom_id))
+
+
+# ==============================================================================
+# TAKE INVENTORY SHEET (INTERACTIVE ADJUSTMENTS)
+# ==============================================================================
+
+class TakeInventoryView(TemplateView):
+    """
+    Interactive Take Inventory Sheet that shows what should be there (System On-Hand,
+    Committed, Available, On-Order, Storage Location) grouped by Category and allows
+    auditors to enter actual physical counts and commit inventory adjustments.
+    """
+    template_name = 'core/take_inventory.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = get_count_sheet_queryset(self.request)
+
+        category_map = {}
+        for part in qs:
+            cat = part.category
+            cat_id = cat.pk if cat else 'none'
+            if cat_id not in category_map:
+                category_map[cat_id] = {
+                    'category': cat,
+                    'category_name': cat.name if cat else 'Uncategorized / General Components',
+                    'prefix': cat.get_prefix() if cat else '',
+                    'parts': [],
+                    'total_on_hand': 0,
+                    'total_items': 0,
+                }
+            category_map[cat_id]['parts'].append(part)
+            category_map[cat_id]['total_on_hand'] += (part.quantity_on_hand or 0)
+            category_map[cat_id]['total_items'] += 1
+
+        groups = list(category_map.values())
+        ctx['groups'] = groups
+        ctx['total_parts'] = qs.count()
+        ctx['total_categories'] = len(groups)
+        ctx['total_on_hand'] = sum(g['total_on_hand'] for g in groups)
+        ctx['categories'] = Category.objects.all().order_by('prefix', 'name')
+        ctx['locations'] = Location.objects.all().order_by('name')
+        ctx['current_category'] = self.request.GET.get('category', '')
+        ctx['current_location'] = self.request.GET.get('location', '')
+        ctx['current_stock'] = self.request.GET.get('stock', '')
+        ctx['current_q'] = self.request.GET.get('q', '')
+        ctx['generated_at'] = timezone.now()
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        adjusted_parts = 0
+        net_delta = 0
+
+        with transaction.atomic():
+            # Support both array inputs (part_id[] / actual_count[]) and named inputs (actual_count_<pk>)
+            part_ids = request.POST.getlist('part_id[]') or request.POST.getlist('part_id')
+            actual_counts = request.POST.getlist('actual_count[]') or request.POST.getlist('actual_count')
+
+            updates_map = {}
+            if part_ids and actual_counts:
+                for i, pid in enumerate(part_ids):
+                    if str(pid).isdigit() and i < len(actual_counts):
+                        raw_val = str(actual_counts[i]).strip()
+                        if raw_val != '':
+                            try:
+                                updates_map[int(pid)] = int(raw_val)
+                            except (ValueError, TypeError):
+                                pass
+
+            for key, val in request.POST.items():
+                if key.startswith('actual_count_'):
+                    pid_str = key.replace('actual_count_', '').strip()
+                    raw_val = str(val).strip()
+                    if pid_str.isdigit() and raw_val != '':
+                        try:
+                            updates_map[int(pid_str)] = int(raw_val)
+                        except (ValueError, TypeError):
+                            pass
+
+            if updates_map:
+                parts = Part.objects.filter(pk__in=updates_map.keys())
+                for part in parts:
+                    new_on_hand = max(0, updates_map[part.pk])
+                    old_on_hand = part.quantity_on_hand or 0
+                    if new_on_hand != old_on_hand:
+                        delta = new_on_hand - old_on_hand
+                        part.quantity_on_hand = new_on_hand
+                        part.quantity_availible = max(0, new_on_hand - (part.quantity_committed or 0))
+                        part.save(update_fields=['quantity_on_hand', 'quantity_availible', 'updated_at'])
+                        adjusted_parts += 1
+                        net_delta += delta
+
+        if adjusted_parts > 0:
+            sign = f"+{net_delta}" if net_delta > 0 else str(net_delta)
+            messages.success(
+                request,
+                f"Inventory adjustment applied! Updated on-hand quantities for {adjusted_parts} part(s) (Net change: {sign} units)."
+            )
+        else:
+            messages.info(request, "No inventory discrepancies or changes were detected to adjust.")
+
+        return redirect('take_inventory')
+
 

@@ -15,7 +15,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid p-0" style="max-width: 780px;">
+<div class="container-fluid p-0" style="max-width: 980px;">
 
     <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4 pb-2">
@@ -23,7 +23,7 @@
             <h1 class="h3 fw-bold mb-1 text-custom">
                 {% if form.instance.pk %}Edit Bill of Materials: {{ form.instance.name }}{% else %}Create Assembly BoM{% endif %}
             </h1>
-            <p class="text-muted small mb-0">Define an assembly, hardware string, or device build bill of materials.</p>
+            <p class="text-muted small mb-0">Define an assembly, hardware string, or device build bill of materials and specify what components it takes to build.</p>
         </div>
         <a href="{% url 'bom_list' %}" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-x-lg me-1"></i> Cancel
@@ -46,15 +46,21 @@
             </div>
         {% endif %}
 
+        <!-- Assembly Specification Card -->
         <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-0">
+                <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-diagram-3 me-2 text-custom"></i>1. Assembly Identification &amp; Notes
+                </h2>
+            </div>
             <div class="card-body p-4">
                 <div class="row g-3">
-                    <div class="col-12">
+                    <div class="col-12 col-md-6">
                         <label class="form-label small fw-semibold">Assembly Name <span class="text-danger">*</span></label>
                         {{ form.name }}
                         <div class="form-text small">e.g. String Assembly, Sensor Node Assembly, Base Station, Tipups Monitor.</div>
                     </div>
-                    <div class="col-12">
+                    <div class="col-12 col-md-6">
                         <label class="form-label small fw-semibold">Description</label>
                         {{ form.description }}
                         <div class="form-text small">High-level summary of the assembly, intended use, or revision notes.</div>
@@ -67,6 +73,66 @@
             </div>
         </div>
 
+        {% if not form.instance.pk %}
+        <!-- Dynamic Components Builder Card (on Create) -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h2 class="h6 fw-bold text-uppercase text-muted mb-1" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                        <i class="bi bi-cpu me-2 text-custom"></i>2. Components Required to Build Assembly
+                    </h2>
+                    <p class="text-muted small mb-0">Select the parts and quantities needed to build 1 unit of this assembly (you can also add/edit components later).</p>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-custom fw-semibold" id="addBomRowBtn">
+                    <i class="bi bi-plus-circle me-1"></i> Add Component Row
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0" id="bomItemsTable">
+                        <thead class="table-light border-top border-bottom small text-uppercase text-muted">
+                            <tr>
+                                <th class="ps-4 py-2" style="width: 42%;">Component Part</th>
+                                <th class="py-2" style="width: 16%;">Reference (e.g. U1)</th>
+                                <th class="py-2" style="width: 14%;">Qty / Build</th>
+                                <th class="py-2" style="width: 22%;">Notes</th>
+                                <th class="pe-4 py-2 text-end" style="width: 6%;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="bomItemsBody">
+                            <tr class="bom-item-row">
+                                <td class="ps-4 py-2">
+                                    <select name="item_part[]" class="form-select form-select-sm">
+                                        <option value="">-- Select Component Part --</option>
+                                        {% for p in all_parts %}
+                                            <option value="{{ p.pk }}">
+                                                {{ p.part_number }} &mdash; {{ p.name|default:p.description|truncatechars:45 }} (On Hand: {{ p.quantity_on_hand }})
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </td>
+                                <td class="py-2">
+                                    <input type="text" name="item_reference[]" class="form-control form-control-sm font-monospace" placeholder="U1, R1, J2...">
+                                </td>
+                                <td class="py-2">
+                                    <input type="number" name="item_quantity[]" class="form-control form-control-sm" value="1" min="1">
+                                </td>
+                                <td class="py-2">
+                                    <input type="text" name="item_notes[]" class="form-control form-control-sm" placeholder="Optional note...">
+                                </td>
+                                <td class="pe-4 py-2 text-end">
+                                    <button type="button" class="btn btn-outline-danger btn-sm p-1 remove-bom-row" title="Remove row">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="d-flex justify-content-end gap-2 mb-5">
             <a href="{% url 'bom_list' %}" class="btn btn-outline-secondary px-4">Cancel</a>
             <button type="submit" class="btn btn-custom px-4 fw-semibold">
@@ -77,4 +143,44 @@
     </form>
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if not form.instance.pk %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const tbody = document.getElementById('bomItemsBody');
+    const addBtn = document.getElementById('addBomRowBtn');
+    if (!tbody || !addBtn) return;
+
+    const templateRow = tbody.querySelector('.bom-item-row').cloneNode(true);
+
+    addBtn.addEventListener('click', function() {
+        const newRow = templateRow.cloneNode(true);
+        newRow.querySelectorAll('input').forEach(inp => {
+            if (inp.name === 'item_quantity[]') inp.value = '1';
+            else inp.value = '';
+        });
+        newRow.querySelectorAll('select').forEach(sel => sel.selectedIndex = 0);
+        tbody.appendChild(newRow);
+    });
+
+    tbody.addEventListener('click', function(e) {
+        const btn = e.target.closest('.remove-bom-row');
+        if (!btn) return;
+        const rows = tbody.querySelectorAll('.bom-item-row');
+        if (rows.length > 1) {
+            btn.closest('.bom-item-row').remove();
+        } else {
+            const row = rows[0];
+            row.querySelectorAll('input').forEach(inp => {
+                if (inp.name === 'item_quantity[]') inp.value = '1';
+                else inp.value = '';
+            });
+            row.querySelectorAll('select').forEach(sel => sel.selectedIndex = 0);
+        }
+    });
+});
+</script>
+{% endif %}
 {% endblock %}

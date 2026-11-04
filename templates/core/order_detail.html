@@ -38,6 +38,14 @@
             <a href="{% url 'order_list' %}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-arrow-left me-1"></i> Orders List
             </a>
+            {% if not order.is_fully_received and order.status != 'CANCELLED' %}
+            <form method="post" action="{% url 'order_receive_all' order.pk %}" class="m-0">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-success fw-semibold">
+                    <i class="bi bi-check2-all me-1"></i> Receive All Items
+                </button>
+            </form>
+            {% endif %}
             <button type="button" class="btn btn-sm btn-custom" data-bs-toggle="modal" data-bs-target="#addItemModal">
                 <i class="bi bi-plus-circle me-1"></i> Add Part
             </button>
@@ -231,7 +239,7 @@
                             <div class="btn-group btn-group-sm">
                                 {% if item.remaining_to_receive > 0 %}
                                 <button type="button" class="btn btn-outline-success" 
-                                        onclick="openReceiveModal('{{ item.pk }}', '{{ item.part.part_number|escapejs }}', '{{ item.remaining_to_receive }}')"
+                                        onclick="openReceiveModal('{{ item.pk }}', '{{ item.part.part_number|escapejs }}', '{{ item.remaining_to_receive }}', '{{ item.unit_price|default:item.part.price_per|default:'' }}', '{{ item.part.quantity|default:1 }}')"
                                         title="Receive Units">
                                     <i class="bi bi-box-arrow-in-down me-1"></i> Receive
                                 </button>
@@ -309,7 +317,7 @@
 
 <!-- Modal: Add Item to Order -->
 <div class="modal fade" id="addItemModal" tabindex="-1" aria-labelledby="addItemModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content border-0 shadow">
             <form method="post" action="{% url 'order_item_create' order.pk %}">
                 {% csrf_token %}
@@ -322,17 +330,70 @@
                 <div class="modal-body p-4">
                     <div class="mb-3">
                         <label class="form-label small fw-semibold">Component Part <span class="text-danger">*</span></label>
-                        {{ item_form.part }}
-                        <div class="form-text small">Select the part to order. On-order count will increase by the specified quantity.</div>
+                        <select name="part" id="modalPartSelect" class="form-select" required>
+                            <option value="">-- Select Part --</option>
+                            <option value="__new__" class="fw-bold text-primary">+ Create New Part...</option>
+                            {% for p in all_parts %}
+                                <option value="{{ p.pk }}" data-price="{{ p.price_per|default:'0.00' }}" data-pkg-qty="{{ p.quantity|default:1 }}" data-pkg-price="{{ p.price|default:'' }}">
+                                    {{ p.part_number }} - {{ p.name|default:p.description|default:"Part" }}{% if p.quantity > 1 %} [Pkg of {{ p.quantity }}]{% endif %} (On-Order: {{ p.quantity_on_order }}, On-Hand: {{ p.quantity_on_hand }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text small">Select an existing part or choose <strong>+ Create New Part...</strong> to add a new component.</div>
                     </div>
-                    <div class="row g-2 mb-3">
-                        <div class="col-6">
-                            <label class="form-label small fw-semibold">Quantity to Order <span class="text-danger">*</span></label>
-                            {{ item_form.quantity }}
+
+                    <!-- Inline New Part Fields -->
+                    <div id="modalNewPartBox" class="border rounded-3 p-3 mb-3 bg-body-tertiary d-none">
+                        <h6 class="fw-bold text-primary small mb-2"><i class="bi bi-plus-square me-1"></i>New Component Details</h6>
+                        <div class="row g-2">
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small fw-semibold">Component Name <span class="text-danger">*</span></label>
+                                <input type="text" name="new_name" id="modalNewName" class="form-control form-control-sm" placeholder="e.g. Quick Disconnect Plug">
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small fw-semibold">Category</label>
+                                <select name="new_category" class="form-select form-select-sm">
+                                    <option value="">-- Select Category --</option>
+                                    {% for cat in categories %}
+                                        <option value="{{ cat.pk }}">{{ cat }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small fw-semibold">Part Number</label>
+                                <input type="text" name="new_part_number" class="form-control form-control-sm" placeholder="Leave blank to auto-generate">
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small fw-semibold">Supplier SKU #</label>
+                                <input type="text" name="new_supplier_part_number" class="form-control form-control-sm" placeholder="e.g. 296-1389-5-ND">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small fw-semibold">Description / Specs</label>
+                                <input type="text" name="new_description" class="form-control form-control-sm" placeholder="Detailed specifications">
+                            </div>
                         </div>
-                        <div class="col-6">
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small fw-semibold">Comes In (Pkg Qty)</label>
+                            <input type="number" name="package_quantity" id="modalPkgQty" class="form-control" min="1" value="1" title="Quantity it comes in (e.g. 50 for a box of 50)">
+                            <div class="form-text small">e.g. Box of 50</div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small fw-semibold">Order Qty (Units) <span class="text-danger">*</span></label>
+                            {{ item_form.quantity }}
+                            <div class="form-text small">Total units ordered</div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small fw-semibold">Pkg Price ($)</label>
+                            <input type="number" step="0.01" name="package_price" id="modalPkgPrice" class="form-control" placeholder="0.00">
+                            <div class="form-text small">Price per box/pkg</div>
+                        </div>
+                        <div class="col-6 col-md-3">
                             <label class="form-label small fw-semibold">Unit Price ($)</label>
                             {{ item_form.unit_price }}
+                            <div class="form-text small">Price per 1 unit</div>
                         </div>
                     </div>
                     <div class="mb-2">
@@ -365,7 +426,7 @@
                 </div>
                 <div class="modal-body p-4">
                     <p class="small text-muted mb-3">
-                        Confirm receipt of incoming parts. Receiving will automatically move the quantity from <strong>On-Order</strong> into <strong>On-Hand</strong> inventory.
+                        Confirm receipt of incoming parts. Receiving will automatically move the quantity from <strong>On-Order</strong> into <strong>On-Hand</strong> inventory and update the part's price model.
                     </p>
                     <div class="alert alert-secondary py-2 small mb-3">
                         Part Number: <strong id="receivePartNumber"></strong><br>
@@ -374,6 +435,19 @@
                     <div class="mb-3">
                         <label for="receiveQtyInput" class="form-label small fw-semibold">Quantity Received</label>
                         <input type="number" name="quantity_received" id="receiveQtyInput" class="form-control" min="1" required>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label for="receivePkgQtyInput" class="form-label small fw-semibold">Comes In (Pkg Qty)</label>
+                            <input type="number" name="package_quantity" id="receivePkgQtyInput" class="form-control form-control-sm" min="1">
+                        </div>
+                        <div class="col-6">
+                            <label for="receiveUnitPriceInput" class="form-label small fw-semibold">Unit Price ($)</label>
+                            <input type="number" step="0.01" name="unit_price" id="receiveUnitPriceInput" class="form-control form-control-sm" placeholder="0.00">
+                        </div>
+                    </div>
+                    <div class="form-text small mt-1">
+                        <i class="bi bi-tag me-1"></i> This unit price will become the new catalog price for the part upon receipt.
                     </div>
                 </div>
                 <div class="modal-footer border-top bg-body-tertiary">
@@ -388,21 +462,88 @@
 </div>
 
 <script>
-function openReceiveModal(itemId, partNumber, remainingQty) {
+function openReceiveModal(itemId, partNumber, remainingQty, unitPrice, pkgQty) {
     const modalEl = document.getElementById('receiveModal');
     const form = document.getElementById('receiveForm');
     const partNumDisplay = document.getElementById('receivePartNumber');
     const dueQtyDisplay = document.getElementById('receiveDueQty');
     const qtyInput = document.getElementById('receiveQtyInput');
+    const unitPriceInput = document.getElementById('receiveUnitPriceInput');
+    const pkgQtyInput = document.getElementById('receivePkgQtyInput');
 
     form.action = `/orders/{{ order.pk }}/items/${itemId}/receive/`;
     partNumDisplay.textContent = partNumber;
     dueQtyDisplay.textContent = remainingQty;
     qtyInput.value = remainingQty;
     qtyInput.max = remainingQty;
+    if (unitPriceInput) unitPriceInput.value = unitPrice || '';
+    if (pkgQtyInput) pkgQtyInput.value = pkgQty || '1';
 
     const modal = new bootstrap.Modal(modalEl);
     modal.show();
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    const partSelect = document.getElementById('modalPartSelect');
+    const newPartBox = document.getElementById('modalNewPartBox');
+    const newNameInput = document.getElementById('modalNewName');
+    const pkgQtyInput = document.getElementById('modalPkgQty');
+    const pkgPriceInput = document.getElementById('modalPkgPrice');
+    const qtyInput = document.querySelector('#addItemModal [name="quantity"]');
+    const unitPriceInput = document.querySelector('#addItemModal [name="unit_price"]');
+
+    if (partSelect) {
+        partSelect.addEventListener('change', function() {
+            if (partSelect.value === '__new__') {
+                newPartBox.classList.remove('d-none');
+                if (newNameInput) newNameInput.required = true;
+            } else {
+                newPartBox.classList.add('d-none');
+                if (newNameInput) newNameInput.required = false;
+                const opt = partSelect.options[partSelect.selectedIndex];
+                if (opt && opt.value) {
+                    const pQty = parseInt(opt.getAttribute('data-pkg-qty')) || 1;
+                    const pPrice = opt.getAttribute('data-pkg-price') || '';
+                    const uPrice = opt.getAttribute('data-price') || '';
+                    if (pkgQtyInput) pkgQtyInput.value = pQty;
+                    if (qtyInput) qtyInput.value = pQty;
+                    if (uPrice && uPrice !== '0.00' && unitPriceInput) {
+                        unitPriceInput.value = uPrice;
+                        if (pkgPriceInput) {
+                            pkgPriceInput.value = pPrice || (parseFloat(uPrice) * pQty).toFixed(2);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    if (pkgQtyInput && pkgPriceInput && unitPriceInput) {
+        pkgQtyInput.addEventListener('input', function() {
+            const pQty = parseFloat(pkgQtyInput.value) || 1;
+            const pPrice = parseFloat(pkgPriceInput.value);
+            const uPrice = parseFloat(unitPriceInput.value);
+            if (!isNaN(pPrice) && pPrice > 0 && pQty > 0) {
+                unitPriceInput.value = (pPrice / pQty).toFixed(2);
+            } else if (!isNaN(uPrice) && uPrice > 0 && pQty > 0) {
+                pkgPriceInput.value = (uPrice * pQty).toFixed(2);
+            }
+        });
+        pkgPriceInput.addEventListener('input', function() {
+            const pQty = parseFloat(pkgQtyInput.value) || 1;
+            const pPrice = parseFloat(pkgPriceInput.value);
+            if (!isNaN(pPrice) && pQty > 0) {
+                unitPriceInput.value = (pPrice / pQty).toFixed(2);
+            }
+        });
+        unitPriceInput.addEventListener('input', function() {
+            const pQty = parseFloat(pkgQtyInput.value) || 1;
+            const uPrice = parseFloat(unitPriceInput.value);
+            if (!isNaN(uPrice) && pQty > 0) {
+                pkgPriceInput.value = (uPrice * pQty).toFixed(2);
+            }
+        });
+    }
+});
 </script>
 {% endblock %}
