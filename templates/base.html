@@ -232,41 +232,21 @@
                     <span>Storage Locations</span>
                 </a>
 
-                <a href="{% url 'home' %}#reports" class="nav-link-custom">
-                    <i class="bi bi-graph-up-arrow"></i>
-                    <span>Analytics & Reports</span>
-                </a>
-
                 <div class="sidebar-heading">Actions</div>
 
-                <a href="{% url 'order_list' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'order_list' or request.resolver_match.url_name == 'order_create' or request.resolver_match.url_name == 'order_detail' or request.resolver_match.url_name == 'order_update' %}active{% endif %}">
+                <a href="{% url 'order_list' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'order_list' or request.resolver_match.url_name == 'order_create' or request.resolver_match.url_name == 'order_detail' or request.resolver_match.url_name == 'order_update' or request.resolver_match.url_name == 'order_receive_action' %}active{% endif %}">
                     <i class="bi bi-cart3"></i>
-                    <span>Purchase Orders</span>
+                    <span>Orders</span>
                 </a>
 
-                <a href="{% url 'order_receive_action' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'order_receive_action' %}active{% endif %}">
-                    <i class="bi bi-box-arrow-in-down"></i>
-                    <span>Receive Orders</span>
-                </a>
-
-                <a href="{% url 'kit_action' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'kit_action' %}active{% endif %}">
+                <a href="{% url 'kit_action' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'kit_action' or request.resolver_match.url_name == 'build_action' %}active{% endif %}">
                     <i class="bi bi-box-seam"></i>
-                    <span>Make a Kit</span>
+                    <span>Kits</span>
                 </a>
 
-                <a href="{% url 'build_action' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'build_action' %}active{% endif %}">
-                    <i class="bi bi-tools"></i>
-                    <span>Build Assembly</span>
-                </a>
-
-                <a href="{% url 'take_inventory' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'take_inventory' %}active{% endif %}">
+                <a href="{% url 'take_inventory' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'take_inventory' or request.resolver_match.url_name == 'inventory_count_sheet' %}active{% endif %}">
                     <i class="bi bi-sliders"></i>
-                    <span>Take Inventory</span>
-                </a>
-
-                <a href="{% url 'inventory_count_sheet' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'inventory_count_sheet' %}active{% endif %}">
-                    <i class="bi bi-clipboard2-check"></i>
-                    <span>Inventory Count Sheet</span>
+                    <span>Inventory</span>
                 </a>
 
                 <div class="sidebar-heading">System & Admin</div>

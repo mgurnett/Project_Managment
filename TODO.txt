@@ -2,7 +2,8 @@
 TODO: 
 
 ==============  Priority HIGH
-[COMPLETED] We need to make a test that test all the actions.  We need to add a purchae order, then we need to receive it.  Then that order needs to be received.  Then we need to make a kit from the part number that was on the order.  Then close the kit and make sure the whole time that the numbers are correct. (Added EndToEndAllActionsWorkflowTestCase in core/tests.py and bom_close_kit_action at /boms/<pk>/close-kit/ verifying every inventory counter at each step of the PO -> Receive -> BoM -> Kit -> Close Kit -> Take Inventory workflow)
+TODO: 
+
 
 
 ==============  Priority Medium
@@ -14,6 +15,12 @@ TODO:
 
 
 ==============  COMPLETED =============
+[COMPLETED] change Purchase Orders, Pick Kit, Take Inventory to Orders,  Kits,  Inventory (Renamed sidebar links under Actions in templates/base.html to Orders, Kits, and Inventory)
+[COMPLETED] Remove recieve orders as the button for that is at the top of Purchase Orders. (Removed Receive Orders from the left sidebar in templates/base.html)
+[COMPLETED] Remove build assembly from side bar.  Change the name of the button at the top of Make a kit to Close kit.  Rename Make a kit to pick kit (Removed Build Assembly from the left sidebar, renamed Make a Kit to Pick Kit in templates/base.html and templates/core/kit_action.html, and changed the top action button in kit_action.html to Close Kit)
+[COMPLETED] remove Inventory Count Sheet from the sidebar as it is now part of Take Inventory. (Removed Inventory Count Sheet link from the left sidebar in templates/base.html)
+[COMPLETED] get rid of Analytics & Reports as it is not used (Removed Analytics & Reports link from the left sidebar in templates/base.html)
+[COMPLETED] We need to make a test that test all the actions.  We need to add a purchae order, then we need to receive it.  Then that order needs to be received.  Then we need to make a kit from the part number that was on the order.  Then close the kit and make sure the whole time that the numbers are correct. (Added EndToEndAllActionsWorkflowTestCase in core/tests.py and bom_close_kit_action at /boms/<pk>/close-kit/ verifying every inventory counter at each step of the PO -> Receive -> BoM -> Kit -> Close Kit -> Take Inventory workflow)
 [COMPLETED] component numbers must be unique. (Enforced case-insensitive part number uniqueness with prefix formatting in PartForm, and UniqueConstraint on BOM components)
 [COMPLETED] when a part is ordered at a price and it is received, that that price needs to be the new price in the price model.  Also, whe a part is ordered, there needs to be an option to create a new part and to chan ge the price and the quanitity that they come in (box of 50 say) (Updated order_receive_item to update Part.price_per, Part.price, and Part.quantity upon receipt; added inline and modal new-part creation, package/box quantity, and package/unit price auto-calculation to OrderCreateView and OrderDetailView)
 [COMPLETED] We need to add a name to the parts. Then we need to go through the parts list and put put the short descriptions that are there now in the new name column. (Added name field to Part model, migrated database, populated names for all 36 parts, updated admin, forms, catalog views, and CSV export)
