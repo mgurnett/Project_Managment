@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Invoice {{ sale.invoice_number }} - {{ sale.customer_name }}</title>
+    <style>
+        @page {
+            size: letter portrait;
+            margin: 12mm;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #0f172a;
+            background: #ffffff;
+            margin: 0;
+            padding: 0;
+            font-size: 10pt;
+            line-height: 1.45;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 3px solid #0284c7;
+            padding-bottom: 14px;
+            margin-bottom: 20px;
+        }
+        .badge-type {
+            font-size: 8pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #0284c7;
+            margin-bottom: 4px;
+        }
+        .company-title {
+            font-size: 20pt;
+            font-weight: 800;
+            color: #0f172a;
+            margin: 0 0 4px 0;
+        }
+        .company-sub {
+            font-size: 8.5pt;
+            color: #475569;
+        }
+        .invoice-badge {
+            background: #0284c7;
+            color: #ffffff;
+            font-family: 'Fira Code', 'JetBrains Mono', monospace;
+            font-size: 13pt;
+            font-weight: 800;
+            padding: 6px 14px;
+            border-radius: 6px;
+            display: inline-block;
+            margin-bottom: 6px;
+        }
+        .meta-grid {
+            display: flex;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+        .meta-card {
+            flex: 1;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background: #f8fafc;
+            padding: 12px 14px;
+        }
+        .meta-card-title {
+            font-size: 7.5pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #64748b;
+            margin-bottom: 6px;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 4px;
+        }
+        .customer-name {
+            font-size: 12pt;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 4px;
+        }
+        .kv-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            font-size: 9pt;
+        }
+        .kv-label {
+            color: #64748b;
+        }
+        .kv-val {
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .mono {
+            font-family: 'Fira Code', 'JetBrains Mono', monospace;
+        }
+        table.items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        table.items-table th {
+            background: #0f172a;
+            color: #ffffff;
+            font-size: 8pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 8px 10px;
+            text-align: left;
+            border: 1px solid #0f172a;
+        }
+        table.items-table td {
+            padding: 9px 10px;
+            border: 1px solid #cbd5e1;
+            font-size: 9.5pt;
+        }
+        .text-center { text-align: center !important; }
+        .text-right { text-align: right !important; }
+        .totals-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 14px;
+            align-items: flex-start;
+        }
+        .notes-box {
+            flex: 1.2;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 8.5pt;
+            color: #334155;
+        }
+        .total-box {
+            flex: 0.8;
+            border: 2px solid #0284c7;
+            border-radius: 6px;
+            background: #f0f9ff;
+            padding: 12px 16px;
+        }
+        .grand-total {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13pt;
+            font-weight: 800;
+            color: #0f172a;
+            padding-top: 6px;
+            border-top: 1px solid #bae6fd;
+            margin-top: 6px;
+        }
+        .paid-stamp-watermark {
+            position: absolute;
+            top: 270px;
+            left: 50%;
+            margin-left: -200px;
+            width: 400px;
+            text-align: center;
+            border: 6px solid #dc2626;
+            border-radius: 12px;
+            color: #dc2626;
+            padding: 10px 18px;
+            transform: rotate(-18deg);
+            opacity: 0.38;
+            z-index: 999;
+        }
+        .paid-stamp-watermark .stamp-title {
+            font-size: 52pt;
+            font-weight: 900;
+            line-height: 1;
+            letter-spacing: 0.18em;
+            margin: 0;
+            text-transform: uppercase;
+        }
+        .paid-stamp-watermark .stamp-sub {
+            font-size: 11pt;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            border-top: 2.5px solid #dc2626;
+            padding-top: 4px;
+            margin-top: 5px;
+        }
+        .footer {
+            margin-top: 32px;
+            padding-top: 10px;
+            border-top: 1px solid #cbd5e1;
+            font-size: 8pt;
+            color: #64748b;
+            display: flex;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div>
+            <div class="badge-type">Official Sales Invoice</div>
+            <h1 class="company-title">{{ company_name }}</h1>
+            <div class="company-sub">
+                {{ company_address }}<br>
+                Phone: {{ company_phone }} &bull; Email: {{ company_email }}
+            </div>
+        </div>
+        <div class="text-right">
+            <div class="invoice-badge">{{ sale.invoice_number }}</div>
+            <div class="company-sub">
+                <strong>Invoice Date:</strong> {{ sale.invoice_date|date:"F j, Y" }}<br>
+                <strong>Status:</strong>
+                {% if sale.is_paid %}
+                    <span style="color: #16a34a; font-weight: 800;">PAID ({{ sale.payment_date|date:"M d, Y" }})</span>
+                {% else %}
+                    <span style="color: #d97706; font-weight: 800;">UNPAID / OPEN</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if sale.is_paid %}
+    <div class="paid-stamp-watermark">
+        <div class="stamp-title">PAID</div>
+        <div class="stamp-sub">
+            {{ sale.payment_date|date:"F j, Y"|default:"PAID IN FULL" }} &bull; {{ sale.get_payment_method_display }}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="meta-grid">
+        <div class="meta-card" style="flex: 1.3;">
+            <div class="meta-card-title">Customer Information</div>
+            <div class="customer-name">{{ sale.customer_name }}</div>
+            <div style="font-size: 9pt; margin-bottom: 4px;">{{ sale.customer_address }}</div>
+            <div style="font-size: 8.5pt; color: #334155;">
+                <strong>Phone:</strong> {{ sale.customer_phone|default:"—" }} &nbsp;|&nbsp;
+                <strong>Email:</strong> {{ sale.customer_email|default:"—" }}
+            </div>
+        </div>
+        <div class="meta-card" style="flex: 0.9;">
+            <div class="meta-card-title">Invoice &amp; Payment Information</div>
+            <div class="kv-row">
+                <span class="kv-label">Invoice Number:</span>
+                <span class="kv-val mono">{{ sale.invoice_number }}</span>
+            </div>
+            <div class="kv-row">
+                <span class="kv-label">Invoice Date:</span>
+                <span class="kv-val">{{ sale.invoice_date|date:"Y-m-d" }}</span>
+            </div>
+            <div class="kv-row">
+                <span class="kv-label">Payment Method:</span>
+                <span class="kv-val">{{ sale.get_payment_method_display }}</span>
+            </div>
+            <div class="kv-row">
+                <span class="kv-label">Payment Date:</span>
+                <span class="kv-val">{% if sale.payment_date %}{{ sale.payment_date|date:"Y-m-d" }}{% else %}Pending{% endif %}</span>
+            </div>
+        </div>
+    </div>
+
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width: 18%;">Item Number</th>
+                <th style="width: 46%;">Item Description</th>
+                <th class="text-center" style="width: 10%;">Quantity</th>
+                <th class="text-right" style="width: 13%;">Price</th>
+                <th class="text-right" style="width: 13%;">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td class="mono" style="font-weight: 700; color: #0284c7;">{{ item.item_number }}</td>
+                <td><strong>{{ item.description }}</strong></td>
+                <td class="text-center mono">{{ item.quantity }}</td>
+                <td class="text-right mono">${{ item.unit_price|floatformat:2 }}</td>
+                <td class="text-right mono" style="font-weight: 700;">${{ item.subtotal|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="totals-row">
+        <div class="notes-box">
+            <strong>Payment &amp; Invoice Notes:</strong><br>
+            {% if sale.notes %}
+                {{ sale.notes|linebreaksbr }}
+            {% else %}
+                Payment Method: {{ sale.get_payment_method_display }}{% if sale.payment_date %} (Paid on {{ sale.payment_date|date:"F j, Y" }}){% endif %}.
+            {% endif %}
+        </div>
+        <div class="total-box">
+            <div class="kv-row">
+                <span class="kv-label">Total Units Sold:</span>
+                <span class="kv-val mono">{{ sale.total_quantity }}</span>
+            </div>
+            <div class="grand-total">
+                <span>TOTAL AMOUNT:</span>
+                <span class="mono" style="color: #0284c7;">${{ sale.total_amount|floatformat:2 }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <span>{{ company_name }} &bull; {{ company_address }}</span>
+        <span>Phone: {{ company_phone }} &bull; {{ company_email }}</span>
+    </div>
+
+</body>
+</html>
+

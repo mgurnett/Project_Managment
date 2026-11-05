@@ -1,2 +1,6 @@
 agent dialog.txt
-I added a part to a BOM.  There was a kit associated with that bom.  The part shows up on the the kit's list of parts, but that part does not show it as being commited.  
+What we need to be able to do is create an invoice for an assembly that is not built yet.  Then when it is built, then we nee to close the invoice by selling hte assembly and adding a big "PAID STAMPED" over the invoice.  
+
+This mean that we need to be able to create an invoice, chooes what assemblies (built or not) are on it and make it a PDF.  Then we need to mark that inovie as paid.  When we do that then the assembly needs to be removed from the list of assemblies that are built yet.  the PDF needs to be saved somewhere.
+
+I will work on getting an email address of michael@granrywatch.com working. Then we can send the invoice from django.

@@ -148,10 +148,18 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='michael@granarywatch.com')
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 MAILERS = {
     'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        'BACKEND': env('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend'),
+        'HOST': env('EMAIL_HOST', default='localhost'),
+        'PORT': env.int('EMAIL_PORT', default=25),
+        'USERNAME': env('EMAIL_HOST_USER', default=''),
+        'PASSWORD': env('EMAIL_HOST_PASSWORD', default=''),
+        'USE_TLS': env.bool('EMAIL_USE_TLS', default=False),
+        'USE_SSL': env.bool('EMAIL_USE_SSL', default=False),
     },
 }
 

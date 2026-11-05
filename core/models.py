@@ -501,9 +501,32 @@ class BOM(models.Model):
     """
     Bill of Materials (BOM) / Product Assembly.
     Represents an assembled device or sub-assembly (e.g. String, Node, Base Station, Tipups).
+    Assemblies use the 1000 series numbering (e.g. 1000-001, 1000-002).
     """
+    assembly_number = models.CharField(
+        max_length=50,
+        unique=True,
+        blank=True,
+        null=True,
+        verbose_name="Assembly Number (1000 Series)",
+        help_text="1000-series assembly number (e.g. 1000-001). Leave blank to auto-assign."
+    )
     name = models.CharField(max_length=150, unique=True, verbose_name="BOM / Assembly Name")
     description = models.CharField(max_length=255, blank=True, verbose_name="Description")
+    quantity_on_hand = models.PositiveIntegerField(
+        default=0,
+        blank=True,
+        verbose_name="Built Assemblies On Hand",
+        help_text="Number of completed assemblies currently in finished goods inventory"
+    )
+    sale_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Sale Price ($)",
+        help_text="Default unit selling price when this assembly is sold"
+    )
     notes = CKEditor5Field('Assembly Instructions & Notes', config_name='notes', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -511,10 +534,50 @@ class BOM(models.Model):
     class Meta:
         verbose_name = "Bill of Materials (BOM)"
         verbose_name_plural = "Bills of Materials (BOMs)"
-        ordering = ['name']
+        ordering = ['assembly_number', 'name']
 
     def __str__(self):
+        if self.assembly_number:
+            return f"{self.assembly_number} - {self.name}"
         return self.name
+
+    @classmethod
+    def generate_next_assembly_number(cls):
+        """
+        Generates the next sequential 1000-series assembly number (e.g. 1000-001, 1000-002).
+        """
+        prefix = "1000-"
+        existing = cls.objects.filter(assembly_number__startswith=prefix).values_list('assembly_number', flat=True)
+        highest = 0
+        for an in existing:
+            if not an:
+                continue
+            suffix = an[len(prefix):]
+            if suffix.isdigit():
+                num = int(suffix)
+                if num > highest:
+                    highest = num
+        next_num = highest + 1
+        candidate = f"{prefix}{next_num:03d}"
+        while cls.objects.filter(assembly_number=candidate).exists():
+            next_num += 1
+            candidate = f"{prefix}{next_num:03d}"
+        return candidate
+
+    def save(self, *args, **kwargs):
+        if self.assembly_number:
+            cleaned = self.assembly_number.strip()
+            if cleaned.isdigit():
+                num = int(cleaned)
+                if num >= 1000:
+                    self.assembly_number = f"1000-{num - 1000 if num > 1000 else 1:03d}" if num > 1000 else "1000-001"
+                else:
+                    self.assembly_number = f"1000-{num:03d}"
+            else:
+                self.assembly_number = cleaned
+        else:
+            self.assembly_number = self.generate_next_assembly_number()
+        super().save(*args, **kwargs)
 
     @property
     def total_items_count(self):
@@ -531,6 +594,12 @@ class BOM(models.Model):
             if item.part and item.part.price_per:
                 total += Decimal(str(item.part.price_per)) * Decimal(str(item.quantity))
         return total
+
+    @property
+    def effective_sale_price(self):
+        if self.sale_price is not None and self.sale_price > 0:
+            return self.sale_price
+        return self.total_cost
 
 
 class BOMItem(models.Model):
@@ -785,4 +854,209 @@ class OrderItem(models.Model):
     @property
     def remaining_to_receive(self):
         return max(0, self.quantity - self.quantity_received)
+
+
+class AssemblySale(models.Model):
+    """
+    Sales Order / Invoice for selling built 1000-series assemblies (and/or items) to a customer.
+    """
+    DEFAULT_COMPANY_NAME = "Granary Watch"
+    DEFAULT_COMPANY_ADDRESS = "11940 52 St NW, Edmonton, AB T5J 3J6"
+    DEFAULT_COMPANY_PHONE = "780.901.9315"
+    DEFAULT_COMPANY_EMAIL = "michael@granarywatch.com"
+
+    STATUS_CHOICES = [
+        ('UNPAID', 'Unpaid (Open)'),
+        ('PAID', 'Paid & Closed'),
+    ]
+
+    PAYMENT_METHOD_CHOICES = [
+        ('E-Transfer', 'Interac e-Transfer'),
+        ('Credit Card', 'Credit Card'),
+        ('Wire / ACH', 'Bank Wire / EFT'),
+        ('Cheque', 'Cheque'),
+        ('Cash', 'Cash'),
+        ('Net 30', 'Net 30 Terms'),
+        ('Other', 'Other'),
+    ]
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='UNPAID',
+        verbose_name="Invoice Status",
+        help_text="Unpaid (assembly not built yet / pending payment) or Paid & Closed (assembly built and sold)."
+    )
+    stock_deducted = models.BooleanField(
+        default=False,
+        verbose_name="Stock Deducted",
+        help_text="Whether finished assembly inventory has been deducted for this invoice."
+    )
+    pdf_file = models.FileField(
+        upload_to='invoices/',
+        null=True,
+        blank=True,
+        verbose_name="Saved Invoice PDF",
+        help_text="Saved print-ready PDF invoice file."
+    )
+
+    invoice_number = models.CharField(
+        max_length=50,
+        unique=True,
+        blank=True,
+        verbose_name="Invoice Number",
+        help_text="Sequential invoice number (e.g. INV-0001). Leave blank to auto-generate."
+    )
+    invoice_date = models.DateField(
+        default=timezone.now,
+        verbose_name="Invoice Date (Date of Sale)"
+    )
+    customer_name = models.CharField(
+        max_length=150,
+        default="Granary Watch",
+        verbose_name="Customer / Company Name"
+    )
+    customer_address = models.CharField(
+        max_length=255,
+        default="11940 52 St NW, Edmonton, AB T5J 3J6",
+        blank=True,
+        verbose_name="Customer Address"
+    )
+    customer_phone = models.CharField(
+        max_length=50,
+        default="780.901.9315",
+        blank=True,
+        verbose_name="Customer Phone"
+    )
+    customer_email = models.EmailField(
+        default="michael@granarywatch.com",
+        blank=True,
+        verbose_name="Customer Email"
+    )
+    payment_method = models.CharField(
+        max_length=50,
+        choices=PAYMENT_METHOD_CHOICES,
+        default='E-Transfer',
+        blank=True,
+        verbose_name="Payment Method"
+    )
+    payment_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Payment Date"
+    )
+    notes = CKEditor5Field(
+        'Invoice Notes',
+        config_name='notes',
+        blank=True,
+        null=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Assembly Sale / Invoice"
+        verbose_name_plural = "Assembly Sales / Invoices"
+        ordering = ['-invoice_date', '-id']
+
+    def __str__(self):
+        return f"{self.invoice_number} - {self.customer_name}"
+
+    @classmethod
+    def generate_next_invoice_number(cls):
+        """
+        Generates a strictly sequential invoice number (e.g. INV-0001, INV-0002).
+        """
+        prefix = "INV-"
+        existing = cls.objects.filter(invoice_number__startswith=prefix).values_list('invoice_number', flat=True)
+        highest = 0
+        for inv in existing:
+            if not inv:
+                continue
+            suffix = inv[len(prefix):]
+            if suffix.isdigit():
+                num = int(suffix)
+                if num > highest:
+                    highest = num
+        next_num = highest + 1
+        candidate = f"{prefix}{next_num:04d}"
+        while cls.objects.filter(invoice_number=candidate).exists():
+            next_num += 1
+            candidate = f"{prefix}{next_num:04d}"
+        return candidate
+
+    def save(self, *args, **kwargs):
+        if not self.invoice_number or not self.invoice_number.strip():
+            self.invoice_number = self.generate_next_invoice_number()
+        else:
+            self.invoice_number = self.invoice_number.strip()
+        super().save(*args, **kwargs)
+
+    @property
+    def is_paid(self):
+        return self.status == 'PAID' or bool(self.payment_date and self.status != 'UNPAID')
+
+    @property
+    def total_amount(self):
+        total = Decimal('0.00')
+        for item in self.items.all():
+            total += item.subtotal
+        return total
+
+    @property
+    def total_quantity(self):
+        return sum(item.quantity for item in self.items.all())
+
+
+class AssemblySaleItem(models.Model):
+    """
+    Line item on an AssemblySale / Invoice representing a sold 1000-series Assembly.
+    """
+    sale = models.ForeignKey(
+        AssemblySale,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name="Sale / Invoice"
+    )
+    bom = models.ForeignKey(
+        BOM,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sale_items',
+        verbose_name="Assembly (BoM)"
+    )
+    item_number = models.CharField(
+        max_length=50,
+        verbose_name="Item / Assembly Number",
+        help_text="e.g. 1000-001"
+    )
+    description = models.CharField(
+        max_length=255,
+        verbose_name="Item Description"
+    )
+    quantity = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Quantity Sold"
+    )
+    unit_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        verbose_name="Unit Price ($)"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Invoice Line Item"
+        verbose_name_plural = "Invoice Line Items"
+        ordering = ['id']
+
+    def __str__(self):
+        return f"{self.item_number} - {self.description} x {self.quantity}"
+
+    @property
+    def subtotal(self):
+        return (Decimal(str(self.unit_price or 0)) * Decimal(str(self.quantity or 0))).quantize(Decimal('0.01'))
+
 

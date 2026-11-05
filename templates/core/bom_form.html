@@ -55,7 +55,12 @@
             </div>
             <div class="card-body p-4">
                 <div class="row g-3">
-                    <div class="col-12 col-md-6">
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">1000-Series Assembly #</label>
+                        {{ form.assembly_number }}
+                        <div class="form-text small">1000-series identifier (e.g. <code>1000-001</code>). Auto-assigned if left blank.</div>
+                    </div>
+                    <div class="col-12 col-md-8">
                         <label class="form-label small fw-semibold">Assembly Name <span class="text-danger">*</span></label>
                         {{ form.name }}
                         <div class="form-text small">e.g. String Assembly, Sensor Node Assembly, Base Station, Tipups Monitor.</div>
@@ -64,6 +69,16 @@
                         <label class="form-label small fw-semibold">Description</label>
                         {{ form.description }}
                         <div class="form-text small">High-level summary of the assembly, intended use, or revision notes.</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small fw-semibold">Built On Hand (Qty)</label>
+                        {{ form.quantity_on_hand }}
+                        <div class="form-text small">Finished assemblies in stock.</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small fw-semibold">Unit Sale Price ($)</label>
+                        {{ form.sale_price }}
+                        <div class="form-text small">Invoice price (defaults to cost if blank).</div>
                     </div>
                     <div class="col-12">
                         <label class="form-label small fw-semibold">Assembly Instructions &amp; Engineering Notes</label>

@@ -224,6 +224,11 @@
                     <span>Kits</span>
                 </a>
 
+                <a href="{% url 'sale_list' %}" class="nav-link-custom {% if 'sales' in request.path %}active{% endif %}">
+                    <i class="bi bi-receipt"></i>
+                    <span>Sales &amp; Invoices</span>
+                </a>
+
                 <a href="{% url 'take_inventory' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'take_inventory' or request.resolver_match.url_name == 'inventory_count_sheet' %}active{% endif %}">
                     <i class="bi bi-sliders"></i>
                     <span>Inventory</span>

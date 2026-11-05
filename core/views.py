@@ -1,6 +1,10 @@
 import csv
+import os
 import re
+from pathlib import Path
 from decimal import Decimal, InvalidOperation
+from django.conf import settings
+from django.core.mail import EmailMessage
 from django.shortcuts import render, get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
@@ -12,11 +16,11 @@ from django.db import transaction
 from django.db.models import Q, Count, Sum, Case, When, Value, IntegerField, F
 from .models import (
     Part, Company, Manufacturer, Category, Location, PartDocument,
-    BOM, BOMItem, Order, OrderItem
+    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem
 )
 from .forms import (
     PartForm, CompanyForm, ManufacturerForm, CategoryForm, LocationForm,
-    PartDocumentForm, BOMForm, BOMItemForm, OrderForm, OrderItemForm
+    PartDocumentForm, BOMForm, BOMItemForm, OrderForm, OrderItemForm, AssemblySaleForm
 )
 
 
@@ -38,6 +42,8 @@ def home(request):
     total_on_hand = Part.objects.aggregate(total=Sum('quantity_on_hand'))['total'] or 0
     total_on_order = active_order_items_qs.aggregate(total=Sum('quantity'))['total'] or 0
     total_committed = Part.objects.aggregate(total=Sum('quantity_committed'))['total'] or 0
+    total_assemblies_on_hand = BOM.objects.aggregate(total=Sum('quantity_on_hand'))['total'] or 0
+    total_sales = AssemblySale.objects.count()
 
     context = {
         'page_title': 'Dashboard Overview',
@@ -48,6 +54,8 @@ def home(request):
             'total_categories': total_categories,
             'total_locations': total_locations,
             'total_boms': total_boms,
+            'total_assemblies_on_hand': total_assemblies_on_hand,
+            'total_sales': total_sales,
             'total_orders': total_orders,
             'active_orders': active_orders,
             'active_order_parts': active_order_parts,
@@ -56,6 +64,7 @@ def home(request):
             'total_committed': total_committed,
         },
         'recent_orders': Order.objects.select_related('supplier').order_by('-order_date', '-created_at')[:5],
+        'recent_sales': AssemblySale.objects.prefetch_related('items').order_by('-invoice_date', '-created_at')[:5],
         'recent_boms': BOM.objects.annotate(item_count=Count('items')).order_by('-created_at')[:5],
         'recent_parts': Part.objects.select_related('company', 'category', 'location').order_by('-created_at')[:8],
         'recent_companies': Company.objects.annotate(part_count=Count('parts')).order_by('-created_at')[:5],
@@ -883,14 +892,19 @@ class BOMListView(ListView):
         qs = BOM.objects.annotate(items_count=Count('items')).all()
         q = filters['q']
         if q:
-            qs = qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
-        return qs.order_by('name')
+            qs = qs.filter(
+                Q(assembly_number__icontains=q) |
+                Q(name__icontains=q) |
+                Q(description__icontains=q)
+            )
+        return qs.order_by('assembly_number', 'name')
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         filters = resolve_persistent_filters(self.request, 'bom_list_filters', ['q'])
         ctx['current_q'] = filters['q']
         ctx['total_count'] = self.get_queryset().count()
+        ctx['total_built_on_hand'] = BOM.objects.aggregate(total=Sum('quantity_on_hand'))['total'] or 0
         return ctx
 
 
@@ -931,9 +945,16 @@ class BOMCreateView(CreateView):
     form_class = BOMForm
     template_name = 'core/bom_form.html'
 
+    def get_initial(self):
+        initial = super().get_initial()
+        initial['assembly_number'] = BOM.generate_next_assembly_number()
+        initial['quantity_on_hand'] = 0
+        return initial
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['all_parts'] = Part.objects.select_related('company', 'category').all().order_by('part_number')
+        ctx['next_assembly_number'] = BOM.generate_next_assembly_number()
         return ctx
 
     def form_valid(self, form):
@@ -2272,12 +2293,15 @@ def bom_kit_action(request, pk):
     return redirect('bom_detail', pk=bom.pk)
 
 
-def _execute_bom_build(bom, build_count=1, consume_committed=True):
+def _execute_bom_build(bom, build_count=1, consume_committed=True, assembly_number=None, sale_price=None):
     """
-    Takes all required parts for `build_count` units of `bom` out of inventory:
-    - Decreases `quantity_on_hand` by required quantity (floored at 0)
-    - If `consume_committed` is True, also decreases `quantity_committed` up to the required quantity
-    - Recalculates `quantity_availible`
+    Takes all required parts for `build_count` units of `bom` out of inventory AND adds the
+    built assembly (`build_count` units) to `bom.quantity_on_hand`, assigning a 1000-series
+    `assembly_number` if not already set (or if overridden by `assembly_number`):
+    - Decreases each component `part.quantity_on_hand` by required quantity (floored at 0)
+    - If `consume_committed` is True, also decreases `part.quantity_committed` up to the required quantity
+    - Recalculates `part.quantity_availible`
+    - Assigns 1000-series `bom.assembly_number` and increases `bom.quantity_on_hand` by `build_count`
     Returns (components_count, total_units_consumed, shortages_list).
     """
     items = list(bom.items.select_related('part').all())
@@ -2303,12 +2327,37 @@ def _execute_bom_build(bom, build_count=1, consume_committed=True):
         part.save(update_fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible', 'updated_at'])
         total_consumed += req_qty
 
+    # Assign 1000-series assembly number and add built assembly units to finished inventory
+    bom_update_fields = ['quantity_on_hand', 'updated_at']
+    if assembly_number and str(assembly_number).strip():
+        desired_asm_num = str(assembly_number).strip()
+        # Only set if not conflicting with another BOM
+        if not BOM.objects.filter(assembly_number=desired_asm_num).exclude(pk=bom.pk).exists():
+            bom.assembly_number = desired_asm_num
+            bom_update_fields.append('assembly_number')
+
+    if not bom.assembly_number:
+        bom.assembly_number = BOM.generate_next_assembly_number(exclude_pk=bom.pk)
+        if 'assembly_number' not in bom_update_fields:
+            bom_update_fields.append('assembly_number')
+
+    if sale_price is not None and str(sale_price).strip() != '':
+        try:
+            bom.sale_price = Decimal(str(sale_price).strip())
+            bom_update_fields.append('sale_price')
+        except (InvalidOperation, ValueError):
+            pass
+
+    bom.quantity_on_hand = (bom.quantity_on_hand or 0) + build_count
+    bom.save(update_fields=bom_update_fields)
+
     return len(items), total_consumed, shortages
 
 
 def bom_build_action(request, pk):
     """
-    POST action to build an assembly from a BoM, taking all required parts out of inventory.
+    POST action to build an assembly from a BoM, taking all required parts out of inventory,
+    assigning a 1000-series assembly number, and adding the built assembly to inventory.
     """
     if request.method != 'POST':
         return redirect('bom_detail', pk=pk)
@@ -2322,6 +2371,8 @@ def bom_build_action(request, pk):
         build_count = 1
 
     consume_committed = request.POST.get('consume_committed', '1') != '0'
+    assembly_number = request.POST.get('assembly_number')
+    sale_price = request.POST.get('sale_price')
 
     if not bom.items.exists():
         messages.warning(request, f"BOM '{bom.name}' has no components to build.")
@@ -2331,12 +2382,15 @@ def bom_build_action(request, pk):
         comp_count, total_consumed, shortages = _execute_bom_build(
             bom,
             build_count=build_count,
-            consume_committed=consume_committed
+            consume_committed=consume_committed,
+            assembly_number=assembly_number,
+            sale_price=sale_price,
         )
 
     msg = (
-        f"Built {build_count} unit(s) of '{bom.name}'! Removed {total_consumed} total component(s) "
-        f"across {comp_count} part number(s) from on-hand inventory."
+        f"Built {build_count} unit(s) of Assembly {bom.assembly_number} — '{bom.name}'! "
+        f"Removed {total_consumed} component(s) from parts inventory and added {build_count} built assembly unit(s) "
+        f"(Assemblies On-Hand: {bom.quantity_on_hand})."
     )
     if shortages:
         messages.warning(
@@ -2355,7 +2409,8 @@ def bom_build_action(request, pk):
 def bom_close_kit_action(request, pk):
     """
     POST action to close/complete a Kit for a BoM (consumes the committed kit parts out of
-    inventory, or if action_type == 'return' returns them to uncommitted available stock).
+    inventory and adds the built 1000-series assembly to inventory, or if action_type == 'return'
+    returns them to uncommitted available stock).
     """
     if request.method != 'POST':
         return redirect('bom_detail', pk=pk)
@@ -2369,6 +2424,8 @@ def bom_close_kit_action(request, pk):
         kits_count = 1
 
     action_type = request.POST.get('action_type', 'build').strip().lower()
+    assembly_number = request.POST.get('assembly_number')
+    sale_price = request.POST.get('sale_price')
 
     if not bom.items.exists():
         messages.warning(request, f"BOM '{bom.name}' has no components.")
@@ -2395,11 +2452,14 @@ def bom_close_kit_action(request, pk):
             comp_count, total_consumed, shortages = _execute_bom_build(
                 bom,
                 build_count=kits_count,
-                consume_committed=True
+                consume_committed=True,
+                assembly_number=assembly_number,
+                sale_price=sale_price,
             )
             msg = (
-                f"Closed {kits_count} kit(s) of '{bom.name}'! Consumed {total_consumed} committed part(s) "
-                f"across {comp_count} component(s) out of inventory."
+                f"Closed {kits_count} kit(s) into Assembly {bom.assembly_number} — '{bom.name}'! "
+                f"Consumed {total_consumed} committed part(s) out of inventory and added {kits_count} built assembly unit(s) "
+                f"(Assemblies On-Hand: {bom.quantity_on_hand})."
             )
             if shortages:
                 messages.warning(request, f"{msg} Note: Shortages on {', '.join(shortages)}.")
@@ -2529,13 +2589,21 @@ def bom_adjust_kit_action(request, pk):
 
     elif mode in ('build', 'close'):
         kits_to_build = max(1, qty if 'quantity' in request.POST else current_kits)
+        assembly_number = request.POST.get('assembly_number')
+        sale_price = request.POST.get('sale_price')
         with transaction.atomic():
             comp_count, total_consumed, shortages = _execute_bom_build(
                 bom,
                 build_count=kits_to_build,
-                consume_committed=True
+                consume_committed=True,
+                assembly_number=assembly_number,
+                sale_price=sale_price,
             )
-        msg = f"Closed & built {kits_to_build} kit(s) of '{bom.name}' ({total_consumed} parts deducted from inventory)."
+        msg = (
+            f"Closed & built {kits_to_build} kit(s) into Assembly {bom.assembly_number} — '{bom.name}' "
+            f"({total_consumed} parts deducted from inventory, {kits_to_build} assembly unit(s) added; "
+            f"Assemblies On-Hand: {bom.quantity_on_hand})."
+        )
         if shortages:
             messages.warning(request, f"{msg} Note: Shortages on {', '.join(shortages)}.")
         else:
@@ -2709,6 +2777,8 @@ class KitActionView(TemplateView):
         ctx['active_kits'] = [b for b in boms if b.kitted_sets > 0 or b.total_committed_parts > 0]
         ctx['active_kits_count'] = active_kits_count
         ctx['total_kitted_sets'] = total_kitted_sets
+        ctx['total_built_assemblies'] = sum((b.quantity_on_hand or 0) for b in boms)
+        ctx['next_assembly_number'] = BOM.generate_next_assembly_number()
         ctx['committed_parts'] = committed_parts
         ctx['committed_parts_count'] = len(committed_parts)
         ctx['total_committed_units'] = total_committed_units
@@ -2773,6 +2843,8 @@ class BuildActionView(TemplateView):
                 bom.max_builds = 0
                 bom.kitted_sets = 0
         ctx['boms'] = boms
+        ctx['total_built_assemblies'] = sum((b.quantity_on_hand or 0) for b in boms)
+        ctx['next_assembly_number'] = BOM.generate_next_assembly_number()
         selected_id = self.request.GET.get('bom')
         if selected_id and selected_id.isdigit():
             ctx['selected_bom'] = next((b for b in boms if b.pk == int(selected_id)), None)
@@ -2897,5 +2969,648 @@ class TakeInventoryView(TemplateView):
             messages.info(request, "No inventory discrepancies or changes were detected to adjust.")
 
         return redirect('take_inventory')
+
+
+# ==============================================================================
+# 1000-SERIES ASSEMBLY STOCK ADJUSTMENT & SALES / INVOICES VIEWS
+# ==============================================================================
+
+def bom_adjust_assembly_stock(request, pk):
+    """
+    POST action to directly adjust a 1000-series Assembly's `quantity_on_hand`,
+    `assembly_number`, or `sale_price` (supports mode='add', 'subtract', 'set').
+    """
+    if request.method != 'POST':
+        return redirect('bom_detail', pk=pk)
+
+    bom = get_object_or_404(BOM, pk=pk)
+    next_url = request.POST.get('next') or reverse('bom_detail', kwargs={'pk': bom.pk})
+    mode = (request.POST.get('mode') or 'set').strip().lower()
+    old_on_hand = bom.quantity_on_hand or 0
+
+    try:
+        qty = int(request.POST.get('quantity', 1))
+    except (ValueError, TypeError):
+        qty = 1
+
+    try:
+        target_on_hand = int(request.POST.get('target_on_hand', old_on_hand))
+        if target_on_hand < 0:
+            target_on_hand = 0
+    except (ValueError, TypeError):
+        target_on_hand = old_on_hand
+
+    update_fields = ['updated_at']
+
+    raw_asm_num = request.POST.get('assembly_number')
+    if raw_asm_num is not None and str(raw_asm_num).strip():
+        desired_asm_num = str(raw_asm_num).strip()
+        if desired_asm_num != bom.assembly_number:
+            if BOM.objects.filter(assembly_number=desired_asm_num).exclude(pk=bom.pk).exists():
+                messages.error(request, f"Assembly number '{desired_asm_num}' is already assigned to another assembly.")
+                return redirect(next_url)
+            bom.assembly_number = desired_asm_num
+            update_fields.append('assembly_number')
+    elif not bom.assembly_number:
+        bom.assembly_number = BOM.generate_next_assembly_number(exclude_pk=bom.pk)
+        update_fields.append('assembly_number')
+
+    raw_sale_price = request.POST.get('sale_price')
+    if raw_sale_price is not None:
+        raw_sp_str = str(raw_sale_price).strip()
+        if raw_sp_str == '':
+            bom.sale_price = None
+            update_fields.append('sale_price')
+        else:
+            try:
+                bom.sale_price = Decimal(raw_sp_str)
+                update_fields.append('sale_price')
+            except (InvalidOperation, ValueError):
+                pass
+
+    if mode == 'add':
+        qty = max(1, qty)
+        bom.quantity_on_hand = old_on_hand + qty
+        update_fields.append('quantity_on_hand')
+        bom.save(update_fields=update_fields)
+        messages.success(
+            request,
+            f"Added {qty} built assembly unit(s) to {bom.assembly_number} — '{bom.name}' (On-Hand: {old_on_hand} → {bom.quantity_on_hand})."
+        )
+    elif mode == 'subtract':
+        qty = max(1, qty)
+        bom.quantity_on_hand = max(0, old_on_hand - qty)
+        update_fields.append('quantity_on_hand')
+        bom.save(update_fields=update_fields)
+        messages.success(
+            request,
+            f"Removed {min(old_on_hand, qty)} built assembly unit(s) from {bom.assembly_number} — '{bom.name}' (On-Hand: {old_on_hand} → {bom.quantity_on_hand})."
+        )
+    else:
+        if 'target_on_hand' in request.POST:
+            bom.quantity_on_hand = target_on_hand
+            update_fields.append('quantity_on_hand')
+        bom.save(update_fields=update_fields)
+        messages.success(
+            request,
+            f"Updated Assembly {bom.assembly_number} — '{bom.name}' (Built On-Hand: {bom.quantity_on_hand})."
+        )
+
+    return redirect(next_url)
+
+
+SALE_FILTER_KEYS = ['q', 'status', 'payment_method']
+
+
+def generate_and_save_invoice_pdf(sale, request=None):
+    """
+    Renders and saves the WeasyPrint PDF for an AssemblySale invoice into MEDIA_ROOT/invoices/.
+    Returns (rel_path, pdf_bytes).
+    """
+    import weasyprint
+
+    context = {
+        'sale': sale,
+        'items': list(sale.items.all()),
+        'company_name': AssemblySale.DEFAULT_COMPANY_NAME,
+        'company_address': AssemblySale.DEFAULT_COMPANY_ADDRESS,
+        'company_phone': AssemblySale.DEFAULT_COMPANY_PHONE,
+        'company_email': AssemblySale.DEFAULT_COMPANY_EMAIL,
+        'generated_at': timezone.now(),
+        'request': request,
+    }
+
+    base_url = request.build_absolute_uri('/') if request else f"file://{settings.BASE_DIR}/"
+    html_content = render_to_string('core/invoice_pdf.html', context)
+    pdf_bytes = weasyprint.HTML(
+        string=html_content,
+        base_url=base_url
+    ).write_pdf()
+
+    invoices_dir = Path(settings.MEDIA_ROOT) / 'invoices'
+    invoices_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"Invoice_{sale.invoice_number}.pdf"
+    file_path = invoices_dir / filename
+    with open(file_path, 'wb') as f:
+        f.write(pdf_bytes)
+
+    rel_path = f"invoices/{filename}"
+    if sale.pdf_file.name != rel_path:
+        sale.pdf_file.name = rel_path
+        sale.save(update_fields=['pdf_file', 'updated_at'])
+
+    return rel_path, pdf_bytes
+
+
+class AssemblySaleListView(ListView):
+    """
+    Lists all 1000-series built Assemblies available for sale AND the history of all
+    Sales / Invoices with sequential invoice numbers and status filters (Unpaid vs Paid).
+    """
+    model = AssemblySale
+    template_name = 'core/sale_list.html'
+    context_object_name = 'sales'
+    paginate_by = 25
+
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('sale_list_filters', None)
+            return redirect('sale_list')
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        filters = resolve_persistent_filters(self.request, 'sale_list_filters', SALE_FILTER_KEYS)
+        qs = AssemblySale.objects.prefetch_related('items', 'items__bom').all()
+        q = filters['q']
+        if q:
+            qs = qs.filter(
+                Q(invoice_number__icontains=q) |
+                Q(customer_name__icontains=q) |
+                Q(customer_email__icontains=q) |
+                Q(customer_phone__icontains=q) |
+                Q(items__item_number__icontains=q) |
+                Q(items__description__icontains=q)
+            ).distinct()
+        status_filter = filters['status']
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        payment_method = filters['payment_method']
+        if payment_method:
+            qs = qs.filter(payment_method=payment_method)
+        return qs.order_by('-invoice_date', '-created_at')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        filters = resolve_persistent_filters(self.request, 'sale_list_filters', SALE_FILTER_KEYS)
+        boms = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
+        for bom in boms:
+            _compute_bom_kit_metrics(bom)
+        ctx['assemblies'] = boms
+        ctx['built_assemblies_count'] = sum(1 for b in boms if (b.quantity_on_hand or 0) > 0)
+        ctx['total_built_units'] = sum((b.quantity_on_hand or 0) for b in boms)
+
+        all_sales = list(AssemblySale.objects.prefetch_related('items').all())
+        ctx['total_invoices_count'] = len(all_sales)
+        ctx['unpaid_invoices_count'] = sum(1 for s in all_sales if s.status == 'UNPAID')
+        ctx['paid_invoices_count'] = sum(1 for s in all_sales if s.status == 'PAID')
+        ctx['total_revenue'] = sum((s.total_amount for s in all_sales if s.status == 'PAID'), Decimal('0.00'))
+        ctx['total_invoiced_amount'] = sum((s.total_amount for s in all_sales), Decimal('0.00'))
+        ctx['total_units_sold'] = sum(s.total_quantity for s in all_sales if s.status == 'PAID')
+
+        ctx['current_q'] = filters['q']
+        ctx['current_status'] = filters['status']
+        ctx['current_payment_method'] = filters['payment_method']
+        ctx['status_choices'] = AssemblySale.STATUS_CHOICES
+        ctx['payment_method_choices'] = AssemblySale.PAYMENT_METHOD_CHOICES
+        ctx['next_invoice_number'] = AssemblySale.generate_next_invoice_number()
+        return ctx
+
+
+class AssemblySaleCreateView(CreateView):
+    """
+    Page to create an invoice for 1000-series assemblies (built or not built yet).
+    If status='UNPAID', the invoice is created without deducting assembly inventory yet.
+    When the assembly is built and payment received, closing the invoice marks it PAID,
+    stamps it with a big PAID stamp, and deducts the assembly from stock.
+    Saves the print-ready PDF to media/invoices/.
+    """
+    model = AssemblySale
+    form_class = AssemblySaleForm
+    template_name = 'core/sale_form.html'
+
+    def get_initial(self):
+        initial = super().get_initial()
+        initial['invoice_number'] = AssemblySale.generate_next_invoice_number()
+        initial['invoice_date'] = timezone.now().date()
+        initial['status'] = 'UNPAID'
+        initial['payment_date'] = None
+        initial['customer_name'] = AssemblySale.DEFAULT_COMPANY_NAME
+        initial['customer_address'] = AssemblySale.DEFAULT_COMPANY_ADDRESS
+        initial['customer_phone'] = AssemblySale.DEFAULT_COMPANY_PHONE
+        initial['customer_email'] = AssemblySale.DEFAULT_COMPANY_EMAIL
+        return initial
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        boms = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
+        ctx['assemblies'] = boms
+        ctx['next_invoice_number'] = AssemblySale.generate_next_invoice_number()
+        preselected_bom_id = self.request.GET.get('bom')
+        if preselected_bom_id and preselected_bom_id.isdigit():
+            ctx['preselected_bom'] = next((b for b in boms if b.pk == int(preselected_bom_id)), None)
+        else:
+            ctx['preselected_bom'] = None
+        return ctx
+
+    def form_valid(self, form):
+        bom_ids = self.request.POST.getlist('item_bom[]') or self.request.POST.getlist('item_bom')
+        item_numbers = self.request.POST.getlist('item_number[]') or self.request.POST.getlist('item_number')
+        descriptions = self.request.POST.getlist('item_description[]') or self.request.POST.getlist('item_description')
+        quantities = self.request.POST.getlist('item_quantity[]') or self.request.POST.getlist('item_quantity')
+        unit_prices = self.request.POST.getlist('item_unit_price[]') or self.request.POST.getlist('item_unit_price')
+
+        row_count = max(len(bom_ids), len(item_numbers), len(descriptions))
+        parsed_rows = []
+        for i in range(row_count):
+            b_id_str = str(bom_ids[i]).strip() if i < len(bom_ids) and bom_ids[i] else ''
+            i_num = str(item_numbers[i]).strip() if i < len(item_numbers) and item_numbers[i] else ''
+            i_desc = str(descriptions[i]).strip() if i < len(descriptions) and descriptions[i] else ''
+
+            bom_obj = None
+            if b_id_str.isdigit():
+                bom_obj = BOM.objects.filter(pk=int(b_id_str)).first()
+
+            if not bom_obj and not i_num and not i_desc:
+                continue
+
+            try:
+                qty = int(quantities[i]) if i < len(quantities) and str(quantities[i]).strip() else 1
+                if qty <= 0:
+                    continue
+            except (ValueError, TypeError):
+                qty = 1
+
+            u_price = None
+            if i < len(unit_prices) and str(unit_prices[i]).strip():
+                try:
+                    u_price = Decimal(str(unit_prices[i]).strip())
+                except (InvalidOperation, ValueError):
+                    u_price = None
+
+            if bom_obj:
+                if not i_num:
+                    i_num = bom_obj.assembly_number or BOM.generate_next_assembly_number(exclude_pk=bom_obj.pk)
+                if not i_desc:
+                    i_desc = f"{bom_obj.name}" + (f" — {bom_obj.description}" if bom_obj.description else "")
+                if u_price is None:
+                    u_price = bom_obj.effective_sale_price
+
+            if u_price is None:
+                u_price = Decimal('0.00')
+
+            parsed_rows.append({
+                'bom': bom_obj,
+                'item_number': i_num or '1000-001',
+                'description': i_desc or 'Built Assembly',
+                'quantity': qty,
+                'unit_price': u_price,
+            })
+
+        if not parsed_rows:
+            messages.error(self.request, "Please select at least one Assembly or enter an item to invoice.")
+            return self.form_invalid(form)
+
+        status_val = form.cleaned_data.get('status') or self.request.POST.get('status') or 'UNPAID'
+        is_paid = (status_val == 'PAID')
+
+        with transaction.atomic():
+            sale = form.save(commit=False)
+            sale.status = status_val
+            sale.stock_deducted = is_paid
+            if is_paid and not sale.payment_date:
+                sale.payment_date = timezone.now().date()
+            elif not is_paid and not form.cleaned_data.get('payment_date'):
+                sale.payment_date = None
+            sale.save()
+            self.object = sale
+
+            shortages = []
+            total_units = 0
+            for row in parsed_rows:
+                bom_obj = row['bom']
+                qty = row['quantity']
+                AssemblySaleItem.objects.create(
+                    sale=sale,
+                    bom=bom_obj,
+                    item_number=row['item_number'],
+                    description=row['description'],
+                    quantity=qty,
+                    unit_price=row['unit_price'],
+                )
+                total_units += qty
+
+                if bom_obj:
+                    bom_update_fields = ['updated_at']
+                    if not bom_obj.assembly_number and row['item_number']:
+                        bom_obj.assembly_number = row['item_number']
+                        bom_update_fields.append('assembly_number')
+                    if bom_obj.sale_price is None and row['unit_price'] > 0:
+                        bom_obj.sale_price = row['unit_price']
+                        bom_update_fields.append('sale_price')
+
+                    # If marked as PAID right away, deduct from built assembly inventory
+                    if is_paid:
+                        old_on_hand = bom_obj.quantity_on_hand or 0
+                        if old_on_hand < qty:
+                            shortages.append(f"{bom_obj.assembly_number} ({bom_obj.name}: invoiced {qty}, had {old_on_hand} built)")
+                        bom_obj.quantity_on_hand = max(0, old_on_hand - qty)
+                        bom_update_fields.append('quantity_on_hand')
+
+                    bom_obj.save(update_fields=bom_update_fields)
+
+            # Generate and save the PDF file to disk in media/invoices/
+            generate_and_save_invoice_pdf(sale, request=self.request)
+
+            if is_paid:
+                msg = (
+                    f"Invoice {sale.invoice_number} created and marked PAID! "
+                    f"Deducted {total_units} assembly unit(s) from built stock. PDF invoice saved to media/invoices/."
+                )
+                if shortages:
+                    messages.warning(self.request, f"{msg} Note: Low built stock for {', '.join(shortages)}.")
+                else:
+                    messages.success(self.request, msg)
+            else:
+                messages.success(
+                    self.request,
+                    f"Invoice {sale.invoice_number} created (Status: Unpaid / Assembly not built yet)! "
+                    f"Assemblies have not been deducted from built stock yet. PDF invoice saved to media/invoices/."
+                )
+
+        return redirect('sale_detail', pk=sale.pk)
+
+
+class AssemblySaleDetailView(DetailView):
+    """
+    Displays the printable / PDF-ready Invoice for an `AssemblySale` with PAID STAMP overlay
+    when paid, action button to Mark Paid & Close, and action to email the invoice PDF.
+    """
+    model = AssemblySale
+    template_name = 'core/sale_detail.html'
+    context_object_name = 'sale'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        items = list(self.object.items.select_related('bom').all())
+        ctx['items'] = items
+        ctx['company_name'] = AssemblySale.DEFAULT_COMPANY_NAME
+        ctx['company_address'] = AssemblySale.DEFAULT_COMPANY_ADDRESS
+        ctx['company_phone'] = AssemblySale.DEFAULT_COMPANY_PHONE
+        ctx['company_email'] = AssemblySale.DEFAULT_COMPANY_EMAIL
+        ctx['can_fulfill'] = all(
+            (item.bom.quantity_on_hand or 0) >= item.quantity
+            for item in items if item.bom
+        )
+        return ctx
+
+
+class AssemblySaleUpdateView(UpdateView):
+    """
+    Allows editing invoice header details (customer info, payment method, payment date, notes, status)
+    and line items on an existing `AssemblySale`, synchronizing built stock deduction and PDF.
+    """
+    model = AssemblySale
+    form_class = AssemblySaleForm
+    template_name = 'core/sale_form.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['assemblies'] = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
+        ctx['existing_items'] = list(self.object.items.select_related('bom').all())
+        return ctx
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            old_sale = AssemblySale.objects.get(pk=self.object.pk)
+            old_stock_deducted = old_sale.stock_deducted
+            sale = form.save()
+            self.object = sale
+            new_status = sale.status
+            should_deduct = (new_status == 'PAID')
+
+            # If line items were submitted in the update form, sync them
+            if 'item_number[]' in self.request.POST or 'item_bom[]' in self.request.POST:
+                bom_ids = self.request.POST.getlist('item_bom[]') or self.request.POST.getlist('item_bom')
+                item_numbers = self.request.POST.getlist('item_number[]') or self.request.POST.getlist('item_number')
+                descriptions = self.request.POST.getlist('item_description[]') or self.request.POST.getlist('item_description')
+                quantities = self.request.POST.getlist('item_quantity[]') or self.request.POST.getlist('item_quantity')
+                unit_prices = self.request.POST.getlist('item_unit_price[]') or self.request.POST.getlist('item_unit_price')
+
+                row_count = max(len(bom_ids), len(item_numbers), len(descriptions))
+                new_rows = []
+                for i in range(row_count):
+                    b_id_str = str(bom_ids[i]).strip() if i < len(bom_ids) and bom_ids[i] else ''
+                    i_num = str(item_numbers[i]).strip() if i < len(item_numbers) and item_numbers[i] else ''
+                    i_desc = str(descriptions[i]).strip() if i < len(descriptions) and descriptions[i] else ''
+                    bom_obj = BOM.objects.filter(pk=int(b_id_str)).first() if b_id_str.isdigit() else None
+                    if not bom_obj and not i_num and not i_desc:
+                        continue
+                    try:
+                        qty = max(1, int(quantities[i])) if i < len(quantities) and str(quantities[i]).strip() else 1
+                    except (ValueError, TypeError):
+                        qty = 1
+                    try:
+                        u_price = Decimal(str(unit_prices[i]).strip()) if i < len(unit_prices) and str(unit_prices[i]).strip() else Decimal('0.00')
+                    except (InvalidOperation, ValueError):
+                        u_price = Decimal('0.00')
+                    new_rows.append({
+                        'bom': bom_obj,
+                        'item_number': i_num or (bom_obj.assembly_number if bom_obj else '1000-001'),
+                        'description': i_desc or (bom_obj.name if bom_obj else 'Assembly'),
+                        'quantity': qty,
+                        'unit_price': u_price,
+                    })
+
+                if new_rows:
+                    # If stock was previously deducted, restore old quantities first
+                    if old_stock_deducted:
+                        for old_item in sale.items.select_related('bom').all():
+                            if old_item.bom:
+                                old_item.bom.quantity_on_hand = (old_item.bom.quantity_on_hand or 0) + old_item.quantity
+                                old_item.bom.save(update_fields=['quantity_on_hand', 'updated_at'])
+
+                    sale.items.all().delete()
+                    for row in new_rows:
+                        AssemblySaleItem.objects.create(
+                            sale=sale,
+                            bom=row['bom'],
+                            item_number=row['item_number'],
+                            description=row['description'],
+                            quantity=row['quantity'],
+                            unit_price=row['unit_price'],
+                        )
+                        if row['bom'] and should_deduct:
+                            row['bom'].quantity_on_hand = max(0, (row['bom'].quantity_on_hand or 0) - row['quantity'])
+                            row['bom'].save(update_fields=['quantity_on_hand', 'updated_at'])
+
+                    sale.stock_deducted = should_deduct
+            else:
+                # Line items unchanged, check status transition
+                if should_deduct and not old_stock_deducted:
+                    for item in sale.items.select_related('bom').all():
+                        if item.bom:
+                            item.bom.quantity_on_hand = max(0, (item.bom.quantity_on_hand or 0) - item.quantity)
+                            item.bom.save(update_fields=['quantity_on_hand', 'updated_at'])
+                    sale.stock_deducted = True
+                elif not should_deduct and old_stock_deducted:
+                    for item in sale.items.select_related('bom').all():
+                        if item.bom:
+                            item.bom.quantity_on_hand = (item.bom.quantity_on_hand or 0) + item.quantity
+                            item.bom.save(update_fields=['quantity_on_hand', 'updated_at'])
+                    sale.stock_deducted = False
+
+            if should_deduct and not sale.payment_date:
+                sale.payment_date = timezone.now().date()
+            sale.save(update_fields=['status', 'stock_deducted', 'payment_date', 'updated_at'])
+
+            # Regenerate saved PDF
+            generate_and_save_invoice_pdf(sale, request=self.request)
+
+            messages.success(self.request, f"Invoice {sale.invoice_number} updated successfully and PDF refreshed!")
+            return redirect('sale_detail', pk=sale.pk)
+
+
+def sale_mark_paid(request, pk):
+    """
+    POST action to close an invoice and mark it as PAID:
+    - Deducts the assemblies from built inventory (bom.quantity_on_hand)
+    - Sets `stock_deducted = True` and `status = 'PAID'`
+    - Sets `payment_date = today` if not set
+    - Regenerates and saves the updated PDF with the big "PAID" stamp
+    """
+    if request.method != 'POST':
+        return redirect('sale_detail', pk=pk)
+
+    sale = get_object_or_404(AssemblySale.objects.prefetch_related('items', 'items__bom'), pk=pk)
+    shortages = []
+
+    with transaction.atomic():
+        if not sale.stock_deducted:
+            for item in sale.items.select_related('bom').all():
+                if item.bom:
+                    old_on_hand = item.bom.quantity_on_hand or 0
+                    if old_on_hand < item.quantity:
+                        shortages.append(f"{item.bom.assembly_number} (needed {item.quantity}, had {old_on_hand} built)")
+                    item.bom.quantity_on_hand = max(0, old_on_hand - item.quantity)
+                    item.bom.save(update_fields=['quantity_on_hand', 'updated_at'])
+            sale.stock_deducted = True
+
+        sale.status = 'PAID'
+        if not sale.payment_date:
+            sale.payment_date = timezone.now().date()
+        sale.save(update_fields=['status', 'stock_deducted', 'payment_date', 'updated_at'])
+
+        # Regenerate saved PDF with the big PAID stamp
+        generate_and_save_invoice_pdf(sale, request=request)
+
+    msg = f"Invoice {sale.invoice_number} is now marked as PAID & Closed! Assemblies were deducted from built stock, and the stamped PDF was saved to disk."
+    if shortages:
+        messages.warning(request, f"{msg} Note: Low built stock for {', '.join(shortages)}.")
+    else:
+        messages.success(request, msg)
+
+    next_url = request.POST.get('next')
+    if next_url:
+        return redirect(next_url)
+    return redirect('sale_detail', pk=sale.pk)
+
+
+def sale_send_email(request, pk):
+    """
+    POST action to send the invoice PDF via email to the customer.
+    Uses default from email michael@granarywatch.com.
+    """
+    if request.method != 'POST':
+        return redirect('sale_detail', pk=pk)
+
+    sale = get_object_or_404(AssemblySale.objects.prefetch_related('items', 'items__bom'), pk=pk)
+    recipient = (request.POST.get('recipient') or sale.customer_email or AssemblySale.DEFAULT_COMPANY_EMAIL).strip()
+    subject = (request.POST.get('subject') or f"Invoice {sale.invoice_number} from {AssemblySale.DEFAULT_COMPANY_NAME}").strip()
+    custom_message = (request.POST.get('message') or '').strip()
+
+    if not custom_message:
+        status_text = "PAID in full" if sale.is_paid else f"due ({sale.get_payment_method_display})"
+        custom_message = (
+            f"Dear {sale.customer_name},\n\n"
+            f"Please find attached your invoice {sale.invoice_number} for ${sale.total_amount:.2f} ({status_text}).\n\n"
+            f"If you have any questions, please reach out to us at {AssemblySale.DEFAULT_COMPANY_EMAIL} or {AssemblySale.DEFAULT_COMPANY_PHONE}.\n\n"
+            f"Thank you for your business!\n\n"
+            f"{AssemblySale.DEFAULT_COMPANY_NAME}\n"
+            f"{AssemblySale.DEFAULT_COMPANY_ADDRESS}\n"
+        )
+
+    # Ensure saved PDF is fresh
+    rel_path, pdf_bytes = generate_and_save_invoice_pdf(sale, request=request)
+
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'michael@granarywatch.com')
+    try:
+        email = EmailMessage(
+            subject=subject,
+            body=custom_message,
+            from_email=from_email,
+            to=[recipient],
+        )
+
+        pdf_filename = f"Invoice_{sale.invoice_number}.pdf"
+        if pdf_bytes:
+            email.attach(pdf_filename, pdf_bytes, 'application/pdf')
+        elif sale.pdf_file and os.path.exists(sale.pdf_file.path):
+            email.attach_file(sale.pdf_file.path)
+
+        email.send(fail_silently=False)
+        messages.success(
+            request,
+            f"Invoice {sale.invoice_number} was successfully emailed to {recipient} with the attached PDF!"
+        )
+    except Exception as exc:
+        messages.warning(
+            request,
+            f"Email attempt to {recipient} failed with: {exc}. "
+            f"(Once the email server for {from_email} is online, emails will be delivered automatically)."
+        )
+
+    next_url = request.POST.get('next')
+    if next_url:
+        return redirect(next_url)
+    return redirect('sale_detail', pk=sale.pk)
+
+
+class AssemblySaleDeleteView(DeleteView):
+    """
+    Deletes an `AssemblySale` invoice and restores the sold assembly quantities back to `BOM.quantity_on_hand`
+    if they were deducted.
+    """
+    model = AssemblySale
+    template_name = 'core/confirm_delete.html'
+    success_url = reverse_lazy('sale_list')
+
+    def form_valid(self, form):
+        sale = self.get_object()
+        with transaction.atomic():
+            if sale.stock_deducted:
+                for item in sale.items.select_related('bom').all():
+                    if item.bom:
+                        item.bom.quantity_on_hand = (item.bom.quantity_on_hand or 0) + item.quantity
+                        item.bom.save(update_fields=['quantity_on_hand', 'updated_at'])
+
+            # Remove saved PDF file if it exists
+            if sale.pdf_file:
+                try:
+                    if os.path.exists(sale.pdf_file.path):
+                        os.remove(sale.pdf_file.path)
+                except Exception:
+                    pass
+
+            messages.success(
+                self.request,
+                f"Invoice {sale.invoice_number} was deleted and finished assembly inventory was updated."
+            )
+            return super().form_valid(form)
+
+
+def assembly_sale_pdf(request, pk):
+    """
+    Renders and streams a print-ready PDF invoice for `AssemblySale` using WeasyPrint.
+    Also ensures the saved PDF exists on disk in media/invoices/.
+    Supports `?download=1` for attachment download vs inline viewing.
+    """
+    sale = get_object_or_404(AssemblySale.objects.prefetch_related('items', 'items__bom'), pk=pk)
+    rel_path, pdf_bytes = generate_and_save_invoice_pdf(sale, request=request)
+
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    disposition = 'attachment' if request.GET.get('download') == '1' else 'inline'
+    response['Content-Disposition'] = f'{disposition}; filename="Invoice_{sale.invoice_number}.pdf"'
+    return response
+
 
 

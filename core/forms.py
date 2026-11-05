@@ -1,7 +1,7 @@
 from django import forms
 from .models import (
     Part, Company, Manufacturer, Category, Location, PartDocument,
-    BOM, BOMItem, Order, OrderItem
+    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem
 )
 
 
@@ -202,11 +202,20 @@ class PartDocumentForm(forms.ModelForm):
 class BOMForm(forms.ModelForm):
     class Meta:
         model = BOM
-        fields = ['name', 'description', 'notes']
+        fields = ['assembly_number', 'name', 'description', 'quantity_on_hand', 'sale_price', 'notes']
         widgets = {
+            'assembly_number': forms.TextInput(attrs={
+                'class': 'form-control font-monospace',
+                'placeholder': 'e.g. 1000-001 (leave blank to auto-assign next 1000-series #)'
+            }),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. String Assembly, Sensor Node, Base Station'}),
             'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Brief description of the assembly or device'}),
+            'quantity_on_hand': forms.NumberInput(attrs={'class': 'form-control', 'min': 0}),
+            'sale_price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '0.00'}),
         }
+
+    def clean_quantity_on_hand(self):
+        return self.cleaned_data.get('quantity_on_hand') or 0
 
 
 class BOMItemForm(forms.ModelForm):
@@ -300,4 +309,45 @@ class OrderItemForm(forms.ModelForm):
             self.fields['part'].label_from_instance = lambda obj: (
                 f"{obj.part_number} - {obj.name or obj.description or 'Part'} (On-Order: {obj.quantity_on_order}, On-Hand: {obj.quantity_on_hand})"
             )
+
+
+class AssemblySaleForm(forms.ModelForm):
+    status = forms.ChoiceField(
+        choices=AssemblySale.STATUS_CHOICES,
+        initial='UNPAID',
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select fw-semibold'})
+    )
+
+    class Meta:
+        model = AssemblySale
+        fields = [
+            'invoice_number',
+            'invoice_date',
+            'status',
+            'customer_name',
+            'customer_address',
+            'customer_phone',
+            'customer_email',
+            'payment_method',
+            'payment_date',
+            'notes',
+        ]
+        widgets = {
+            'invoice_number': forms.TextInput(attrs={
+                'class': 'form-control font-monospace',
+                'placeholder': 'Leave blank to auto-generate (e.g. INV-0001)'
+            }),
+            'invoice_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'customer_name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Customer or Company Name'}),
+            'customer_address': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Street, City, Province/State, Postal Code'}),
+            'customer_phone': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '780.901.9315'}),
+            'customer_email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'customer@example.com'}),
+            'payment_method': forms.Select(attrs={'class': 'form-select'}),
+            'payment_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+        }
+
+    def clean_status(self):
+        return self.cleaned_data.get('status') or 'UNPAID'
+
 

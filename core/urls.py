@@ -61,11 +61,22 @@ urlpatterns = [
     path('boms/<int:pk>/adjust-kit/', views.bom_adjust_kit_action, name='bom_adjust_kit_action'),
     path('boms/<int:pk>/close-kit/', views.bom_close_kit_action, name='bom_close_kit_action'),
     path('boms/<int:pk>/build/', views.bom_build_action, name='bom_build_action'),
+    path('boms/<int:pk>/adjust-stock/', views.bom_adjust_assembly_stock, name='bom_adjust_assembly_stock'),
     path('parts/<int:pk>/adjust-committed/', views.part_adjust_committed_action, name='part_adjust_committed_action'),
 
     # Kit & Build Actions
     path('actions/kit/', views.KitActionView.as_view(), name='kit_action'),
     path('actions/build/', views.BuildActionView.as_view(), name='build_action'),
+
+    # Sales & Invoices (1000-Series Built Assemblies)
+    path('sales/', views.AssemblySaleListView.as_view(), name='sale_list'),
+    path('sales/create/', views.AssemblySaleCreateView.as_view(), name='sale_create'),
+    path('sales/<int:pk>/', views.AssemblySaleDetailView.as_view(), name='sale_detail'),
+    path('sales/<int:pk>/mark-paid/', views.sale_mark_paid, name='sale_mark_paid'),
+    path('sales/<int:pk>/send-email/', views.sale_send_email, name='sale_send_email'),
+    path('sales/<int:pk>/edit/', views.AssemblySaleUpdateView.as_view(), name='sale_update'),
+    path('sales/<int:pk>/delete/', views.AssemblySaleDeleteView.as_view(), name='sale_delete'),
+    path('sales/<int:pk>/pdf/', views.assembly_sale_pdf, name='sale_pdf'),
 
     # Inventory Count Sheet & Take Inventory Adjustments
     path('inventory/count-sheet/', views.InventoryCountSheetView.as_view(), name='inventory_count_sheet'),

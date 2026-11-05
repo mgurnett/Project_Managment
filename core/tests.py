@@ -915,6 +915,229 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertEqual(box_part.quantity_committed, 2)
         self.assertEqual(box_part.quantity_availible, 3)
 
+    def test_kit_to_1000_series_assembly_and_sale_invoice_generation(self):
+        """
+        Tests the full lifecycle requested by the user:
+        1. Once a kit is built/closed, it is assigned a 1000-series assembly number (e.g. 1000-001),
+           component parts are removed from inventory, and the built assembly is added to assembly stock.
+        2. The built 1000-series assembly can then be sold in the Sales & Invoices section.
+        3. Selling the assembly decrements the built assembly inventory and produces a sequential
+           Invoice (INV-0001, INV-0002) with:
+           - Invoice number (sequential)
+           - Invoice date (date of sale)
+           - Customer information (Granary Watch, 11940 52 St NW, Edmonton, AB T5J 3J6, 780.901.9315, michael@granarywatch.com)
+           - Item information (1000-series item number, item description, quantity, price)
+           - Total amount
+           - Payment information (payment method, payment date)
+        """
+        from .models import AssemblySale
+
+        self.part.quantity_on_hand = 20
+        self.part.quantity_committed = 0
+        self.part.quantity_availible = 20
+        self.part.price_per = Decimal("15.00")
+        self.part.save()
+
+        # Create a BoM Assembly -> should auto-assign 1000-series number (e.g. 1000-001)
+        bom = BOM.objects.create(
+            name="LiPo Battery Checker Assembly",
+            description="Complete LiPo Battery Checker with Blue Project Box",
+            sale_price=Decimal("75.00"),
+        )
+        self.assertTrue(bom.assembly_number.startswith("1000-"))
+        self.assertEqual(bom.quantity_on_hand, 0)
+
+        BOMItem.objects.create(bom=bom, part=self.part, quantity=2)
+
+        # Pick 3 kits -> commits 6 parts
+        self.client.post(reverse('bom_kit_action', kwargs={'pk': bom.pk}), {'quantity': 3})
+        self.part.refresh_from_db()
+        self.assertEqual(self.part.quantity_committed, 6)
+        self.assertEqual(self.part.quantity_on_hand, 20)
+
+        # Close/Build 2 kits -> removes 4 parts from inventory (on_hand: 20 -> 16, committed: 6 -> 2)
+        # AND adds 2 built assemblies to bom.quantity_on_hand (0 -> 2) with 1000-series assembly_number
+        self.client.post(reverse('bom_close_kit_action', kwargs={'pk': bom.pk}), {
+            'quantity': 2,
+            'action_type': 'build',
+            'assembly_number': '1000-001',
+        })
+        self.part.refresh_from_db()
+        bom.refresh_from_db()
+        self.assertEqual(self.part.quantity_on_hand, 16)
+        self.assertEqual(self.part.quantity_committed, 2)
+        self.assertEqual(bom.assembly_number, '1000-001')
+        self.assertEqual(bom.quantity_on_hand, 2)
+
+        # Sell 1 built assembly to Granary Watch and generate sequential invoice INV-0001
+        sale_date = timezone.now().date().isoformat()
+        res_sale = self.client.post(reverse('sale_create'), {
+            'invoice_number': '',  # Let it auto-assign INV-0001 sequentially
+            'invoice_date': sale_date,
+            'status': 'PAID',
+            'customer_name': 'Granary Watch',
+            'customer_address': '11940 52 St NW, Edmonton, AB T5J 3J6',
+            'customer_phone': '780.901.9315',
+            'customer_email': 'michael@granarywatch.com',
+            'payment_method': 'E-Transfer',
+            'payment_date': sale_date,
+            'notes': 'Net paid upon delivery.',
+            'item_bom[]': [str(bom.pk)],
+            'item_number[]': [bom.assembly_number],
+            'item_description[]': [bom.name],
+            'item_quantity[]': ['1'],
+            'item_unit_price[]': ['75.00'],
+        })
+        self.assertEqual(res_sale.status_code, 302)
+
+        # Built assembly stock is decremented from 2 -> 1
+        bom.refresh_from_db()
+        self.assertEqual(bom.quantity_on_hand, 1)
+
+        # Verify sequential invoice INV-0001 and all required fields
+        sale1 = AssemblySale.objects.first()
+        self.assertIsNotNone(sale1)
+        self.assertEqual(sale1.invoice_number, 'INV-0001')
+        self.assertEqual(sale1.status, 'PAID')
+        self.assertEqual(sale1.customer_name, 'Granary Watch')
+        self.assertEqual(sale1.customer_address, '11940 52 St NW, Edmonton, AB T5J 3J6')
+        self.assertEqual(sale1.customer_phone, '780.901.9315')
+        self.assertEqual(sale1.customer_email, 'michael@granarywatch.com')
+        self.assertEqual(sale1.total_amount, Decimal("75.00"))
+        self.assertEqual(sale1.payment_method, 'E-Transfer')
+
+        # Verify next sequential invoice number is INV-0002
+        self.assertEqual(AssemblySale.generate_next_invoice_number(), 'INV-0002')
+
+        # Verify Invoice Detail page renders all required fields
+        res_detail = self.client.get(reverse('sale_detail', kwargs={'pk': sale1.pk}))
+        self.assertEqual(res_detail.status_code, 200)
+        self.assertContains(res_detail, 'INV-0001')
+        self.assertContains(res_detail, 'Granary Watch')
+        self.assertContains(res_detail, '11940 52 St NW, Edmonton, AB T5J 3J6')
+        self.assertContains(res_detail, '780.901.9315')
+        self.assertContains(res_detail, 'michael@granarywatch.com')
+        self.assertContains(res_detail, '1000-001')
+        self.assertContains(res_detail, 'LiPo Battery Checker Assembly')
+        self.assertContains(res_detail, '$75.00')
+        self.assertContains(res_detail, 'Interac e-Transfer')
+
+    def test_invoice_for_unbuilt_assembly_then_mark_paid_with_stamp_and_email(self):
+        """
+        Tests the workflow requested by the user:
+        1. Create an invoice for an assembly that is NOT built yet (bom.quantity_on_hand == 0).
+           - Status is UNPAID (Open).
+           - Stock is NOT deducted (quantity_on_hand remains 0).
+           - PDF is generated and physically saved to media/invoices/.
+           - Detail view displays UNPAID status and no watermark.
+        2. Assembly is subsequently built (bom.quantity_on_hand becomes 1).
+        3. Close invoice by marking as PAID:
+           - Status transitions to PAID.
+           - Built assembly is deducted (bom.quantity_on_hand decrements from 1 to 0).
+           - Payment date is automatically recorded.
+           - Big diagonal 'PAID' stamp watermark is applied in view and PDF.
+           - Stamped PDF is refreshed on disk.
+        4. Send invoice via email with the PDF attached.
+        """
+        import os
+        from django.core import mail
+        from .models import AssemblySale
+
+        # 1000-series assembly that is not built yet
+        bom = BOM.objects.create(
+            name="Field Gateway Telemetry Unit",
+            description="Cellular telemetry node with solar charger",
+            sale_price=Decimal("450.00"),
+            assembly_number="1000-042",
+            quantity_on_hand=0,
+        )
+        self.assertEqual(bom.quantity_on_hand, 0)
+
+        sale_date = timezone.now().date().isoformat()
+        res_create = self.client.post(reverse('sale_create'), {
+            'invoice_number': 'INV-9001',
+            'invoice_date': sale_date,
+            'status': 'UNPAID',
+            'customer_name': 'Granary Watch',
+            'customer_address': '11940 52 St NW, Edmonton, AB T5J 3J6',
+            'customer_phone': '780.901.9315',
+            'customer_email': 'michael@granarywatch.com',
+            'payment_method': 'E-Transfer',
+            'payment_date': '',
+            'notes': 'Fabricating custom enclosures.',
+            'item_bom[]': [str(bom.pk)],
+            'item_number[]': [bom.assembly_number],
+            'item_description[]': [bom.name],
+            'item_quantity[]': ['1'],
+            'item_unit_price[]': ['450.00'],
+        })
+        self.assertEqual(res_create.status_code, 302)
+
+        sale = AssemblySale.objects.get(invoice_number='INV-9001')
+        self.assertEqual(sale.status, 'UNPAID')
+        self.assertFalse(sale.stock_deducted)
+        self.assertFalse(sale.is_paid)
+
+        # Inventory must NOT be deducted while unpaid
+        bom.refresh_from_db()
+        self.assertEqual(bom.quantity_on_hand, 0)
+
+        # PDF must be generated and saved to media/invoices/
+        self.assertTrue(sale.pdf_file)
+        self.assertTrue(os.path.exists(sale.pdf_file.path))
+
+        # Detail view shows UNPAID status
+        res_detail = self.client.get(reverse('sale_detail', kwargs={'pk': sale.pk}))
+        self.assertEqual(res_detail.status_code, 200)
+        self.assertContains(res_detail, 'UNPAID / OPEN')
+        self.assertContains(res_detail, 'Mark as Paid &amp; Close Invoice')
+
+        # 2. Assembly is now built in production
+        bom.quantity_on_hand = 1
+        bom.save(update_fields=['quantity_on_hand'])
+
+        # 3. Mark invoice as PAID & close it
+        res_mark = self.client.post(reverse('sale_mark_paid', kwargs={'pk': sale.pk}))
+        self.assertEqual(res_mark.status_code, 302)
+
+        sale.refresh_from_db()
+        self.assertEqual(sale.status, 'PAID')
+        self.assertTrue(sale.stock_deducted)
+        self.assertTrue(sale.is_paid)
+        self.assertEqual(sale.payment_date, timezone.now().date())
+
+        # Built assembly is now deducted from 1 to 0
+        bom.refresh_from_db()
+        self.assertEqual(bom.quantity_on_hand, 0)
+
+        # Detail view shows Paid & Closed status and watermark
+        res_detail_paid = self.client.get(reverse('sale_detail', kwargs={'pk': sale.pk}))
+        self.assertEqual(res_detail_paid.status_code, 200)
+        self.assertContains(res_detail_paid, 'is Paid &amp; Closed')
+        self.assertContains(res_detail_paid, 'paid-stamp-watermark')
+        self.assertContains(res_detail_paid, 'PAID')
+
+        # PDF serves correctly
+        res_pdf = self.client.get(reverse('sale_pdf', kwargs={'pk': sale.pk}))
+        self.assertEqual(res_pdf.status_code, 200)
+        self.assertEqual(res_pdf['Content-Type'], 'application/pdf')
+
+        # 4. Email invoice with PDF attachment
+        res_email = self.client.post(reverse('sale_send_email', kwargs={'pk': sale.pk}), {
+            'recipient': 'michael@granarywatch.com',
+            'subject': 'Your Paid Invoice INV-9001',
+            'message': 'Thank you for your business!',
+        })
+        self.assertEqual(res_email.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        sent_email = mail.outbox[0]
+        self.assertEqual(sent_email.subject, 'Your Paid Invoice INV-9001')
+        self.assertIn('michael@granarywatch.com', sent_email.to)
+        self.assertEqual(len(sent_email.attachments), 1)
+        self.assertEqual(sent_email.attachments[0][0], 'Invoice_INV-9001.pdf')
+
+
+
 
 
 

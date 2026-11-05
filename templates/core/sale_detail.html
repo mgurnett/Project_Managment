@@ -1,0 +1,482 @@
+{% extends "base.html" %}
+
+{% block title %}Invoice {{ sale.invoice_number }} | {{ sale.customer_name }} | Inventory Manager{% endblock %}
+
+{% block breadcrumb %}
+    <a href="{% url 'sale_list' %}" class="text-decoration-none text-muted">Sales &amp; Invoices</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>Invoice {{ sale.invoice_number }}</span>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+    .invoice-sheet {
+        position: relative;
+        overflow: hidden;
+        max-width: 900px;
+        margin: 0 auto;
+        background: #ffffff;
+        color: #0f172a;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 36px 42px;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+    }
+    [data-bs-theme="dark"] .invoice-sheet {
+        background: #1e293b;
+        color: #f8fafc;
+        border-color: #334155;
+    }
+    .invoice-header-banner {
+        border-bottom: 3px solid #0284c7;
+        padding-bottom: 18px;
+        margin-bottom: 24px;
+    }
+    .invoice-meta-box {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 14px 18px;
+    }
+    [data-bs-theme="dark"] .invoice-meta-box {
+        background: #0f172a;
+        border-color: #334155;
+    }
+    .invoice-table th {
+        background: #0f172a !important;
+        color: #ffffff !important;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 10px 14px;
+    }
+    .invoice-table td {
+        padding: 12px 14px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    [data-bs-theme="dark"] .invoice-table td {
+        border-bottom-color: #334155;
+    }
+
+    /* Authentic diagonal PAID stamp watermark */
+    .paid-stamp-watermark {
+        position: absolute;
+        top: 42%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(-18deg);
+        width: 420px;
+        max-width: 90%;
+        text-align: center;
+        border: 6px solid #dc2626;
+        border-radius: 16px;
+        color: #dc2626;
+        padding: 12px 24px;
+        opacity: 0.42;
+        pointer-events: none;
+        z-index: 100;
+        user-select: none;
+        box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.15);
+    }
+    .paid-stamp-watermark .stamp-title {
+        font-size: 58pt;
+        font-weight: 900;
+        line-height: 1;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+    }
+    .paid-stamp-watermark .stamp-subtitle {
+        font-size: 12pt;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border-top: 2.5px solid #dc2626;
+        padding-top: 4px;
+        margin-top: 6px;
+    }
+
+    @media print {
+        @page {
+            size: letter portrait;
+            margin: 10mm;
+        }
+        body {
+            background: #ffffff !important;
+            color: #000000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+        .sidebar,
+        .top-navbar,
+        .footer,
+        .no-print,
+        .alert {
+            display: none !important;
+        }
+        .content-wrapper,
+        .main-content {
+            padding: 0 !important;
+            margin: 0 !important;
+            background: #ffffff !important;
+        }
+        .invoice-sheet {
+            max-width: 100% !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+        }
+        .invoice-meta-box {
+            background: #f8fafc !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #000000 !important;
+        }
+        .invoice-table th {
+            background: #0f172a !important;
+            color: #ffffff !important;
+        }
+        .paid-stamp-watermark {
+            border: 6px solid #dc2626 !important;
+            color: #dc2626 !important;
+            opacity: 0.38 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+
+    <!-- Top Action Toolbar (Hidden when printing) -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 no-print" style="max-width: 900px; margin: 0 auto;">
+        <div>
+            <a href="{% url 'sale_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i> Back to Sales &amp; Invoices
+            </a>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if not sale.is_paid %}
+                <button type="button" class="btn btn-success btn-sm fw-semibold shadow-sm" data-bs-toggle="modal" data-bs-target="#markPaidModal">
+                    <i class="bi bi-check2-circle me-1"></i> Mark as Paid &amp; Close Invoice
+                </button>
+            {% endif %}
+
+            <button type="button" class="btn btn-outline-primary btn-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#emailInvoiceModal">
+                <i class="bi bi-envelope me-1"></i> Send via Email
+            </button>
+
+            <button type="button" onclick="window.print()" class="btn btn-primary btn-sm fw-semibold">
+                <i class="bi bi-printer me-1"></i> Print Invoice
+            </button>
+
+            <a href="{% url 'sale_pdf' sale.pk %}" target="_blank" class="btn btn-outline-secondary btn-sm fw-semibold">
+                <i class="bi bi-file-earmark-pdf me-1"></i> View PDF
+            </a>
+
+            <a href="{% url 'sale_pdf' sale.pk %}?download=1" class="btn btn-outline-success btn-sm fw-semibold">
+                <i class="bi bi-download me-1"></i> Download PDF
+            </a>
+
+            <a href="{% url 'sale_update' sale.pk %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-pencil me-1"></i> Edit
+            </a>
+
+            <a href="{% url 'sale_delete' sale.pk %}" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-trash me-1"></i> Delete
+            </a>
+        </div>
+    </div>
+
+    <!-- Status & File Info Banner (Hidden when printing) -->
+    <div class="no-print mb-3" style="max-width: 900px; margin: 0 auto;">
+        {% if sale.is_paid %}
+            <div class="alert alert-success d-flex align-items-center justify-content-between p-3 rounded-3 shadow-sm mb-0">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-check-circle-fill fs-4 text-success"></i>
+                    <div>
+                        <div class="fw-bold">Invoice {{ sale.invoice_number }} is Paid &amp; Closed</div>
+                        <div class="small text-muted">
+                            Payment was recorded on <strong>{{ sale.payment_date|date:"F j, Y" }}</strong> via <strong>{{ sale.get_payment_method_display }}</strong>. Assemblies were deducted from finished goods stock.
+                        </div>
+                    </div>
+                </div>
+                {% if sale.pdf_file %}
+                    <span class="badge bg-body text-body border font-monospace small d-none d-md-inline-block">
+                        Saved: media/{{ sale.pdf_file.name }}
+                    </span>
+                {% endif %}
+            </div>
+        {% else %}
+            <div class="alert alert-warning d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-2 p-3 rounded-3 shadow-sm mb-0">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-hourglass-split fs-4 text-warning"></i>
+                    <div>
+                        <div class="fw-bold">Invoice {{ sale.invoice_number }} is Unpaid / Open (Assemblies Not Built Yet)</div>
+                        <div class="small text-muted">
+                            This invoice was created in advance. Assemblies have <strong>not</strong> been deducted from inventory yet. Once the assemblies are built, click <strong>Mark as Paid &amp; Close Invoice</strong> to deduct stock and stamp the invoice PAID.
+                        </div>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <a href="{% url 'kit_action' %}" class="btn btn-sm btn-outline-secondary text-nowrap">
+                        <i class="bi bi-box-seam me-1"></i> Build in Kits
+                    </a>
+                    <button type="button" class="btn btn-sm btn-success text-nowrap fw-semibold" data-bs-toggle="modal" data-bs-target="#markPaidModal">
+                        <i class="bi bi-check2-circle me-1"></i> Close &amp; Stamp Paid
+                    </button>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Printable Invoice Sheet -->
+    <div class="invoice-sheet">
+
+        <!-- PAID STAMP (Rendered when invoice is paid) -->
+        {% if sale.is_paid %}
+            <div class="paid-stamp-watermark">
+                <div class="stamp-title">PAID</div>
+                <div class="stamp-subtitle">
+                    {{ sale.payment_date|date:"F j, Y"|default:"PAID IN FULL" }} &bull; {{ sale.get_payment_method_display }}
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Header Banner -->
+        <div class="invoice-header-banner d-flex flex-column flex-sm-row justify-content-between align-items-start gap-3">
+            <div>
+                <div class="text-uppercase fw-bold small text-primary mb-1" style="letter-spacing: 0.08em;">Sales Invoice</div>
+                <h1 class="h2 fw-bold mb-1">{{ company_name }}</h1>
+                <div class="small text-muted">
+                    <div>{{ company_address }}</div>
+                    <div>Phone: {{ company_phone }} &bull; Email: {{ company_email }}</div>
+                </div>
+            </div>
+            <div class="text-sm-end">
+                <div class="badge bg-primary text-white fs-5 font-monospace px-3 py-2 mb-2">
+                    {{ sale.invoice_number }}
+                </div>
+                <div class="small">
+                    <div><strong>Invoice Date:</strong> {{ sale.invoice_date|date:"F j, Y" }}</div>
+                    <div>
+                        <strong>Payment Status:</strong>
+                        {% if sale.is_paid %}
+                            <span class="text-success fw-bold">PAID ({{ sale.payment_date|date:"M d, Y" }})</span>
+                        {% else %}
+                            <span class="text-warning fw-bold">UNPAID / OPEN</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Customer Information & Payment Information Boxes -->
+        <div class="row g-3 mb-4">
+            <div class="col-12 col-md-7">
+                <div class="invoice-meta-box h-100">
+                    <div class="text-uppercase small fw-bold text-muted mb-2" style="letter-spacing: 0.06em; font-size: 0.72rem;">
+                        Customer Information (Bill To)
+                    </div>
+                    <div class="fw-bold fs-5 mb-1">{{ sale.customer_name }}</div>
+                    <div class="small mb-1">
+                        <i class="bi bi-geo-alt text-primary me-1"></i>{{ sale.customer_address }}
+                    </div>
+                    <div class="small d-flex flex-wrap gap-3 mt-2">
+                        {% if sale.customer_phone %}
+                            <span><i class="bi bi-telephone text-primary me-1"></i><strong>Phone:</strong> {{ sale.customer_phone }}</span>
+                        {% endif %}
+                        {% if sale.customer_email %}
+                            <span><i class="bi bi-envelope text-primary me-1"></i><strong>Email:</strong> {{ sale.customer_email }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-5">
+                <div class="invoice-meta-box h-100">
+                    <div class="text-uppercase small fw-bold text-muted mb-2" style="letter-spacing: 0.06em; font-size: 0.72rem;">
+                        Invoice &amp; Payment Information
+                    </div>
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span class="text-muted">Invoice Number:</span>
+                        <strong class="font-monospace">{{ sale.invoice_number }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span class="text-muted">Invoice Date:</span>
+                        <strong>{{ sale.invoice_date|date:"Y-m-d" }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span class="text-muted">Payment Method:</span>
+                        <strong>{{ sale.get_payment_method_display }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between small">
+                        <span class="text-muted">Payment Date:</span>
+                        <strong>{% if sale.payment_date %}{{ sale.payment_date|date:"Y-m-d" }}{% else %}Pending (Unpaid){% endif %}</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Item Information Table -->
+        <div class="table-responsive mb-4">
+            <table class="table invoice-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 18%;">Item Number</th>
+                        <th style="width: 44%;">Item Description</th>
+                        <th class="text-center" style="width: 12%;">Quantity</th>
+                        <th class="text-end" style="width: 13%;">Price</th>
+                        <th class="text-end" style="width: 13%;">Line Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td class="font-monospace fw-bold text-primary">
+                            {% if item.bom %}
+                                <a href="{% url 'bom_detail' item.bom.pk %}" class="text-decoration-none text-custom" title="View BoM Assembly">
+                                    {{ item.item_number }}
+                                </a>
+                            {% else %}
+                                {{ item.item_number }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="fw-semibold">{{ item.description }}</div>
+                            {% if item.bom %}
+                                <div class="small text-muted font-monospace">
+                                    Current Built Stock: {{ item.bom.quantity_on_hand|default:0 }} built on hand
+                                </div>
+                            {% endif %}
+                        </td>
+                        <td class="text-center font-monospace fw-semibold">{{ item.quantity }}</td>
+                        <td class="text-end font-monospace">${{ item.unit_price|floatformat:2 }}</td>
+                        <td class="text-end font-monospace fw-bold">${{ item.subtotal|floatformat:2 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center py-4 text-muted">No items listed on this invoice.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Totals & Notes Row -->
+        <div class="row g-3 align-items-start">
+            <div class="col-12 col-md-7">
+                {% if sale.notes %}
+                <div class="invoice-meta-box small">
+                    <div class="text-uppercase fw-bold text-muted mb-1" style="font-size: 0.7rem; letter-spacing: 0.05em;">Notes &amp; Terms</div>
+                    <div>{{ sale.notes|linebreaksbr }}</div>
+                </div>
+                {% endif %}
+            </div>
+            <div class="col-12 col-md-5">
+                <div class="invoice-meta-box">
+                    <div class="d-flex justify-content-between align-items-center mb-2 small">
+                        <span class="text-muted">Total Quantity:</span>
+                        <strong class="font-monospace">{{ sale.total_quantity }} unit{{ sale.total_quantity|pluralize }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                        <span class="fw-bold text-uppercase small" style="letter-spacing: 0.05em;">Total Amount:</span>
+                        <span class="fs-4 fw-bold font-monospace text-primary">${{ sale.total_amount|floatformat:2 }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer Sign-off -->
+        <div class="mt-5 pt-3 border-top d-flex flex-column flex-sm-row justify-content-between align-items-center small text-muted">
+            <span>Thank you for your business! &bull; <strong>{{ company_name }}</strong></span>
+            <span>Questions? Contact {{ company_email }} or {{ company_phone }}</span>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- Modal: Mark as Paid & Close Invoice -->
+<div class="modal fade" id="markPaidModal" tabindex="-1" aria-labelledby="markPaidModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <h5 class="modal-title fw-bold" id="markPaidModalLabel">
+                    <i class="bi bi-check2-circle text-success me-2"></i>Close Invoice &amp; Stamp as PAID
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{% url 'sale_mark_paid' sale.pk %}">
+                {% csrf_token %}
+                <div class="modal-body p-4">
+                    <p class="mb-3">
+                        Are you ready to close <strong>Invoice {{ sale.invoice_number }}</strong>?
+                    </p>
+                    <div class="p-3 rounded-3 bg-light border mb-3 small">
+                        <div class="fw-semibold text-body mb-1">Actions performed upon closing:</div>
+                        <ul class="mb-0 ps-3">
+                            <li>Invoice status will become <span class="badge bg-success">PAID</span>.</li>
+                            <li>The big red <strong>"PAID" STAMP</strong> will be stamped over the invoice and saved in the PDF.</li>
+                            <li>All invoiced assemblies will be deducted from <strong>Built Inventory</strong> (<code>quantity_on_hand</code>).</li>
+                            <li>Payment date will be set to today (<strong>{% now "F j, Y" %}</strong>).</li>
+                        </ul>
+                    </div>
+                    <div class="small text-muted">
+                        Total Amount to settle: <strong>${{ sale.total_amount|floatformat:2 }}</strong> via <strong>{{ sale.get_payment_method_display }}</strong>.
+                    </div>
+                </div>
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success btn-sm fw-semibold px-3">
+                        <i class="bi bi-check2-circle me-1"></i> Confirm &amp; Stamp as PAID
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Send Invoice via Email -->
+<div class="modal fade" id="emailInvoiceModal" tabindex="-1" aria-labelledby="emailInvoiceModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <h5 class="modal-title fw-bold" id="emailInvoiceModalLabel">
+                    <i class="bi bi-envelope text-primary me-2"></i>Send Invoice {{ sale.invoice_number }} by Email
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{% url 'sale_send_email' sale.pk %}">
+                {% csrf_token %}
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Recipient Email <span class="text-danger">*</span></label>
+                        <input type="email" name="recipient" class="form-control" value="{{ sale.customer_email|default:'michael@granarywatch.com' }}" required>
+                        <div class="form-text small">Default is {{ sale.customer_name }}'s email address.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Subject</label>
+                        <input type="text" name="subject" class="form-control" value="Invoice {{ sale.invoice_number }} from {{ company_name }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Message (Optional)</label>
+                        <textarea name="message" class="form-control" rows="4" placeholder="Personalized message to the customer..."></textarea>
+                    </div>
+                    <div class="p-2.5 rounded-3 bg-light border small text-muted d-flex align-items-center gap-2">
+                        <i class="bi bi-paperclip fs-5 text-custom"></i>
+                        <span>Attachment: <strong>Invoice_{{ sale.invoice_number }}.pdf</strong> will be attached automatically.</span>
+                    </div>
+                </div>
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm fw-semibold px-3">
+                        <i class="bi bi-send me-1"></i> Send Invoice Email
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
     Company, Manufacturer, Category, Location, Part, PartDocument,
-    BOM, BOMItem, Order, OrderItem
+    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem
 )
 
 
@@ -184,8 +184,10 @@ class BOMItemInline(admin.TabularInline):
 
 @admin.register(BOM)
 class BOMAdmin(admin.ModelAdmin):
-    list_display = ('name', 'description', 'total_items_display', 'total_cost_display', 'updated_at')
-    search_fields = ('name', 'description', 'notes')
+    list_display = ('assembly_number', 'name', 'description', 'quantity_on_hand', 'sale_price', 'total_items_display', 'total_cost_display', 'updated_at')
+    list_display_links = ('assembly_number', 'name')
+    list_editable = ('quantity_on_hand', 'sale_price')
+    search_fields = ('assembly_number', 'name', 'description', 'notes')
     inlines = [BOMItemInline]
 
     def total_items_display(self, obj):
@@ -257,4 +259,47 @@ class OrderItemAdmin(admin.ModelAdmin):
     def subtotal_display(self, obj):
         return f"${obj.subtotal:.2f}"
     subtotal_display.short_description = "Subtotal"
+
+
+class AssemblySaleItemInline(admin.TabularInline):
+    model = AssemblySaleItem
+    extra = 1
+    autocomplete_fields = ('bom',)
+    fields = ('bom', 'item_number', 'description', 'quantity', 'unit_price')
+
+
+@admin.register(AssemblySale)
+class AssemblySaleAdmin(admin.ModelAdmin):
+    list_display = (
+        'invoice_number',
+        'status',
+        'stock_deducted',
+        'invoice_date',
+        'customer_name',
+        'customer_phone',
+        'customer_email',
+        'payment_method',
+        'payment_date',
+        'total_amount_display',
+    )
+    list_filter = ('status', 'stock_deducted', 'payment_method', 'invoice_date', 'payment_date')
+    search_fields = ('invoice_number', 'customer_name', 'customer_email', 'customer_phone', 'notes')
+    inlines = [AssemblySaleItemInline]
+    date_hierarchy = 'invoice_date'
+
+    def total_amount_display(self, obj):
+        return f"${obj.total_amount:.2f}"
+    total_amount_display.short_description = "Total Amount"
+
+
+@admin.register(AssemblySaleItem)
+class AssemblySaleItemAdmin(admin.ModelAdmin):
+    list_display = ('sale', 'item_number', 'description', 'quantity', 'unit_price', 'subtotal_display')
+    search_fields = ('sale__invoice_number', 'item_number', 'description')
+    autocomplete_fields = ('sale', 'bom')
+
+    def subtotal_display(self, obj):
+        return f"${obj.subtotal:.2f}"
+    subtotal_display.short_description = "Subtotal"
+
 

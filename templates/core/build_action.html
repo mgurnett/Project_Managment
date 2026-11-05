@@ -21,6 +21,9 @@
             <a href="{% url 'kit_action' %}{% if selected_bom %}?bom={{ selected_bom.pk }}{% endif %}" class="btn btn-outline-primary btn-sm fw-semibold">
                 <i class="bi bi-box-seam me-1"></i> Pick Kit
             </a>
+            <a href="{% url 'sale_list' %}" class="btn btn-success btn-sm fw-semibold">
+                <i class="bi bi-receipt me-1"></i> Sell Assemblies &amp; Invoices ({{ total_built_assemblies|default:0 }} Built)
+            </a>
         </div>
     </div>
 
@@ -54,6 +57,14 @@
 
                         <div class="p-3 rounded-3 bg-body-tertiary border mb-3 small">
                             <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">1000-Series Assembly #:</span>
+                                <strong class="font-monospace text-primary">{{ selected_bom.assembly_number|default:next_assembly_number }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Built Assemblies On-Hand:</span>
+                                <strong class="text-success">{{ selected_bom.quantity_on_hand|default:0 }} built</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
                                 <span class="text-muted">Unique Components:</span>
                                 <strong>{{ selected_bom.items.count }}</strong>
                             </div>
@@ -75,9 +86,15 @@
                             </div>
                         </div>
 
-                        <div class="mb-3">
-                            <label class="form-label small fw-semibold">Units to Build <span class="text-danger">*</span></label>
-                            <input type="number" name="quantity" class="form-control" value="1" min="1" required>
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label small fw-semibold">1000-Series Assembly #</label>
+                                <input type="text" name="assembly_number" class="form-control font-monospace" value="{{ selected_bom.assembly_number|default:next_assembly_number }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-semibold">Units to Build <span class="text-danger">*</span></label>
+                                <input type="number" name="quantity" class="form-control" value="1" min="1" required>
+                            </div>
                         </div>
 
                         <div class="form-check mb-3">
