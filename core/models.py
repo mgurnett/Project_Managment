@@ -294,6 +294,11 @@ class Part(models.Model):
                     'part_number': f"A component with part number '{raw_pn}' already exists. Component numbers must be unique."
                 })
 
+        if self.superseded_by_id and self.pk and self.superseded_by_id == self.pk:
+            raise ValidationError({
+                'superseded_by': "A component cannot supersede itself."
+            })
+
     def __str__(self):
         label = self.name or self.description
         if self.part_number:
@@ -381,6 +386,103 @@ class Part(models.Model):
                     )
         except Exception:
             pass
+
+        # If this part is superseded, propagate the replacement to all BOMs and active kits
+        if self.superseded_by_id and (not kwargs.get('update_fields') or 'superseded_by' in kwargs.get('update_fields', [])):
+            try:
+                self.propagate_supersession()
+            except Exception:
+                pass
+
+    def get_effective_replacement(self):
+        """
+        Follows the chain of supersessions to return the final active replacement Part.
+        Returns None if this part is not superseded.
+        """
+        if not self.superseded_by_id:
+            return None
+        visited = {self.pk}
+        curr = self.superseded_by
+        while curr and curr.superseded_by_id:
+            if curr.pk in visited:
+                break
+            visited.add(curr.pk)
+            curr = curr.superseded_by
+        return curr
+
+    def propagate_supersession(self):
+        """
+        When this part is superseded by another part:
+        1. Identifies all BOM assemblies using this part.
+        2. Transfers any active kit commitments from this part to the replacement part.
+        3. Updates the BOMItem records to reference the replacement part (or merges them
+           if the replacement part is already in the BOM).
+        Returns the number of BOM items updated.
+        """
+        if not self.superseded_by_id:
+            return 0
+
+        replacement = self.get_effective_replacement()
+        if not replacement or replacement.pk == self.pk:
+            return 0
+
+        # Import locally to avoid circular dependencies
+        from core.models import BOMItem
+        bom_items = list(BOMItem.objects.filter(part=self).select_related('bom'))
+        if not bom_items:
+            return 0
+
+        updated_count = 0
+        from django.db import transaction
+        with transaction.atomic():
+            old_part = Part.objects.select_for_update().get(pk=self.pk)
+            new_part = Part.objects.select_for_update().get(pk=replacement.pk)
+
+            for item in bom_items:
+                bom = item.bom
+                # Determine how many active kits this BOM has that were committing old_part
+                other_items = bom.items.exclude(pk=item.pk)
+                active_kits = 0
+                if other_items.exists():
+                    active_kits = min(
+                        (oi.part.quantity_committed or 0) // max(1, oi.quantity)
+                        for oi in other_items
+                    )
+                else:
+                    active_kits = (old_part.quantity_committed or 0) // max(1, item.quantity)
+
+                # Transfer kit commitment from old_part to new_part
+                if active_kits > 0:
+                    transfer_units = item.quantity * active_kits
+                    transfer_units = min(transfer_units, old_part.quantity_committed or 0)
+                    if transfer_units > 0:
+                        old_part.quantity_committed = max(0, (old_part.quantity_committed or 0) - transfer_units)
+                        old_part.quantity_availible = max(0, (old_part.quantity_on_hand or 0) - old_part.quantity_committed)
+
+                        new_part.quantity_committed = (new_part.quantity_committed or 0) + transfer_units
+                        new_part.quantity_availible = max(0, (new_part.quantity_on_hand or 0) - new_part.quantity_committed)
+
+                # Check if new_part already exists in this BOM
+                existing_new_item = bom.items.filter(part=new_part).first()
+                if existing_new_item:
+                    existing_new_item.quantity += item.quantity
+                    if item.reference and item.reference not in (existing_new_item.reference or ''):
+                        merged_ref = f"{existing_new_item.reference or ''}, {item.reference}".strip(', ')
+                        existing_new_item.reference = merged_ref[:50]
+                    if item.notes and not existing_new_item.notes:
+                        existing_new_item.notes = item.notes
+                    existing_new_item.save(update_fields=['quantity', 'reference', 'notes'])
+                    item.delete()
+                else:
+                    item.part = new_part
+                    item.save(update_fields=['part'])
+
+                updated_count += 1
+
+            old_part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+            new_part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+
+        return updated_count
 
     @property
     def document_filename(self):

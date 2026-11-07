@@ -13,6 +13,7 @@ TODO:
 
 
 ==============  COMPLETED =============
+[COMPLETED] When a part number superseeds anothert, then in the bom and the kit, we now need to use the new number. (Implemented Part.get_effective_replacement and Part.propagate_supersession; updating or saving superseded_by automatically propagates to all BOM items referencing the old part, safely merges quantities if the replacement was already present, and transfers active kit commitments from the old part to the replacement part while recalculating available quantities; forms and views for creating/editing BOMs and BOM items automatically resolve superseded selections to active replacements and display clear '[Superseded by ...]' hints; applied migration 0019_propagate_superseded_parts to the live database and added full unit test coverage)
 [COMPLETED] we need to be able to edit order until it is closed. Then it needs to be fixed. (Orders can be edited while in draft/ordered/partial status; once closed with status RECEIVED or CANCELLED, editing, deleting, and modifying order line items are locked and fixed across all views, forms, and admin)
 [COMPLETED] on orders, we need to record how it was paid. (Added payment_method, payment_reference, payment_date, and payment_notes to Order model, OrderForm, OrderAdmin, order_form.html, order_detail.html, and order_list.html)
 [COMPLETED] when duplicating parts, use a default quantity of 0. (Pre-fills quantity_on_hand, quantity_on_order, quantity_committed, and quantity_availible to 0 when duplicating a part via PartDuplicateView or ?duplicate=)

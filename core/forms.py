@@ -278,11 +278,18 @@ class BOMItemForm(forms.ModelForm):
             self.fields['part'].queryset = parts
             self.fields['part'].label_from_instance = lambda obj: (
                 f"{obj.part_number} - {obj.name or obj.description or 'Part'} (On-Hand: {obj.quantity_on_hand}{' — Sub-Assembly' if obj.category and obj.category.get_prefix() == '1000' else ''})"
+                + (f" [Superseded by {obj.superseded_by.part_number}]" if obj.superseded_by_id else "")
             )
 
     def clean(self):
         cleaned_data = super().clean()
         part = cleaned_data.get('part')
+        if part and part.superseded_by_id:
+            replacement = part.get_effective_replacement()
+            if replacement:
+                part = replacement
+                cleaned_data['part'] = replacement
+
         bom = self.bom or (self.instance.bom if self.instance and self.instance.pk else None)
         if bom and part:
             if bom.part_id and part.pk == bom.part_id:

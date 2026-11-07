@@ -494,6 +494,7 @@ class PartUpdateView(UpdateView):
     def form_valid(self, form):
         old_part = Part.objects.get(pk=self.get_object().pk)
         old_on_hand = old_part.quantity_on_hand or 0
+        old_superseded_by_id = old_part.superseded_by_id
         response = super().form_valid(form)
         new_on_hand = self.object.quantity_on_hand or 0
         if new_on_hand != old_on_hand:
@@ -506,6 +507,14 @@ class PartUpdateView(UpdateView):
                 reason=reason or "Manual stock adjustment via part edit",
                 user=self.request.user if self.request.user.is_authenticated else None,
             )
+        if self.object.superseded_by_id and self.object.superseded_by_id != old_superseded_by_id:
+            updated_count = self.object.propagate_supersession()
+            if updated_count > 0:
+                messages.info(
+                    self.request,
+                    f"Part '{self.object.part_number}' is superseded by '{self.object.superseded_by.part_number}'. "
+                    f"Automatically updated {updated_count} BOM item(s) and associated kit commitments to use '{self.object.superseded_by.part_number}'."
+                )
         messages.success(self.request, f"Part '{self.object}' was updated successfully!")
         return response
 
@@ -1012,6 +1021,11 @@ class BOMCreateView(CreateView):
                 if not part:
                     continue
 
+                if part.superseded_by_id:
+                    replacement = part.get_effective_replacement()
+                    if replacement:
+                        part = replacement
+
                 try:
                     qty = int(quantities[i]) if i < len(quantities) and str(quantities[i]).strip() else 1
                     if qty <= 0:
@@ -1094,6 +1108,10 @@ class BOMItemCreateView(CreateView):
     def form_valid(self, form):
         bom = self.get_bom()
         form.instance.bom = bom
+        if form.instance.part and form.instance.part.superseded_by_id:
+            replacement = form.instance.part.get_effective_replacement()
+            if replacement:
+                form.instance.part = replacement
 
         # Check how many active kits this BoM already had before adding the new component
         existing_items = list(bom.items.select_related('part').all())

@@ -153,6 +153,14 @@ class PartAdmin(admin.ModelAdmin):
         return "-"
     document_button.short_description = "Doc / Scan"
 
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if obj.superseded_by_id:
+            try:
+                obj.propagate_supersession()
+            except Exception:
+                pass
+
 
 @admin.register(PartDocument)
 class PartDocumentAdmin(admin.ModelAdmin):

@@ -121,7 +121,7 @@
                                         <option value="">-- Select Component Part --</option>
                                         {% for p in all_parts %}
                                             <option value="{{ p.pk }}">
-                                                {{ p.part_number }} &mdash; {{ p.name|default:p.description|truncatechars:45 }} (On Hand: {{ p.quantity_on_hand }})
+                                                {{ p.part_number }} &mdash; {{ p.name|default:p.description|truncatechars:45 }} (On Hand: {{ p.quantity_on_hand }}){% if p.superseded_by %} [Superseded by {{ p.superseded_by.part_number }}]{% endif %}
                                             </option>
                                         {% endfor %}
                                     </select>

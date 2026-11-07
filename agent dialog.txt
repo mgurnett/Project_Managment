@@ -1,7 +1,4 @@
 agent dialog.txt
 
 There are some ideas that have come up while using it. 
-- we need to be able to edit order until it is closed.  Then it needs to be fixed.
-on orders, we need to record how it was paid.
-when duplicating parts, use a defauld quantity of 0.
-when adjusting part quantity in inventory, a reason must be included and that reson need to be added to the adjustment record. 
+When a part number superseeds anothert, then in the bom and the kit, we now need to use the new number.

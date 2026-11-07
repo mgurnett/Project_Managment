@@ -1422,6 +1422,168 @@ class IdeasFeaturesTestCase(TestCase):
         self.assertContains(res_detail, 'Cycle count correction, found unopened pack')
         self.assertContains(res_detail, 'Inventory Adjustment')
 
+    def test_superseded_part_propagates_to_boms_and_kits(self):
+        """
+        When a part is superseded by another part:
+        1. All BOM items referencing the old part switch to the replacement part.
+        2. Active kit commitments (quantity_committed) transfer to the replacement part.
+        """
+        part_a = self.part  # 200-001, quantity_committed=10, quantity_on_hand=50, quantity_availible=40
+        part_b = Part.objects.create(
+            part_number="200-010",
+            name="10k Resistor 0805 Upgraded 1%",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=30,
+            quantity_on_order=0,
+            quantity_committed=0,
+            quantity_availible=30,
+            price_per=Decimal("0.06")
+        )
+
+        bom = BOM.objects.create(name="Control Board", description="Test BOM for supersession")
+        bom_item = BOMItem.objects.create(
+            bom=bom,
+            part=part_a,
+            quantity=2,
+            reference="R1, R2"
+        )
+
+        # Supersede part_a with part_b
+        part_a.superseded_by = part_b
+        part_a.save()
+
+        # 1. BOM item updated to part_b
+        bom_item.refresh_from_db()
+        self.assertEqual(bom_item.part, part_b)
+        self.assertEqual(bom.items.filter(part=part_a).count(), 0)
+        self.assertEqual(bom.items.filter(part=part_b).count(), 1)
+
+        # 2. Kit commitments transferred
+        part_a.refresh_from_db()
+        part_b.refresh_from_db()
+        self.assertEqual(part_a.quantity_committed, 0)
+        self.assertEqual(part_a.quantity_availible, 50)
+        self.assertEqual(part_b.quantity_committed, 10)
+        self.assertEqual(part_b.quantity_availible, 20)
+
+        # 3. Chained supersession: part_b is then superseded by part_c
+        part_c = Part.objects.create(
+            part_number="200-015",
+            name="10k Resistor 0805 Upgraded 0.1%",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=50,
+            quantity_on_order=0,
+            quantity_committed=0,
+            quantity_availible=50,
+            price_per=Decimal("0.12")
+        )
+        part_b.superseded_by = part_c
+        part_b.save()
+
+        bom_item.refresh_from_db()
+        self.assertEqual(bom_item.part, part_c)
+        part_b.refresh_from_db()
+        part_c.refresh_from_db()
+        self.assertEqual(part_b.quantity_committed, 0)
+        self.assertEqual(part_b.quantity_availible, 30)
+        self.assertEqual(part_c.quantity_committed, 10)
+        self.assertEqual(part_c.quantity_availible, 40)
+        self.assertEqual(part_a.get_effective_replacement(), part_c)
+
+    def test_superseded_part_merges_when_replacement_already_in_bom(self):
+        """
+        When replacement part is already in the BOM, propagate_supersession merges
+        quantities and designators instead of violating unique_bom_component.
+        """
+        part_a = self.part
+        part_b = Part.objects.create(
+            part_number="200-020",
+            name="10k Resistor 0805 Precision",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=20,
+            quantity_on_order=0,
+            quantity_committed=0,
+            quantity_availible=20,
+            price_per=Decimal("0.08")
+        )
+
+        bom = BOM.objects.create(name="Power Supply", description="BOM with both parts")
+        BOMItem.objects.create(
+            bom=bom,
+            part=part_a,
+            quantity=2,
+            reference="R1, R2",
+            notes="Original tolerance"
+        )
+        BOMItem.objects.create(
+            bom=bom,
+            part=part_b,
+            quantity=3,
+            reference="R3, R4, R5",
+            notes="Precision rail"
+        )
+
+        part_a.superseded_by = part_b
+        part_a.save()
+
+        # Should now have only 1 BOMItem for part_b with merged quantity 5
+        self.assertEqual(bom.items.count(), 1)
+        merged_item = bom.items.first()
+        self.assertEqual(merged_item.part, part_b)
+        self.assertEqual(merged_item.quantity, 5)
+        self.assertIn("R1, R2", merged_item.reference)
+        self.assertIn("R3, R4, R5", merged_item.reference)
+
+    def test_bom_forms_and_views_resolve_superseded_parts(self):
+        """
+        Adding or creating BOM items with a superseded part automatically resolves
+        to the replacement part.
+        """
+        part_a = self.part
+        part_b = Part.objects.create(
+            part_number="200-030",
+            name="10k Resistor Thin Film",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=15,
+            price_per=Decimal("0.10")
+        )
+        part_a.superseded_by = part_b
+        part_a.save()
+
+        bom = BOM.objects.create(name="Sensor Node", description="Test auto-resolution")
+
+        # Test BOMItemCreateView
+        add_item_url = reverse('bom_item_create', kwargs={'bom_pk': bom.pk})
+        res_item = self.client.post(add_item_url, {
+            'bom': bom.pk,
+            'part': part_a.pk,
+            'quantity': 4,
+            'reference': 'R10-R13'
+        })
+        self.assertEqual(res_item.status_code, 302)
+        created_item = bom.items.get(reference='R10-R13')
+        self.assertEqual(created_item.part, part_b)
+
+        # Test BOMCreateView with superseded component
+        create_bom_url = reverse('bom_create')
+        res_bom = self.client.post(create_bom_url, {
+            'name': 'Telemetry Board',
+            'description': 'Auto-resolved superseded component BOM',
+            'item_part': [part_a.pk],
+            'item_quantity': [2],
+            'item_ref': ['R1, R2'],
+            'item_notes': ['Should be part_b'],
+        })
+        self.assertEqual(res_bom.status_code, 302)
+        new_bom = BOM.objects.get(name='Telemetry Board')
+        self.assertEqual(new_bom.items.count(), 1)
+        self.assertEqual(new_bom.items.first().part, part_b)
+
+
 
 
 
