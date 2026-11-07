@@ -1583,6 +1583,228 @@ class IdeasFeaturesTestCase(TestCase):
         self.assertEqual(new_bom.items.count(), 1)
         self.assertEqual(new_bom.items.first().part, part_b)
 
+    def test_bom_explode_and_separate_out_components(self):
+        """
+        Adding another BoM to a BoM separates out into its constituent parts:
+        e.g. A rechargeable battery BoM (18650, holder, 300-002, 270-006) explodes
+        into those 4 distinct component rows.
+        """
+        # Create the 4 parts mentioned in user request
+        p_18650 = Part.objects.create(
+            part_number="270-001",
+            name="18650 Li-Ion Cell 2600mAh",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=50,
+            price_per=Decimal("4.50")
+        )
+        p_holder = Part.objects.create(
+            part_number="270-002",
+            name="18650 Battery Holder PCB Mount",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=40,
+            price_per=Decimal("0.85")
+        )
+        p_300_002 = Part.objects.create(
+            part_number="300-002",
+            name="USB C Connector 16-pin",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=100,
+            price_per=Decimal("0.35")
+        )
+        p_270_006 = Part.objects.create(
+            part_number="270-006",
+            name="5V Boost Step Up Module USB C",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=30,
+            price_per=Decimal("1.25")
+        )
+
+        # 1. Create the sub-assembly BOM: "Rechargeable Battery BOM"
+        battery_bom = BOM.objects.create(
+            name="Rechargeable Battery Pack",
+            description="18650 + holder + USB-C + 5V boost module"
+        )
+        BOMItem.objects.create(bom=battery_bom, part=p_18650, quantity=1, reference="BT1")
+        BOMItem.objects.create(bom=battery_bom, part=p_holder, quantity=1, reference="H1")
+        BOMItem.objects.create(bom=battery_bom, part=p_300_002, quantity=1, reference="J1")
+        BOMItem.objects.create(bom=battery_bom, part=p_270_006, quantity=1, reference="U1")
+
+        # 2. Create the destination BOM: "Field Sensor Assembly"
+        dest_bom = BOM.objects.create(
+            name="Field Sensor Assembly",
+            description="Main node assembly that needs power"
+        )
+        # Pre-seed with an existing component (e.g. 300-002) to verify quantity merging
+        BOMItem.objects.create(bom=dest_bom, part=p_300_002, quantity=1, reference="J2", notes="Aux port")
+
+        # Explode battery_bom into dest_bom with multiplier=2
+        result = dest_bom.import_and_explode_bom(battery_bom, multiplier=2)
+        self.assertEqual(result['total_components'], 4)
+        self.assertEqual(result['added_count'], 3)
+        self.assertEqual(result['merged_count'], 1)
+
+        # Verify dest_bom now has all 4 parts
+        self.assertEqual(dest_bom.items.count(), 4)
+        item_18650 = dest_bom.items.get(part=p_18650)
+        self.assertEqual(item_18650.quantity, 2)
+        self.assertEqual(item_18650.reference, "BT1")
+
+        item_holder = dest_bom.items.get(part=p_holder)
+        self.assertEqual(item_holder.quantity, 2)
+
+        item_270_006 = dest_bom.items.get(part=p_270_006)
+        self.assertEqual(item_270_006.quantity, 2)
+
+        # Verify merged item: 1 (existing) + 2 (from explosion) = 3
+        item_300_002 = dest_bom.items.get(part=p_300_002)
+        self.assertEqual(item_300_002.quantity, 3)
+        self.assertIn("J2", item_300_002.reference)
+        self.assertIn("J1", item_300_002.reference)
+
+    def test_bom_add_from_bom_action_view_and_json_endpoint(self):
+        """Tests the POST view to explode a BoM and the JSON items endpoint."""
+        p1 = Part.objects.create(
+            part_number="500-001",
+            name="Microcontroller IC",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=20,
+            price_per=Decimal("3.00")
+        )
+        p2 = Part.objects.create(
+            part_number="500-002",
+            name="Crystal 16MHz",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=40,
+            price_per=Decimal("0.50")
+        )
+
+        sub_bom = BOM.objects.create(name="MCU Sub-Assembly")
+        BOMItem.objects.create(bom=sub_bom, part=p1, quantity=1, reference="U1")
+        BOMItem.objects.create(bom=sub_bom, part=p2, quantity=2, reference="Y1")
+
+        dest_bom = BOM.objects.create(name="Carrier Board Assembly")
+
+        # Test JSON endpoint
+        json_url = reverse('bom_items_json', kwargs={'pk': sub_bom.pk}) + "?multiplier=3"
+        res_json = self.client.get(json_url)
+        self.assertEqual(res_json.status_code, 200)
+        data = res_json.json()
+        self.assertEqual(data['status'], 'ok')
+        self.assertEqual(len(data['components']), 2)
+        self.assertEqual(data['components'][0]['quantity'], 3)
+        self.assertEqual(data['components'][1]['quantity'], 6)
+
+        # Test POST action view
+        add_url = reverse('bom_add_from_bom', kwargs={'pk': dest_bom.pk})
+        res_post = self.client.post(add_url, {
+            'source_bom': sub_bom.pk,
+            'multiplier': 2
+        })
+        self.assertEqual(res_post.status_code, 302)
+        self.assertRedirects(res_post, reverse('bom_detail', kwargs={'pk': dest_bom.pk}))
+
+        dest_bom.refresh_from_db()
+        self.assertEqual(dest_bom.items.count(), 2)
+        self.assertEqual(dest_bom.items.get(part=p1).quantity, 2)
+        self.assertEqual(dest_bom.items.get(part=p2).quantity, 4)
+
+    def test_bom_item_explode_action_and_modal_switch(self):
+        """Tests exploding an existing assembly line item and BOMItemCreateView with explode=1."""
+        comp1 = Part.objects.create(
+            part_number="600-011",
+            name="LED Red 0805",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=100,
+            price_per=Decimal("0.05")
+        )
+        comp2 = Part.objects.create(
+            part_number="600-012",
+            name="Resistor 330R 0805",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=100,
+            price_per=Decimal("0.02")
+        )
+
+        led_indicator_bom = BOM.objects.create(name="LED Indicator Module")
+        BOMItem.objects.create(bom=led_indicator_bom, part=comp1, quantity=1, reference="D1")
+        BOMItem.objects.create(bom=led_indicator_bom, part=comp2, quantity=1, reference="R1")
+        assembly_part = led_indicator_bom.sync_part()
+
+        main_bom = BOM.objects.create(name="Control Console")
+
+        # 1. Test BOMItemCreateView with explode=1
+        add_item_url = reverse('bom_item_create', kwargs={'bom_pk': main_bom.pk})
+        res_add = self.client.post(add_item_url, {
+            'bom': main_bom.pk,
+            'part': assembly_part.pk,
+            'quantity': 2,
+            'explode': '1'
+        })
+        self.assertEqual(res_add.status_code, 302)
+        # Since explode was requested, main_bom should have comp1 and comp2, NOT assembly_part!
+        self.assertEqual(main_bom.items.count(), 2)
+        self.assertFalse(main_bom.items.filter(part=assembly_part).exists())
+        self.assertEqual(main_bom.items.get(part=comp1).quantity, 2)
+        self.assertEqual(main_bom.items.get(part=comp2).quantity, 2)
+
+        # 2. Test exploding an existing assembly line item via bom_item_explode_action
+        second_bom = BOM.objects.create(name="Remote Unit")
+        raw_assembly_item = BOMItem.objects.create(bom=second_bom, part=assembly_part, quantity=3)
+        self.assertEqual(second_bom.items.count(), 1)
+
+        explode_item_url = reverse('bom_item_explode', kwargs={'pk': raw_assembly_item.pk})
+        res_exp = self.client.post(explode_item_url)
+        self.assertEqual(res_exp.status_code, 302)
+
+        second_bom.refresh_from_db()
+        self.assertEqual(second_bom.items.count(), 2)
+        self.assertFalse(second_bom.items.filter(part=assembly_part).exists())
+        self.assertEqual(second_bom.items.get(part=comp1).quantity, 3)
+        self.assertEqual(second_bom.items.get(part=comp2).quantity, 3)
+
+    def test_bom_create_view_with_multiple_exploded_component_rows(self):
+        """Creating a new BoM with multiple component rows (e.g. from exploding a sub-assembly)."""
+        p1 = Part.objects.create(
+            part_number="270-001-A",
+            name="18650 Battery",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=20,
+            price_per=Decimal("4.00")
+        )
+        p2 = Part.objects.create(
+            part_number="270-002-A",
+            name="Battery Holder",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=30,
+            price_per=Decimal("0.80")
+        )
+
+        res = self.client.post(reverse('bom_create'), {
+            'name': 'Power Pack Device',
+            'description': 'Device using exploded battery sub-assembly',
+            'item_part[]': [p1.pk, p2.pk],
+            'item_quantity[]': ['1', '1'],
+            'item_reference[]': ['BT1', 'H1'],
+            'item_notes[]': ['Li-Ion', 'PCB Mount'],
+        })
+        self.assertEqual(res.status_code, 302)
+        created_bom = BOM.objects.get(name='Power Pack Device')
+        self.assertEqual(created_bom.items.count(), 2)
+        self.assertEqual(created_bom.items.get(part=p1).reference, 'BT1')
+        self.assertEqual(created_bom.items.get(part=p2).reference, 'H1')
+
+
+
 
 
 

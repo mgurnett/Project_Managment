@@ -36,15 +36,12 @@
             <button type="button" class="btn btn-sm btn-custom" data-bs-toggle="modal" data-bs-target="#addItemModal">
                 <i class="bi bi-plus-circle me-1"></i> Add Component
             </button>
+            <button type="button" class="btn btn-sm btn-outline-custom fw-semibold" data-bs-toggle="modal" data-bs-target="#addBomModal">
+                <i class="bi bi-diagram-3 me-1"></i> Add / Explode BoM
+            </button>
             <button type="button" class="btn btn-sm btn-primary fw-semibold" data-bs-toggle="modal" data-bs-target="#kitBomModal">
                 <i class="bi bi-box-seam me-1"></i> Move to Kit
             </button>
-            <button type="button" class="btn btn-sm btn-warning text-dark fw-semibold" data-bs-toggle="modal" data-bs-target="#buildBomModal">
-                <i class="bi bi-tools me-1"></i> Build Assembly
-            </button>
-            <a href="{% url 'sale_create' %}?bom={{ bom.pk }}" class="btn btn-sm btn-success fw-semibold">
-                <i class="bi bi-receipt me-1"></i> Sell Assembly
-            </a>
             {% if bom.part %}
                 <a href="{% url 'part_detail' bom.part.pk %}" class="btn btn-outline-secondary btn-sm" title="View in Parts Catalog ({{ bom.part.part_number }})">
                     <i class="bi bi-cpu me-1"></i> Parts Catalog
@@ -80,7 +77,6 @@
                                 <input type="hidden" name="quantity" value="1">
                                 <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2" title="Add 1 Built Assembly">+1</button>
                             </form>
-                            <a href="{% url 'sale_create' %}?bom={{ bom.pk }}" class="btn btn-sm btn-success py-0 px-2 ms-1">Sell</a>
                         </div>
                     </div>
                     <div class="rounded-circle p-3 bg-success-subtle text-success">
@@ -176,7 +172,14 @@
                                 {% endif %}
                             </td>
                             <td class="py-3 text-body small">
-                                <div class="fw-semibold">{{ item.part.name|default:item.part.description }}</div>
+                                <div class="fw-semibold">
+                                    {{ item.part.name|default:item.part.description }}
+                                    {% if item.part.assembly_bom %}
+                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle ms-1 font-monospace" style="font-size: 0.7rem;">
+                                            <i class="bi bi-diagram-3 me-1"></i>Sub-Assembly
+                                        </span>
+                                    {% endif %}
+                                </div>
                                 {% if item.part.description and item.part.name and item.part.description != item.part.name %}
                                     <div class="text-muted" style="font-size: 0.78rem;">{{ item.part.description }}</div>
                                 {% endif %}
@@ -227,6 +230,14 @@
                                 ${{ item.subtotal|floatformat:2 }}
                             </td>
                             <td class="text-end pe-4 py-3">
+                                {% if item.part.assembly_bom %}
+                                <form method="post" action="{% url 'bom_item_explode' item.pk %}" class="d-inline" onsubmit="return confirm('Explode {{ item.part.part_number }} into its constituent parts?');">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-outline-info btn-sm p-1 me-1" title="Explode {{ item.part.part_number }} into its constituent parts">
+                                        <i class="bi bi-diagram-3"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
                                 <a href="{% url 'bom_item_delete' item.pk %}" class="btn btn-outline-danger btn-sm p-1" title="Remove Component">
                                     <i class="bi bi-x-lg"></i>
                                 </a>
@@ -288,6 +299,13 @@
                     <div class="mb-3">
                         <label class="form-label small fw-semibold">Component Part <span class="text-danger">*</span></label>
                         {{ item_form.part }}
+                        <div class="form-check form-switch mt-2" id="explodeSubAssemblySwitchContainer" style="display: none;">
+                            <input class="form-check-input" type="checkbox" name="explode" value="1" id="explodeCheckbox" checked>
+                            <label class="form-check-label small fw-semibold text-primary" for="explodeCheckbox">
+                                <i class="bi bi-diagram-3 me-1"></i> Explode sub-assembly into constituent parts
+                            </label>
+                            <div class="form-text small" style="font-size: 0.75rem;">Separates this assembly into its individual component parts instead of adding a single assembly line.</div>
+                        </div>
                     </div>
                     <div class="row g-2 mb-3">
                         <div class="col-6">
@@ -349,50 +367,143 @@
     </div>
 </div>
 
-<!-- Modal: Build Assembly from BoM -->
-<div class="modal fade" id="buildBomModal" tabindex="-1" aria-labelledby="buildBomModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+<!-- Modal: Add & Explode BoM -->
+<div class="modal fade" id="addBomModal" tabindex="-1" aria-labelledby="addBomModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content border-0 shadow">
             <div class="modal-header border-bottom">
-                <h5 class="modal-title fw-bold" id="buildBomModalLabel">
-                    <i class="bi bi-tools me-2 text-warning"></i>Build Assembly: {{ bom.name }}
+                <h5 class="modal-title fw-bold" id="addBomModalLabel">
+                    <i class="bi bi-diagram-3 me-2 text-custom"></i>Add &amp; Explode Sub-Assembly BoM
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form action="{% url 'bom_build_action' bom.pk %}" method="post">
+            <form action="{% url 'bom_add_from_bom' bom.pk %}" method="post">
                 {% csrf_token %}
                 <div class="modal-body p-4">
                     <p class="small text-muted mb-3">
-                        Building this assembly takes all required component quantities out of <strong>On-Hand Inventory</strong> (and reduces Committed Kit counts accordingly), assigns a <strong>1000-series Assembly Number</strong>, and adds the finished assembly to inventory.
+                        Select an existing BoM (e.g. <em>Rechargeable Battery</em>). When added, this assembly will <strong>separate out</strong> into its individual constituent component parts and add them into <strong>{{ bom.name }}</strong>.
                     </p>
-                    <div class="row g-2 mb-3">
-                        <div class="col-6">
-                            <label class="form-label small fw-semibold">1000-Series Assembly #</label>
-                            <input type="text" name="assembly_number" class="form-control font-monospace" value="{{ bom.assembly_number|default:'1000-001' }}">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-8">
+                            <label class="form-label small fw-semibold">Sub-Assembly BoM to Add <span class="text-danger">*</span></label>
+                            <select name="source_bom" id="explodeSourceBomSelect" class="form-select" required>
+                                <option value="">-- Choose Sub-Assembly BoM --</option>
+                                {% for sb in available_boms %}
+                                    <option value="{{ sb.pk }}">
+                                        {{ sb.assembly_number|default:"BOM" }} &mdash; {{ sb.name }} ({{ sb.items.count }} unique component{{ sb.items.count|pluralize }})
+                                    </option>
+                                {% endfor %}
+                            </select>
                         </div>
-                        <div class="col-6">
-                            <label class="form-label small fw-semibold">Number of Assemblies to Build <span class="text-danger">*</span></label>
-                            <input type="number" name="quantity" class="form-control" value="1" min="1" required>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Quantity Required / Build <span class="text-danger">*</span></label>
+                            <input type="number" name="multiplier" id="explodeMultiplierInput" class="form-control" value="1" min="1" required>
+                            <div class="form-text small">Multiplier for sub-assembly parts.</div>
                         </div>
                     </div>
-                    <div class="form-text small mb-3">
-                        Each build consumes <strong>{{ bom.total_parts_quantity }} total parts</strong> from stock and adds <strong>1 unit</strong> to Assembly <code>{{ bom.assembly_number }}</code> on-hand stock.
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="consume_committed" value="1" id="consumeCommittedCheck" checked>
-                        <label class="form-check-label small" for="consumeCommittedCheck">
-                            Also deduct from Committed (Kitted) quantities if parts were kitted
-                        </label>
+
+                    <!-- Live Exploded Preview Card -->
+                    <div id="explodedPreviewCard" class="card border bg-light-subtle rounded-3 p-3 mt-3" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="small fw-bold text-uppercase text-muted" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                                <i class="bi bi-box-seam me-1 text-primary"></i> Constituent Parts That Will Be Separated Out:
+                            </span>
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle" id="previewComponentCount">0 components</span>
+                        </div>
+                        <div class="table-responsive bg-white rounded border">
+                            <table class="table table-sm table-hover align-middle mb-0 font-monospace" style="font-size: 0.85rem;">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-3 py-1">Part #</th>
+                                        <th class="py-1">Description / Name</th>
+                                        <th class="text-center py-1">Ref</th>
+                                        <th class="text-center py-1">Qty Added</th>
+                                        <th class="text-center pe-3 py-1">On-Hand</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="explodedPreviewTbody">
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer border-top bg-light">
                     <button type="button" class="btn btn-outline-secondary btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-warning text-dark btn-sm px-3 fw-semibold">
-                        <i class="bi bi-tools me-1"></i> Execute Build &amp; Deduct Stock
+                    <button type="submit" class="btn btn-custom btn-sm px-3 fw-semibold">
+                        <i class="bi bi-diagram-3 me-1"></i> Add &amp; Explode into BoM
                     </button>
                 </div>
             </form>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const sourceBomSelect = document.getElementById('explodeSourceBomSelect');
+    const multiplierInput = document.getElementById('explodeMultiplierInput');
+    const previewCard = document.getElementById('explodedPreviewCard');
+    const previewTbody = document.getElementById('explodedPreviewTbody');
+    const previewCount = document.getElementById('previewComponentCount');
+
+    function loadPreview() {
+        const bomId = sourceBomSelect ? sourceBomSelect.value : '';
+        const mult = multiplierInput ? (parseInt(multiplierInput.value, 10) || 1) : 1;
+        if (!bomId) {
+            if (previewCard) previewCard.style.display = 'none';
+            return;
+        }
+        fetch(`/boms/${bomId}/items-json/?multiplier=${mult}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok' && data.components && data.components.length > 0) {
+                    previewTbody.innerHTML = '';
+                    data.components.forEach(c => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="ps-3 py-1 fw-bold text-custom">${c.part_number}</td>
+                            <td class="py-1 text-truncate" style="max-width: 250px;">${c.name}</td>
+                            <td class="text-center py-1 text-muted">${c.reference || '&mdash;'}</td>
+                            <td class="text-center py-1 fw-bold text-primary">+${c.quantity}</td>
+                            <td class="text-center pe-3 py-1 text-muted">${c.quantity_on_hand}</td>
+                        `;
+                        previewTbody.appendChild(tr);
+                    });
+                    if (previewCount) previewCount.textContent = `${data.components.length} component(s)`;
+                    if (previewCard) previewCard.style.display = 'block';
+                } else {
+                    if (previewCard) previewCard.style.display = 'none';
+                }
+            })
+            .catch(() => {
+                if (previewCard) previewCard.style.display = 'none';
+            });
+    }
+
+    if (sourceBomSelect) {
+        sourceBomSelect.addEventListener('change', loadPreview);
+    }
+    if (multiplierInput) {
+        multiplierInput.addEventListener('input', loadPreview);
+    }
+
+    // Explode toggle in standard Add Item Modal
+    const itemPartSelect = document.querySelector('#addItemModal select[name="part"]');
+    const explodeContainer = document.getElementById('explodeSubAssemblySwitchContainer');
+    if (itemPartSelect && explodeContainer) {
+        function checkItemSubAssembly() {
+            const opt = itemPartSelect.options[itemPartSelect.selectedIndex];
+            if (opt && opt.text && opt.text.includes('Sub-Assembly')) {
+                explodeContainer.style.display = 'block';
+            } else {
+                explodeContainer.style.display = 'none';
+            }
+        }
+        itemPartSelect.addEventListener('change', checkItemSubAssembly);
+        checkItemSubAssembly();
+    }
+});
+</script>
 {% endblock %}

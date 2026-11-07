@@ -844,6 +844,183 @@ class BOM(models.Model):
             return self.sale_price
         return self.total_cost
 
+    def get_exploded_components(self, multiplier=1, visited=None, recursive=True):
+        """
+        Returns a list of dicts representing all constituent component parts needed to build
+        `multiplier` units of this BOM:
+        [{'part': Part, 'quantity': int, 'reference': str, 'notes': str}]
+        If recursive=True, recursively expands any sub-assemblies (parts with an assembly_bom).
+        """
+        if visited is None:
+            visited = set()
+        visited.add(self.pk)
+
+        components = []
+        for item in self.items.select_related('part', 'part__assembly_bom', 'part__superseded_by').all():
+            part = item.part.get_effective_replacement() if item.part.superseded_by_id else item.part
+            sub_bom = getattr(part, 'assembly_bom', None) if recursive else None
+
+            if sub_bom and sub_bom.pk not in visited and sub_bom.items.exists():
+                sub_visited = set(visited)
+                sub_components = sub_bom.get_exploded_components(
+                    multiplier=item.quantity * multiplier,
+                    visited=sub_visited,
+                    recursive=recursive
+                )
+                for sc in sub_components:
+                    components.append(sc)
+            else:
+                components.append({
+                    'part': part,
+                    'quantity': item.quantity * multiplier,
+                    'reference': item.reference or '',
+                    'notes': item.notes or '',
+                })
+        return components
+
+    def import_and_explode_bom(self, source_bom, multiplier=1, recursive=True):
+        """
+        Imports and explodes all component items from `source_bom` into `self` (scaled by `multiplier`).
+        For each constituent part:
+        1. Resolves effective replacement if part is superseded.
+        2. Merges with existing BOMItem if the part is already in `self`:
+           - increments quantity by (source_item.quantity * multiplier)
+           - appends reference designator if new
+           - sets notes if empty
+        3. If part does not exist in `self`, creates a new BOMItem with quantity = (source_item.quantity * multiplier).
+        4. If `self` has active kits picked (i.e. `self.kitted_sets > 0`):
+           - updates the part's `quantity_committed` by adding (needed_qty * active_kits)
+           - updates `quantity_availible = max(0, quantity_on_hand - quantity_committed)`
+
+        Returns a dict summarizing:
+        {
+            'added_count': int,
+            'merged_count': int,
+            'total_components': int,
+            'committed_units': int,
+            'active_kits': int,
+        }
+        """
+        if source_bom.pk == self.pk:
+            raise ValueError("Cannot explode a BOM into itself.")
+
+        # Determine active kits on destination BOM
+        existing_items = list(self.items.select_related('part').all())
+        if existing_items:
+            active_kits = min(
+                (i.part.quantity_committed or 0) // max(1, i.quantity)
+                for i in existing_items
+            )
+        else:
+            active_kits = 0
+
+        exploded = source_bom.get_exploded_components(multiplier=multiplier, visited={self.pk}, recursive=recursive)
+        if not exploded:
+            return {
+                'added_count': 0,
+                'merged_count': 0,
+                'total_components': 0,
+                'committed_units': 0,
+                'active_kits': active_kits,
+            }
+
+        # Consolidate exploded list in case the source bom or sub-boms had duplicate parts
+        consolidated = {}
+        for c in exploded:
+            p_pk = c['part'].pk
+            if p_pk not in consolidated:
+                consolidated[p_pk] = {
+                    'part': c['part'],
+                    'quantity': c['quantity'],
+                    'reference': c['reference'],
+                    'notes': c['notes'],
+                }
+            else:
+                consolidated[p_pk]['quantity'] += c['quantity']
+                if c['reference'] and c['reference'] not in consolidated[p_pk]['reference']:
+                    merged_ref = f"{consolidated[p_pk]['reference']}, {c['reference']}".strip(', ')
+                    consolidated[p_pk]['reference'] = merged_ref
+                if c['notes'] and not consolidated[p_pk]['notes']:
+                    consolidated[p_pk]['notes'] = c['notes']
+
+        added_count = 0
+        merged_count = 0
+        committed_units = 0
+
+        from django.db import transaction
+        with transaction.atomic():
+            for item_data in consolidated.values():
+                part = item_data['part']
+                qty_to_add = item_data['quantity']
+                ref = item_data['reference']
+                note = item_data['notes']
+
+                existing = self.items.filter(part=part).first()
+                if existing:
+                    existing.quantity += qty_to_add
+                    if ref and ref not in (existing.reference or ''):
+                        combined_ref = f"{existing.reference or ''}, {ref}".strip(', ')
+                        existing.reference = combined_ref[:50]
+                    if note and not existing.notes:
+                        existing.notes = note[:255]
+                    existing.save(update_fields=['quantity', 'reference', 'notes'])
+                    merged_count += 1
+                else:
+                    BOMItem.objects.create(
+                        bom=self,
+                        part=part,
+                        quantity=qty_to_add,
+                        reference=ref[:50] if ref else '',
+                        notes=note[:255] if note else '',
+                    )
+                    added_count += 1
+
+                if active_kits > 0:
+                    commit_delta = qty_to_add * active_kits
+                    part.quantity_committed = (part.quantity_committed or 0) + commit_delta
+                    part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                    part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+                    committed_units += commit_delta
+
+        return {
+            'added_count': added_count,
+            'merged_count': merged_count,
+            'total_components': len(consolidated),
+            'committed_units': committed_units,
+            'active_kits': active_kits,
+        }
+
+    def explode_item(self, bom_item):
+        """
+        Explodes an existing BOMItem (which references an assembly part with an associated BOM)
+        into its constituent parts, scaling by bom_item.quantity, and removes the assembly item.
+        Transfers any kit commitments from the assembly part to the constituent parts.
+        """
+        sub_bom = getattr(bom_item.part, 'assembly_bom', None)
+        if not sub_bom:
+            raise ValueError(f"Part {bom_item.part.part_number} is not an assembly with a BOM.")
+
+        other_items = list(self.items.exclude(pk=bom_item.pk).select_related('part'))
+        if other_items:
+            active_kits = min((i.part.quantity_committed or 0) // max(1, i.quantity) for i in other_items)
+        else:
+            active_kits = (bom_item.part.quantity_committed or 0) // max(1, bom_item.quantity)
+
+        from django.db import transaction
+        with transaction.atomic():
+            # Release commitment on assembly part
+            assembly_part = bom_item.part
+            if active_kits > 0:
+                released = bom_item.quantity * active_kits
+                assembly_part.quantity_committed = max(0, (assembly_part.quantity_committed or 0) - released)
+                assembly_part.quantity_availible = max(0, (assembly_part.quantity_on_hand or 0) - assembly_part.quantity_committed)
+                assembly_part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+
+            multiplier = bom_item.quantity
+            bom_item.delete()
+            return self.import_and_explode_bom(sub_bom, multiplier=multiplier)
+
+
 
 class BOMItem(models.Model):
     """

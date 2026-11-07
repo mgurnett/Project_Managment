@@ -98,9 +98,14 @@
                     </h2>
                     <p class="text-muted small mb-0">Select the parts and quantities needed to build 1 unit of this assembly (you can also add/edit components later).</p>
                 </div>
-                <button type="button" class="btn btn-sm btn-outline-custom fw-semibold" id="addBomRowBtn">
-                    <i class="bi bi-plus-circle me-1"></i> Add Component Row
-                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary fw-semibold" data-bs-toggle="modal" data-bs-target="#explodeBomCreateModal">
+                        <i class="bi bi-diagram-3 me-1"></i> Add / Explode from BoM
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-custom fw-semibold" id="addBomRowBtn">
+                        <i class="bi bi-plus-circle me-1"></i> Add Component Row
+                    </button>
+                </div>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -158,6 +163,76 @@
     </form>
 
 </div>
+
+{% if not form.instance.pk %}
+<!-- Modal: Add & Explode BoM into dynamic rows -->
+<div class="modal fade" id="explodeBomCreateModal" tabindex="-1" aria-labelledby="explodeBomCreateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <h5 class="modal-title fw-bold" id="explodeBomCreateModalLabel">
+                    <i class="bi bi-diagram-3 me-2 text-primary"></i>Add &amp; Explode Sub-Assembly into Rows
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="small text-muted mb-3">
+                    Choose an existing BoM assembly (e.g. <em>Rechargeable Battery</em>). Its constituent parts will immediately be <strong>separated out and inserted as rows</strong> into your component builder table.
+                </p>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-8">
+                        <label class="form-label small fw-semibold">Sub-Assembly BoM to Explode <span class="text-danger">*</span></label>
+                        <select id="createSourceBomSelect" class="form-select">
+                            <option value="">-- Choose Sub-Assembly BoM --</option>
+                            {% for sb in available_boms %}
+                                <option value="{{ sb.pk }}">
+                                    {{ sb.assembly_number|default:"BOM" }} &mdash; {{ sb.name }} ({{ sb.items.count }} unique component{{ sb.items.count|pluralize }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Quantity / Multiplier <span class="text-danger">*</span></label>
+                        <input type="number" id="createMultiplierInput" class="form-control" value="1" min="1">
+                        <div class="form-text small">Multiplier for sub-assembly parts.</div>
+                    </div>
+                </div>
+
+                <!-- Live Exploded Preview Card -->
+                <div id="createExplodedPreviewCard" class="card border bg-light-subtle rounded-3 p-3 mt-3" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="small fw-bold text-uppercase text-muted" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                            <i class="bi bi-box-seam me-1 text-primary"></i> Components to be Inserted into Table:
+                        </span>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" id="createPreviewComponentCount">0 components</span>
+                    </div>
+                    <div class="table-responsive bg-white rounded border">
+                        <table class="table table-sm table-hover align-middle mb-0 font-monospace" style="font-size: 0.85rem;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="ps-3 py-1">Part #</th>
+                                    <th class="py-1">Description / Name</th>
+                                    <th class="text-center py-1">Ref</th>
+                                    <th class="text-center py-1">Qty</th>
+                                    <th class="text-center pe-3 py-1">On-Hand</th>
+                                </tr>
+                            </thead>
+                            <tbody id="createExplodedPreviewTbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-top bg-light">
+                <button type="button" class="btn btn-outline-secondary btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm px-3 fw-semibold" id="insertExplodedComponentsBtn" disabled>
+                    <i class="bi bi-plus-circle me-1"></i> Insert Exploded Parts into Table
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -195,6 +270,107 @@ document.addEventListener('DOMContentLoaded', function() {
             row.querySelectorAll('select').forEach(sel => sel.selectedIndex = 0);
         }
     });
+
+    // Sub-Assembly Explode into dynamic rows
+    const sourceBomSelect = document.getElementById('createSourceBomSelect');
+    const multiplierInput = document.getElementById('createMultiplierInput');
+    const previewCard = document.getElementById('createExplodedPreviewCard');
+    const previewTbody = document.getElementById('createExplodedPreviewTbody');
+    const previewCount = document.getElementById('createPreviewComponentCount');
+    const insertBtn = document.getElementById('insertExplodedComponentsBtn');
+    let cachedComponents = [];
+
+    function loadCreatePreview() {
+        const bomId = sourceBomSelect ? sourceBomSelect.value : '';
+        const mult = multiplierInput ? (parseInt(multiplierInput.value, 10) || 1) : 1;
+        if (!bomId) {
+            if (previewCard) previewCard.style.display = 'none';
+            if (insertBtn) insertBtn.disabled = true;
+            cachedComponents = [];
+            return;
+        }
+        fetch(`/boms/${bomId}/items-json/?multiplier=${mult}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok' && data.components && data.components.length > 0) {
+                    cachedComponents = data.components;
+                    previewTbody.innerHTML = '';
+                    data.components.forEach(c => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="ps-3 py-1 fw-bold text-custom">${c.part_number}</td>
+                            <td class="py-1 text-truncate" style="max-width: 250px;">${c.name}</td>
+                            <td class="text-center py-1 text-muted">${c.reference || '&mdash;'}</td>
+                            <td class="text-center py-1 fw-bold text-primary">+${c.quantity}</td>
+                            <td class="text-center pe-3 py-1 text-muted">${c.quantity_on_hand}</td>
+                        `;
+                        previewTbody.appendChild(tr);
+                    });
+                    if (previewCount) previewCount.textContent = `${data.components.length} component(s)`;
+                    if (previewCard) previewCard.style.display = 'block';
+                    if (insertBtn) insertBtn.disabled = false;
+                } else {
+                    cachedComponents = [];
+                    if (previewCard) previewCard.style.display = 'none';
+                    if (insertBtn) insertBtn.disabled = true;
+                }
+            })
+            .catch(() => {
+                cachedComponents = [];
+                if (previewCard) previewCard.style.display = 'none';
+                if (insertBtn) insertBtn.disabled = true;
+            });
+    }
+
+    if (sourceBomSelect) sourceBomSelect.addEventListener('change', loadCreatePreview);
+    if (multiplierInput) multiplierInput.addEventListener('input', loadCreatePreview);
+
+    if (insertBtn) {
+        insertBtn.addEventListener('click', function() {
+            if (!cachedComponents || cachedComponents.length === 0) return;
+
+            cachedComponents.forEach((c, idx) => {
+                // If the first row is completely unselected, reuse it for the first component
+                const existingRows = tbody.querySelectorAll('.bom-item-row');
+                let targetRow = null;
+                if (idx === 0 && existingRows.length === 1) {
+                    const firstSelect = existingRows[0].querySelector('select[name="item_part[]"]');
+                    if (firstSelect && !firstSelect.value) {
+                        targetRow = existingRows[0];
+                    }
+                }
+
+                if (!targetRow) {
+                    targetRow = templateRow.cloneNode(true);
+                    tbody.appendChild(targetRow);
+                }
+
+                const sel = targetRow.querySelector('select[name="item_part[]"]');
+                if (sel) {
+                    sel.value = c.part_id;
+                }
+                const refInput = targetRow.querySelector('input[name="item_reference[]"]');
+                if (refInput) {
+                    refInput.value = c.reference || '';
+                }
+                const qtyInput = targetRow.querySelector('input[name="item_quantity[]"]');
+                if (qtyInput) {
+                    qtyInput.value = c.quantity || 1;
+                }
+                const noteInput = targetRow.querySelector('input[name="item_notes[]"]');
+                if (noteInput) {
+                    noteInput.value = c.notes || '';
+                }
+            });
+
+            // Close the modal
+            const modalEl = document.getElementById('explodeBomCreateModal');
+            if (modalEl) {
+                const modalInst = bootstrap.Modal.getInstance(modalEl);
+                if (modalInst) modalInst.hide();
+            }
+        });
+    }
 });
 </script>
 {% endif %}

@@ -982,6 +982,7 @@ class BOMDetailView(DetailView):
             ctx['max_kits_available'] = 0
             ctx['max_builds_possible'] = 0
             ctx['kitted_sets'] = 0
+        ctx['available_boms'] = BOM.objects.exclude(pk=self.object.pk).prefetch_related('items__part').order_by('assembly_number', 'name')
         return ctx
 
 
@@ -999,6 +1000,7 @@ class BOMCreateView(CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['all_parts'] = Part.objects.select_related('company', 'category').all().order_by('part_number')
+        ctx['available_boms'] = BOM.objects.prefetch_related('items__part').all().order_by('assembly_number', 'name')
         ctx['next_assembly_number'] = BOM.generate_next_assembly_number()
         return ctx
 
@@ -1112,6 +1114,22 @@ class BOMItemCreateView(CreateView):
             replacement = form.instance.part.get_effective_replacement()
             if replacement:
                 form.instance.part = replacement
+
+        part = form.instance.part
+        sub_bom = getattr(part, 'assembly_bom', None)
+        explode = self.request.POST.get('explode') in ('1', 'true', 'on', 'yes')
+
+        if sub_bom and explode:
+            try:
+                res = bom.import_and_explode_bom(sub_bom, multiplier=form.cleaned_data.get('quantity') or 1)
+                msg = f"Added and exploded {res['total_components']} component(s) from sub-assembly '{sub_bom.name}' into '{bom.name}'!"
+                if res['committed_units'] > 0:
+                    msg += f" (Committed {res['committed_units']} unit(s) across parts for {res['active_kits']} active kit(s))"
+                messages.success(self.request, msg)
+                return redirect('bom_detail', pk=bom.pk)
+            except Exception as e:
+                messages.error(self.request, f"Could not explode sub-assembly: {e}")
+                return redirect('bom_detail', pk=bom.pk)
 
         # Check how many active kits this BoM already had before adding the new component
         existing_items = list(bom.items.select_related('part').all())
@@ -1266,6 +1284,118 @@ class BOMItemDeleteView(DeleteView):
 
     def get_success_url(self):
         return reverse('bom_detail', kwargs={'pk': self.object.bom.pk})
+
+
+def bom_add_from_bom_action(request, pk):
+    """
+    POST action to add and explode an existing BoM (sub-assembly) into this BoM,
+    separating out all of its constituent components.
+    """
+    if request.method != 'POST':
+        return redirect('bom_detail', pk=pk)
+
+    dest_bom = get_object_or_404(BOM, pk=pk)
+    source_bom_id = (request.POST.get('source_bom') or '').strip()
+    if not source_bom_id or not source_bom_id.isdigit():
+        messages.error(request, "Please select a valid BoM to add.")
+        return redirect('bom_detail', pk=pk)
+
+    source_bom = get_object_or_404(BOM, pk=int(source_bom_id))
+    if source_bom.pk == dest_bom.pk:
+        messages.error(request, "Cannot add a BoM into itself.")
+        return redirect('bom_detail', pk=pk)
+
+    try:
+        multiplier = int(request.POST.get('multiplier') or 1)
+        if multiplier <= 0:
+            multiplier = 1
+    except (ValueError, TypeError):
+        multiplier = 1
+
+    try:
+        result = dest_bom.import_and_explode_bom(source_bom, multiplier=multiplier)
+        if result['total_components'] == 0:
+            messages.warning(request, f"'{source_bom.name}' contains no components to add.")
+        else:
+            msg = (
+                f"Successfully added and exploded {result['total_components']} component(s) "
+                f"({result['added_count']} new, {result['merged_count']} merged) from '{source_bom.name}' "
+                f"into '{dest_bom.name}'!"
+            )
+            if result['committed_units'] > 0:
+                msg += f" (Committed {result['committed_units']} unit(s) across parts for {result['active_kits']} active kit(s))"
+            messages.success(request, msg)
+    except Exception as exc:
+        messages.error(request, f"Failed to explode BoM: {exc}")
+
+    return redirect('bom_detail', pk=pk)
+
+
+def bom_item_explode_action(request, pk):
+    """
+    POST action to explode an existing BOMItem representing an assembly into its constituent parts.
+    """
+    if request.method != 'POST':
+        return redirect('bom_list')
+
+    item = get_object_or_404(BOMItem.objects.select_related('bom', 'part', 'part__assembly_bom'), pk=pk)
+    bom = item.bom
+    sub_bom = getattr(item.part, 'assembly_bom', None)
+    if not sub_bom:
+        messages.error(request, f"Part '{item.part.part_number}' is not an assembly and cannot be exploded.")
+        return redirect('bom_detail', pk=bom.pk)
+
+    try:
+        result = bom.explode_item(item)
+        msg = f"Successfully exploded '{sub_bom.name}' into {result['total_components']} constituent component(s)!"
+        if result['committed_units'] > 0:
+            msg += f" (Committed {result['committed_units']} unit(s) across parts for {result['active_kits']} active kit(s))"
+        messages.success(request, msg)
+    except Exception as exc:
+        messages.error(request, f"Failed to explode item: {exc}")
+
+    return redirect('bom_detail', pk=bom.pk)
+
+
+def bom_get_items_json(request, pk):
+    """
+    GET endpoint returning the list of constituent components for a given BoM.
+    Used by dynamic front-end builders to preview and explode sub-assemblies.
+    """
+    bom = get_object_or_404(BOM, pk=pk)
+    try:
+        multiplier = int(request.GET.get('multiplier') or 1)
+        if multiplier <= 0:
+            multiplier = 1
+    except (ValueError, TypeError):
+        multiplier = 1
+
+    components = bom.get_exploded_components(multiplier=multiplier)
+    items_data = []
+    for c in components:
+        p = c['part']
+        items_data.append({
+            'part_id': p.pk,
+            'part_number': p.part_number,
+            'name': p.name or p.description or 'Part',
+            'quantity': c['quantity'],
+            'reference': c['reference'],
+            'notes': c['notes'],
+            'quantity_on_hand': p.quantity_on_hand or 0,
+            'is_subassembly': bool(getattr(p, 'assembly_bom', None)),
+        })
+
+    return JsonResponse({
+        'status': 'ok',
+        'bom': {
+            'id': bom.pk,
+            'name': bom.name,
+            'assembly_number': bom.assembly_number,
+            'description': bom.description or '',
+        },
+        'components': items_data,
+    })
+
 
 
 # ==============================================================================
