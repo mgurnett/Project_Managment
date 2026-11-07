@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.utils import timezone
-from core.models import Company, Category, Part, Order, OrderItem, BOM, BOMItem
+from core.models import Company, Category, Part, Order, OrderItem, BOM, BOMItem, InventoryAdjustment
 
 
 class OrderActionTestCase(TestCase):
@@ -598,7 +598,9 @@ class PriorityLowActionsTestCase(TestCase):
         # POST adjustments: part_a from 20 -> 18, part_b from 15 -> 22
         res_post = self.client.post(reverse('take_inventory'), {
             f'actual_count_{self.part_a.pk}': '18',
+            f'reason_{self.part_a.pk}': 'Damaged items scrapped',
             f'actual_count_{self.part_b.pk}': '22',
+            f'reason_{self.part_b.pk}': 'Found unopened pack on shelf',
         })
         self.assertEqual(res_post.status_code, 302)
         self.part_a.refresh_from_db()
@@ -766,6 +768,7 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
 
         res_inv_post = self.client.post(reverse('take_inventory'), {
             f'actual_count_{self.part.pk}': '12',
+            f'reason_{self.part.pk}': '1 unit scrapped during lab testing',
         })
         self.assertEqual(res_inv_post.status_code, 302)
 
@@ -1135,6 +1138,290 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertIn('michael@granarywatch.com', sent_email.to)
         self.assertEqual(len(sent_email.attachments), 1)
         self.assertEqual(sent_email.attachments[0][0], 'Invoice_INV-9001.pdf')
+
+    def test_assemblies_visible_as_1000_prefix_parts_in_catalog_and_inventory(self):
+        """
+        Tests that:
+        1. Built/Product Assemblies are represented as Part objects with prefix '1000'
+           under Category 'Assemblies'.
+        2. They are visible in the Parts Catalog (/parts/) and can be filtered by Category or searched by '1000'.
+        3. They appear in the Take Inventory Sheet (/inventory/take-inventory/) under Category '[1000] Assemblies'.
+        4. Building or adjusting stock increases both bom.quantity_on_hand and part.quantity_on_hand.
+        5. Adjusting on-hand in Take Inventory syncs both Part and BOM.
+        """
+        from .models import BOM, Part, Category
+
+        # Create BOM with assembly number 1000-010
+        bom = BOM.objects.create(
+            name="Smart Soil Moisture Probe",
+            description="RS485 Modbus Soil Probe Assembly",
+            sale_price=Decimal("120.00"),
+            assembly_number="1000-010",
+            quantity_on_hand=0,
+        )
+
+        # BOM.sync_part() should automatically create the Part in Category [1000] Assemblies
+        self.assertIsNotNone(bom.part)
+        part = bom.part
+        self.assertEqual(part.part_number, "1000-010")
+        self.assertEqual(part.name, "Smart Soil Moisture Probe")
+        self.assertEqual(part.category.prefix, "1000")
+        self.assertEqual(part.category.name, "Assemblies")
+        self.assertEqual(part.quantity_on_hand, 0)
+
+        # Verify visible in Parts Catalog (/parts/)
+        res_catalog = self.client.get(reverse('part_list'))
+        self.assertEqual(res_catalog.status_code, 200)
+        self.assertContains(res_catalog, '1000-010')
+        self.assertContains(res_catalog, 'Smart Soil Moisture Probe')
+        self.assertContains(res_catalog, 'Assemblies')
+
+        # Verify search by '1000'
+        res_search = self.client.get(reverse('part_list') + '?q=1000')
+        self.assertEqual(res_search.status_code, 200)
+        self.assertContains(res_search, '1000-010')
+
+        # Verify in Take Inventory sheet (/inventory/take-inventory/)
+        res_take_inv = self.client.get(reverse('take_inventory'))
+        self.assertEqual(res_take_inv.status_code, 200)
+        self.assertContains(res_take_inv, '1000-010')
+        self.assertContains(res_take_inv, 'Assemblies')
+
+        # Verify in Count Sheet (/inventory/count-sheet/)
+        res_sheet = self.client.get(reverse('inventory_count_sheet'))
+        self.assertEqual(res_sheet.status_code, 200)
+        self.assertContains(res_sheet, '1000-010')
+
+        # Build assembly (+3 units) via bom_adjust_assembly_stock
+        res_adjust = self.client.post(reverse('bom_adjust_assembly_stock', kwargs={'pk': bom.pk}), {
+            'mode': 'add',
+            'quantity': 3,
+        })
+        self.assertEqual(res_adjust.status_code, 302)
+
+        bom.refresh_from_db()
+        part.refresh_from_db()
+        self.assertEqual(bom.quantity_on_hand, 3)
+        self.assertEqual(part.quantity_on_hand, 3)
+        self.assertEqual(part.quantity_availible, 3)
+
+        # Audit and adjust physical count in Take Inventory to 5
+        res_inv_post = self.client.post(reverse('take_inventory'), {
+            f'actual_count_{part.pk}': '5',
+            f'reason_{part.pk}': 'Found 2 extra finished assemblies in bin',
+        })
+        self.assertEqual(res_inv_post.status_code, 302)
+
+        part.refresh_from_db()
+        bom.refresh_from_db()
+        self.assertEqual(part.quantity_on_hand, 5)
+        self.assertEqual(bom.quantity_on_hand, 5)
+
+
+class IdeasFeaturesTestCase(TestCase):
+    """
+    Tests for recent enhancement requests:
+    1. Orders can be edited until closed (RECEIVED or CANCELLED), then locked/fixed.
+    2. Orders record how they were paid (payment_method, payment_reference, payment_date).
+    3. Duplicating parts defaults inventory quantities to 0.
+    4. Adjusting inventory quantities requires a reason and saves an adjustment record.
+    """
+    def setUp(self):
+        self.client = Client()
+        self.supplier = Company.objects.create(
+            name="Mouser Electronics",
+            contact_name="Support",
+            email="support@mouser.com"
+        )
+        self.category = Category.objects.create(name="Passives", prefix="200")
+        self.part = Part.objects.create(
+            part_number="200-001",
+            name="10k Resistor 0805",
+            company=self.supplier,
+            category=self.category,
+            quantity_on_hand=50,
+            quantity_on_order=100,
+            quantity_committed=10,
+            quantity_availible=40,
+            price_per=Decimal("0.05")
+        )
+
+    def test_open_order_can_be_edited(self):
+        """Open order (e.g. ORDERED) can be edited via OrderUpdateView."""
+        order = Order.objects.create(
+            order_number="PO-TEST-OPEN",
+            supplier=self.supplier,
+            status='ORDERED',
+            payment_method='CREDIT_CARD',
+        )
+        url = reverse('order_update', kwargs={'pk': order.pk})
+        res_get = self.client.get(url)
+        self.assertEqual(res_get.status_code, 200)
+
+        res_post = self.client.post(url, {
+            'supplier': self.supplier.pk,
+            'order_number': 'PO-TEST-OPEN',
+            'order_date': timezone.now().date().isoformat(),
+            'status': 'PARTIALLY_RECEIVED',
+            'payment_method': 'COMPANY_CARD',
+            'payment_reference': 'Card *4821',
+        })
+        self.assertEqual(res_post.status_code, 302)
+        order.refresh_from_db()
+        self.assertEqual(order.status, 'PARTIALLY_RECEIVED')
+        self.assertEqual(order.payment_method, 'COMPANY_CARD')
+        self.assertEqual(order.payment_reference, 'Card *4821')
+
+    def test_closed_order_is_locked_from_edit_and_delete(self):
+        """Closed orders (RECEIVED or CANCELLED) cannot be edited or deleted."""
+        closed_order = Order.objects.create(
+            order_number="PO-TEST-CLOSED",
+            supplier=self.supplier,
+            status='RECEIVED',
+            payment_method='WIRE',
+        )
+        self.assertTrue(closed_order.is_closed)
+
+        # GET order_update should redirect with error
+        update_url = reverse('order_update', kwargs={'pk': closed_order.pk})
+        res_get = self.client.get(update_url)
+        self.assertEqual(res_get.status_code, 302)
+        self.assertRedirects(res_get, reverse('order_detail', kwargs={'pk': closed_order.pk}))
+
+        # POST order_update should be blocked
+        res_post = self.client.post(update_url, {
+            'supplier': self.supplier.pk,
+            'order_number': 'PO-TEST-CLOSED',
+            'order_date': timezone.now().date().isoformat(),
+            'status': 'ORDERED',
+        })
+        self.assertEqual(res_post.status_code, 302)
+        closed_order.refresh_from_db()
+        self.assertEqual(closed_order.status, 'RECEIVED')
+
+        # DELETE order_delete should be blocked
+        delete_url = reverse('order_delete', kwargs={'pk': closed_order.pk})
+        res_del = self.client.post(delete_url)
+        self.assertEqual(res_del.status_code, 302)
+        self.assertTrue(Order.objects.filter(pk=closed_order.pk).exists())
+
+    def test_closed_order_items_cannot_be_added_or_removed(self):
+        """Cannot add or remove items on a closed order."""
+        closed_order = Order.objects.create(
+            order_number="PO-TEST-CLOSED-ITEMS",
+            supplier=self.supplier,
+            status='RECEIVED',
+        )
+        item = OrderItem.objects.create(
+            order=closed_order,
+            part=self.part,
+            quantity=10,
+            quantity_received=10,
+        )
+
+        # Attempt to add new item
+        add_url = reverse('order_item_create', kwargs={'order_pk': closed_order.pk})
+        res_add = self.client.post(add_url, {
+            'part': str(self.part.pk),
+            'quantity': 5,
+        })
+        self.assertEqual(res_add.status_code, 302)
+        self.assertEqual(closed_order.items.count(), 1)
+
+        # Attempt to delete existing item
+        del_item_url = reverse('order_item_delete', kwargs={'pk': item.pk})
+        res_del = self.client.post(del_item_url)
+        self.assertEqual(res_del.status_code, 302)
+        self.assertTrue(OrderItem.objects.filter(pk=item.pk).exists())
+
+    def test_order_records_payment_details(self):
+        """Purchase order correctly records payment method, reference, and date."""
+        today = timezone.now().date()
+        res = self.client.post(reverse('order_create'), {
+            'supplier': self.supplier.pk,
+            'order_number': 'PO-TEST-PAYMENT',
+            'order_date': today.isoformat(),
+            'status': 'ORDERED',
+            'payment_method': 'NET_30',
+            'payment_reference': 'INV-98234-NET30',
+            'payment_date': today.isoformat(),
+            'payment_notes': 'Net 30 days payable on receipt',
+            'item_part': [self.part.pk],
+            'item_quantity': [20],
+            'item_unit_price': ['0.05'],
+            'item_notes': ['Reel'],
+        })
+        self.assertEqual(res.status_code, 302)
+        order = Order.objects.get(order_number='PO-TEST-PAYMENT')
+        self.assertEqual(order.payment_method, 'NET_30')
+        self.assertEqual(order.payment_reference, 'INV-98234-NET30')
+        self.assertEqual(order.payment_date, today)
+        self.assertEqual(order.payment_notes, 'Net 30 days payable on receipt')
+
+        # Verify on order_detail view
+        res_detail = self.client.get(reverse('order_detail', kwargs={'pk': order.pk}))
+        self.assertEqual(res_detail.status_code, 200)
+        self.assertContains(res_detail, 'Account / Net 30')
+        self.assertContains(res_detail, 'INV-98234-NET30')
+
+    def test_duplicate_part_defaults_stock_quantities_to_zero(self):
+        """Duplicating a part pre-fills on-hand, on-order, committed, available as 0."""
+        # Test via PartDuplicateView
+        dup_url = reverse('part_duplicate', kwargs={'pk': self.part.pk})
+        res_dup = self.client.get(dup_url)
+        self.assertEqual(res_dup.status_code, 200)
+        form = res_dup.context['form']
+        self.assertEqual(form.initial.get('quantity_on_hand'), 0)
+        self.assertEqual(form.initial.get('quantity_on_order'), 0)
+        self.assertEqual(form.initial.get('quantity_committed'), 0)
+        self.assertEqual(form.initial.get('quantity_availible'), 0)
+
+        # Test via PartCreateView with ?duplicate=
+        create_url = reverse('part_create') + f"?duplicate={self.part.pk}"
+        res_create = self.client.get(create_url)
+        self.assertEqual(res_create.status_code, 200)
+        form2 = res_create.context['form']
+        self.assertEqual(form2.initial.get('quantity_on_hand'), 0)
+        self.assertEqual(form2.initial.get('quantity_on_order'), 0)
+        self.assertEqual(form2.initial.get('quantity_committed'), 0)
+        self.assertEqual(form2.initial.get('quantity_availible'), 0)
+
+    def test_inventory_adjustment_requires_reason(self):
+        """TakeInventoryView rejects stock count adjustments that omit a reason."""
+        self.assertEqual(self.part.quantity_on_hand, 50)
+
+        # Adjust count without reason -> should be rejected and NOT change stock
+        res_no_reason = self.client.post(reverse('take_inventory'), {
+            f'actual_count_{self.part.pk}': '55',
+            f'reason_{self.part.pk}': '',
+        })
+        self.assertEqual(res_no_reason.status_code, 302)
+        self.part.refresh_from_db()
+        self.assertEqual(self.part.quantity_on_hand, 50)
+        self.assertEqual(InventoryAdjustment.objects.filter(part=self.part).count(), 0)
+
+        # Adjust count with reason -> succeeds and creates InventoryAdjustment record
+        res_with_reason = self.client.post(reverse('take_inventory'), {
+            f'actual_count_{self.part.pk}': '55',
+            f'reason_{self.part.pk}': 'Cycle count correction, found unopened pack',
+        })
+        self.assertEqual(res_with_reason.status_code, 302)
+        self.part.refresh_from_db()
+        self.assertEqual(self.part.quantity_on_hand, 55)
+
+        adj = InventoryAdjustment.objects.filter(part=self.part).first()
+        self.assertIsNotNone(adj)
+        self.assertEqual(adj.old_quantity, 50)
+        self.assertEqual(adj.new_quantity, 55)
+        self.assertEqual(adj.delta, 5)
+        self.assertEqual(adj.reason, 'Cycle count correction, found unopened pack')
+
+        # Check that the reason appears on the part detail page in the Journal
+        res_detail = self.client.get(reverse('part_detail', kwargs={'pk': self.part.pk}))
+        self.assertEqual(res_detail.status_code, 200)
+        self.assertContains(res_detail, 'Cycle count correction, found unopened pack')
+        self.assertContains(res_detail, 'Inventory Adjustment')
+
 
 
 

@@ -45,6 +45,11 @@
             <a href="{% url 'sale_create' %}?bom={{ bom.pk }}" class="btn btn-sm btn-success fw-semibold">
                 <i class="bi bi-receipt me-1"></i> Sell Assembly
             </a>
+            {% if bom.part %}
+                <a href="{% url 'part_detail' bom.part.pk %}" class="btn btn-outline-secondary btn-sm" title="View in Parts Catalog ({{ bom.part.part_number }})">
+                    <i class="bi bi-cpu me-1"></i> Parts Catalog
+                </a>
+            {% endif %}
             <a href="{% url 'bom_update' bom.pk %}" class="btn btn-outline-custom btn-sm">
                 <i class="bi bi-pencil me-1"></i> Edit BoM
             </a>

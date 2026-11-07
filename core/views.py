@@ -14,8 +14,10 @@ from django.utils import timezone
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView, TemplateView
 from django.db import transaction
 from django.db.models import Q, Count, Sum, Case, When, Value, IntegerField, F
+from django.db.models.functions import Length
 from .models import (
     Part, Company, Manufacturer, Category, Location, PartDocument,
+    InventoryAdjustment,
     BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem
 )
 from .forms import (
@@ -139,7 +141,8 @@ def get_parts_filtered_queryset(request):
     elif confirmed in ['false', '0']:
         qs = qs.filter(confirmed=False)
 
-    return qs.order_by('part_number', '-created_at')
+    from django.db.models.functions import Length
+    return qs.annotate(part_num_len=Length('part_number')).order_by('part_num_len', 'part_number', '-created_at')
 
 
 def generate_parts_csv(queryset):
@@ -241,7 +244,7 @@ class PartListView(ListView):
         ctx['current_location'] = filters['location']
         ctx['current_confirmed'] = filters['confirmed']
         ctx['companies'] = Company.objects.all()
-        ctx['categories'] = Category.objects.all()
+        ctx['categories'] = Category.objects.all().annotate(prefix_len=Length('prefix')).order_by('prefix_len', 'prefix', 'name')
         ctx['locations'] = Location.objects.all()
         ctx['total_count'] = self.get_queryset().count()
         return ctx
@@ -344,6 +347,26 @@ class PartDetailView(DetailView):
         except Exception:
             pass
 
+        # Incorporate dedicated InventoryAdjustment records with their mandatory reasons
+        try:
+            adjustments = list(self.object.adjustments.select_related('user').all())
+            ctx['adjustments'] = adjustments
+            for adj in adjustments:
+                sign = f"+{adj.delta}" if adj.delta > 0 else str(adj.delta)
+                journal_entries.append({
+                    'datetime': adj.created_at,
+                    'action': 'Inventory Adjustment',
+                    'badge_class': 'bg-secondary-subtle text-secondary border-secondary-subtle',
+                    'changes': [
+                        f"On Hand: {adj.old_quantity} → {adj.new_quantity} ({sign})",
+                        f"Reason: {adj.reason}"
+                    ],
+                    'user': adj.user.username if adj.user else 'System',
+                })
+        except Exception:
+            ctx['adjustments'] = []
+
+        journal_entries.sort(key=lambda x: x.get('datetime') or timezone.now(), reverse=True)
         ctx['journal_entries'] = journal_entries
         return ctx
 
@@ -371,10 +394,10 @@ class PartCreateView(CreateView):
                     'location': source.location_id,
                     'supplier_part_number': source.supplier_part_number,
                     'superseded_by': source.superseded_by_id,
-                    'quantity_on_hand': source.quantity_on_hand,
-                    'quantity_on_order': source.quantity_on_order,
-                    'quantity_committed': source.quantity_committed,
-                    'quantity_availible': source.quantity_availible,
+                    'quantity_on_hand': 0,
+                    'quantity_on_order': 0,
+                    'quantity_committed': 0,
+                    'quantity_availible': 0,
                     'quantity': source.quantity,
                     'price_per': source.price_per,
                     'price': source.price,
@@ -419,10 +442,10 @@ class PartDuplicateView(CreateView):
             'location': source.location_id,
             'supplier_part_number': source.supplier_part_number,
             'superseded_by': source.superseded_by_id,
-            'quantity_on_hand': source.quantity_on_hand,
-            'quantity_on_order': source.quantity_on_order,
-            'quantity_committed': source.quantity_committed,
-            'quantity_availible': source.quantity_availible,
+            'quantity_on_hand': 0,
+            'quantity_on_order': 0,
+            'quantity_committed': 0,
+            'quantity_availible': 0,
             'quantity': source.quantity,
             'price_per': source.price_per,
             'price': source.price,
@@ -469,7 +492,20 @@ class PartUpdateView(UpdateView):
     success_url = reverse_lazy('part_list')
 
     def form_valid(self, form):
+        old_part = Part.objects.get(pk=self.get_object().pk)
+        old_on_hand = old_part.quantity_on_hand or 0
         response = super().form_valid(form)
+        new_on_hand = self.object.quantity_on_hand or 0
+        if new_on_hand != old_on_hand:
+            reason = (form.cleaned_data.get('adjustment_reason') or '').strip()
+            InventoryAdjustment.objects.create(
+                part=self.object,
+                old_quantity=old_on_hand,
+                new_quantity=new_on_hand,
+                delta=new_on_hand - old_on_hand,
+                reason=reason or "Manual stock adjustment via part edit",
+                user=self.request.user if self.request.user.is_authenticated else None,
+            )
         messages.success(self.request, f"Part '{self.object}' was updated successfully!")
         return response
 
@@ -1223,9 +1259,13 @@ def get_count_sheet_queryset(request, session_key='count_sheet_filters'):
     Returns filtered Part queryset for the Inventory Count Sheet / Take Inventory:
     Grouped by Category (by category prefix/name) and sorted by part_number.
     """
+    from django.db.models.functions import Length
     filters = resolve_persistent_filters(request, session_key, COUNT_SHEET_FILTER_KEYS)
-    qs = Part.objects.select_related('category', 'location', 'company', 'manufacturer').order_by(
-        'category__prefix', 'category__name', 'part_number'
+    qs = Part.objects.select_related('category', 'location', 'company', 'manufacturer').annotate(
+        cat_prefix_len=Length('category__prefix'),
+        part_num_len=Length('part_number')
+    ).order_by(
+        'cat_prefix_len', 'category__prefix', 'category__name', 'part_num_len', 'part_number'
     )
 
     q = filters['q']
@@ -1295,12 +1335,13 @@ class InventoryCountSheetView(TemplateView):
             category_map[cat_id]['total_items'] += 1
 
         groups = list(category_map.values())
+        groups.sort(key=lambda g: (len(g['prefix']), g['prefix'], g['category_name']))
 
         ctx['groups'] = groups
         ctx['total_parts'] = qs.count()
         ctx['total_categories'] = len(groups)
         ctx['total_on_hand'] = sum(g['total_on_hand'] for g in groups)
-        ctx['categories'] = Category.objects.all().order_by('prefix', 'name')
+        ctx['categories'] = Category.objects.all().annotate(prefix_len=Length('prefix')).order_by('prefix_len', 'prefix', 'name')
         ctx['locations'] = Location.objects.all().order_by('name')
         ctx['current_category'] = filters['category']
         ctx['current_location'] = filters['location']
@@ -1772,6 +1813,16 @@ class OrderUpdateView(UpdateView):
     form_class = OrderForm
     template_name = 'core/order_form.html'
 
+    def dispatch(self, request, *args, **kwargs):
+        order = self.get_object()
+        if order.is_closed:
+            messages.error(
+                request,
+                f"Order '{order.order_number}' is closed ({order.get_status_display()}) and locked. Closed orders cannot be edited."
+            )
+            return redirect('order_detail', pk=order.pk)
+        return super().dispatch(request, *args, **kwargs)
+
     def form_valid(self, form):
         response = super().form_valid(form)
         messages.success(self.request, f"Order '{self.object.order_number}' was updated.")
@@ -1785,6 +1836,16 @@ class OrderDeleteView(DeleteView):
     model = Order
     template_name = 'core/confirm_delete.html'
     success_url = reverse_lazy('order_list')
+
+    def dispatch(self, request, *args, **kwargs):
+        order = self.get_object()
+        if order.is_closed:
+            messages.error(
+                request,
+                f"Order '{order.order_number}' is closed ({order.get_status_display()}) and locked. Closed orders cannot be deleted."
+            )
+            return redirect('order_detail', pk=order.pk)
+        return super().dispatch(request, *args, **kwargs)
 
     def form_valid(self, form):
         with transaction.atomic():
@@ -1814,6 +1875,12 @@ class OrderItemCreateView(CreateView):
 
     def post(self, request, *args, **kwargs):
         order = self.get_order()
+        if order.is_closed:
+            messages.error(
+                request,
+                f"Cannot add items to Order '{order.order_number}' because it is closed ({order.get_status_display()})."
+            )
+            return redirect('order_detail', pk=order.pk)
         part_val = (request.POST.get('part') or '').strip()
 
         try:
@@ -1933,6 +2000,16 @@ class OrderItemDeleteView(DeleteView):
     """
     model = OrderItem
     template_name = 'core/confirm_delete.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        item = self.get_object()
+        if item.order.is_closed:
+            messages.error(
+                request,
+                f"Cannot remove items from Order '{item.order.order_number}' because it is closed ({item.order.get_status_display()})."
+            )
+            return redirect('order_detail', pk=item.order.pk)
+        return super().dispatch(request, *args, **kwargs)
 
     def form_valid(self, form):
         item = self.get_object()
@@ -2350,6 +2427,10 @@ def _execute_bom_build(bom, build_count=1, consume_committed=True, assembly_numb
 
     bom.quantity_on_hand = (bom.quantity_on_hand or 0) + build_count
     bom.save(update_fields=bom_update_fields)
+    try:
+        bom.sync_part()
+    except Exception:
+        pass
 
     return len(items), total_consumed, shortages
 
@@ -2903,11 +2984,12 @@ class TakeInventoryView(TemplateView):
             category_map[cat_id]['total_items'] += 1
 
         groups = list(category_map.values())
+        groups.sort(key=lambda g: (len(g['prefix']), g['prefix'], g['category_name']))
         ctx['groups'] = groups
         ctx['total_parts'] = qs.count()
         ctx['total_categories'] = len(groups)
         ctx['total_on_hand'] = sum(g['total_on_hand'] for g in groups)
-        ctx['categories'] = Category.objects.all().order_by('prefix', 'name')
+        ctx['categories'] = Category.objects.all().annotate(prefix_len=Length('prefix')).order_by('prefix_len', 'prefix', 'name')
         ctx['locations'] = Location.objects.all().order_by('name')
         ctx['current_category'] = filters['category']
         ctx['current_location'] = filters['location']
@@ -2920,44 +3002,79 @@ class TakeInventoryView(TemplateView):
         adjusted_parts = 0
         net_delta = 0
 
-        with transaction.atomic():
-            # Support both array inputs (part_id[] / actual_count[]) and named inputs (actual_count_<pk>)
-            part_ids = request.POST.getlist('part_id[]') or request.POST.getlist('part_id')
-            actual_counts = request.POST.getlist('actual_count[]') or request.POST.getlist('actual_count')
+        # Support both array inputs (part_id[] / actual_count[]) and named inputs (actual_count_<pk>)
+        part_ids = request.POST.getlist('part_id[]') or request.POST.getlist('part_id')
+        actual_counts = request.POST.getlist('actual_count[]') or request.POST.getlist('actual_count')
 
-            updates_map = {}
-            if part_ids and actual_counts:
-                for i, pid in enumerate(part_ids):
-                    if str(pid).isdigit() and i < len(actual_counts):
-                        raw_val = str(actual_counts[i]).strip()
-                        if raw_val != '':
-                            try:
-                                updates_map[int(pid)] = int(raw_val)
-                            except (ValueError, TypeError):
-                                pass
-
-            for key, val in request.POST.items():
-                if key.startswith('actual_count_'):
-                    pid_str = key.replace('actual_count_', '').strip()
-                    raw_val = str(val).strip()
-                    if pid_str.isdigit() and raw_val != '':
+        updates_map = {}
+        if part_ids and actual_counts:
+            for i, pid in enumerate(part_ids):
+                if str(pid).isdigit() and i < len(actual_counts):
+                    raw_val = str(actual_counts[i]).strip()
+                    if raw_val != '':
                         try:
-                            updates_map[int(pid_str)] = int(raw_val)
+                            updates_map[int(pid)] = int(raw_val)
                         except (ValueError, TypeError):
                             pass
 
-            if updates_map:
-                parts = Part.objects.filter(pk__in=updates_map.keys())
-                for part in parts:
-                    new_on_hand = max(0, updates_map[part.pk])
-                    old_on_hand = part.quantity_on_hand or 0
-                    if new_on_hand != old_on_hand:
-                        delta = new_on_hand - old_on_hand
-                        part.quantity_on_hand = new_on_hand
-                        part.quantity_availible = max(0, new_on_hand - (part.quantity_committed or 0))
-                        part.save(update_fields=['quantity_on_hand', 'quantity_availible', 'updated_at'])
-                        adjusted_parts += 1
-                        net_delta += delta
+        for key, val in request.POST.items():
+            if key.startswith('actual_count_'):
+                pid_str = key.replace('actual_count_', '').strip()
+                raw_val = str(val).strip()
+                if pid_str.isdigit() and raw_val != '':
+                    try:
+                        updates_map[int(pid_str)] = int(raw_val)
+                    except (ValueError, TypeError):
+                        pass
+
+        parts_to_adjust = []
+        missing_reasons = []
+
+        if updates_map:
+            parts = Part.objects.filter(pk__in=updates_map.keys())
+            for part in parts:
+                new_on_hand = max(0, updates_map[part.pk])
+                old_on_hand = part.quantity_on_hand or 0
+                if new_on_hand != old_on_hand:
+                    delta = new_on_hand - old_on_hand
+                    reason = (
+                        request.POST.get(f'reason_{part.pk}')
+                        or request.POST.get(f'adjustment_reason_{part.pk}')
+                        or request.POST.get('adjustment_reason')
+                        or ''
+                    ).strip()
+                    if not reason:
+                        missing_reasons.append(f"{part.part_number} ({old_on_hand} → {new_on_hand})")
+                    else:
+                        parts_to_adjust.append((part, old_on_hand, new_on_hand, delta, reason))
+
+        if missing_reasons:
+            messages.error(
+                request,
+                f"A reason must be included for every inventory adjustment! Missing reason for: {', '.join(missing_reasons)}"
+            )
+            return redirect('take_inventory')
+
+        if parts_to_adjust:
+            with transaction.atomic():
+                for part, old_on_hand, new_on_hand, delta, reason in parts_to_adjust:
+                    part.quantity_on_hand = new_on_hand
+                    part.quantity_availible = max(0, new_on_hand - (part.quantity_committed or 0))
+                    part.save(update_fields=['quantity_on_hand', 'quantity_availible', 'updated_at'])
+                    if hasattr(part, 'assembly_bom') and part.assembly_bom:
+                        part.assembly_bom.quantity_on_hand = new_on_hand
+                        part.assembly_bom.save(update_fields=['quantity_on_hand', 'updated_at'])
+
+                    InventoryAdjustment.objects.create(
+                        part=part,
+                        old_quantity=old_on_hand,
+                        new_quantity=new_on_hand,
+                        delta=delta,
+                        reason=reason,
+                        user=request.user if request.user.is_authenticated else None,
+                    )
+                    adjusted_parts += 1
+                    net_delta += delta
 
         if adjusted_parts > 0:
             sign = f"+{net_delta}" if net_delta > 0 else str(net_delta)
@@ -3055,6 +3172,22 @@ def bom_adjust_assembly_stock(request, pk):
             request,
             f"Updated Assembly {bom.assembly_number} — '{bom.name}' (Built On-Hand: {bom.quantity_on_hand})."
         )
+
+    try:
+        part = bom.sync_part()
+        if part and bom.quantity_on_hand != old_on_hand:
+            delta = bom.quantity_on_hand - old_on_hand
+            reason = (request.POST.get('reason') or f"Built assembly {mode} adjustment for {bom.assembly_number}").strip()
+            InventoryAdjustment.objects.create(
+                part=part,
+                old_quantity=old_on_hand,
+                new_quantity=bom.quantity_on_hand,
+                delta=delta,
+                reason=reason,
+                user=request.user if request.user.is_authenticated else None,
+            )
+    except Exception:
+        pass
 
     return redirect(next_url)
 
@@ -3307,6 +3440,10 @@ class AssemblySaleCreateView(CreateView):
                         bom_update_fields.append('quantity_on_hand')
 
                     bom_obj.save(update_fields=bom_update_fields)
+                    try:
+                        bom_obj.sync_part()
+                    except Exception:
+                        pass
 
             # Generate and save the PDF file to disk in media/invoices/
             generate_and_save_invoice_pdf(sale, request=self.request)
@@ -3453,6 +3590,14 @@ class AssemblySaleUpdateView(UpdateView):
                 sale.payment_date = timezone.now().date()
             sale.save(update_fields=['status', 'stock_deducted', 'payment_date', 'updated_at'])
 
+            # Synchronize 1000-series inventory parts
+            for item in sale.items.select_related('bom').all():
+                if item.bom:
+                    try:
+                        item.bom.sync_part()
+                    except Exception:
+                        pass
+
             # Regenerate saved PDF
             generate_and_save_invoice_pdf(sale, request=self.request)
 
@@ -3483,6 +3628,10 @@ def sale_mark_paid(request, pk):
                         shortages.append(f"{item.bom.assembly_number} (needed {item.quantity}, had {old_on_hand} built)")
                     item.bom.quantity_on_hand = max(0, old_on_hand - item.quantity)
                     item.bom.save(update_fields=['quantity_on_hand', 'updated_at'])
+                    try:
+                        item.bom.sync_part()
+                    except Exception:
+                        pass
             sale.stock_deducted = True
 
         sale.status = 'PAID'
@@ -3582,6 +3731,10 @@ class AssemblySaleDeleteView(DeleteView):
                     if item.bom:
                         item.bom.quantity_on_hand = (item.bom.quantity_on_hand or 0) + item.quantity
                         item.bom.save(update_fields=['quantity_on_hand', 'updated_at'])
+                        try:
+                            item.bom.sync_part()
+                        except Exception:
+                            pass
 
             # Remove saved PDF file if it exists
             if sale.pdf_file:

@@ -1,5 +1,6 @@
 import os
 from decimal import Decimal
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -368,6 +369,19 @@ class Part(models.Model):
 
         super().save(*args, **kwargs)
 
+        # If this part represents a finished assembly, keep BOM.quantity_on_hand in sync
+        try:
+            if hasattr(self, 'assembly_bom') and self.assembly_bom:
+                bom = self.assembly_bom
+                if bom.quantity_on_hand != self.quantity_on_hand:
+                    bom.quantity_on_hand = self.quantity_on_hand or 0
+                    BOM.objects.filter(pk=bom.pk).update(
+                        quantity_on_hand=bom.quantity_on_hand,
+                        updated_at=timezone.now()
+                    )
+        except Exception:
+            pass
+
     @property
     def document_filename(self):
         if self.document and self.document.name:
@@ -497,6 +511,54 @@ class PartDocument(models.Model):
         return ""
 
 
+class InventoryAdjustment(models.Model):
+    """
+    Audit record tracking physical inventory and stock adjustments for a Part,
+    including mandatory reason, previous quantity, new quantity, delta, and user.
+    """
+    part = models.ForeignKey(
+        Part,
+        on_delete=models.CASCADE,
+        related_name='adjustments',
+        verbose_name="Part"
+    )
+    old_quantity = models.IntegerField(
+        verbose_name="Previous On-Hand"
+    )
+    new_quantity = models.IntegerField(
+        verbose_name="New On-Hand"
+    )
+    delta = models.IntegerField(
+        verbose_name="Adjustment Delta"
+    )
+    reason = models.CharField(
+        max_length=255,
+        verbose_name="Reason for Adjustment",
+        help_text="Required explanation for why inventory was adjusted"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='inventory_adjustments',
+        verbose_name="Adjusted By"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Adjustment Date"
+    )
+
+    class Meta:
+        verbose_name = "Inventory Adjustment"
+        verbose_name_plural = "Inventory Adjustments"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        sign = f"+{self.delta}" if self.delta > 0 else str(self.delta)
+        return f"{self.part.part_number} ({sign}): {self.reason}"
+
+
 class BOM(models.Model):
     """
     Bill of Materials (BOM) / Product Assembly.
@@ -526,6 +588,15 @@ class BOM(models.Model):
         blank=True,
         verbose_name="Sale Price ($)",
         help_text="Default unit selling price when this assembly is sold"
+    )
+    part = models.OneToOneField(
+        'Part',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assembly_bom',
+        verbose_name="Associated Part (1000 Series)",
+        help_text="The 1000-series Part representing this finished assembly in the parts catalog and inventory."
     )
     notes = CKEditor5Field('Assembly Instructions & Notes', config_name='notes', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -564,6 +635,72 @@ class BOM(models.Model):
             candidate = f"{prefix}{next_num:03d}"
         return candidate
 
+    def sync_part(self):
+        """
+        Ensures a corresponding 1000-series Part exists in the Parts Catalog under
+        the 'Assemblies' category (prefix 1000), kept in sync with this BOM.
+        """
+        category, _ = Category.objects.get_or_create(
+            prefix='1000',
+            defaults={
+                'name': 'Assemblies',
+                'description': 'Completed / built 1000-series product assemblies',
+            }
+        )
+        if not self.assembly_number:
+            self.assembly_number = self.generate_next_assembly_number()
+
+        part = self.part
+        if not part and self.assembly_number:
+            part = Part.objects.filter(part_number=self.assembly_number).first()
+
+        target_on_hand = self.quantity_on_hand or 0
+        price_to_set = self.effective_sale_price
+
+        if not part:
+            part = Part.objects.create(
+                part_number=self.assembly_number,
+                name=self.name,
+                description=self.description or f"Built 1000-series assembly for {self.name}",
+                category=category,
+                quantity_on_hand=target_on_hand,
+                quantity_availible=target_on_hand,
+                price_per=price_to_set,
+                confirmed=True,
+            )
+            if self.part_id != part.pk:
+                self.part = part
+                BOM.objects.filter(pk=self.pk).update(part=part)
+        else:
+            update_fields = []
+            if part.part_number != self.assembly_number:
+                part.part_number = self.assembly_number
+                update_fields.append('part_number')
+            if part.name != self.name:
+                part.name = self.name
+                update_fields.append('name')
+            if self.description and part.description != self.description:
+                part.description = self.description
+                update_fields.append('description')
+            if part.category_id != category.pk:
+                part.category = category
+                update_fields.append('category')
+            if part.quantity_on_hand != target_on_hand:
+                part.quantity_on_hand = target_on_hand
+                part.quantity_availible = max(0, target_on_hand - (part.quantity_committed or 0))
+                update_fields.extend(['quantity_on_hand', 'quantity_availible'])
+            if price_to_set and part.price_per != price_to_set:
+                part.price_per = price_to_set
+                update_fields.append('price_per')
+            if update_fields:
+                update_fields.append('updated_at')
+                part.save(update_fields=update_fields)
+            if self.part_id != part.pk:
+                self.part = part
+                BOM.objects.filter(pk=self.pk).update(part=part)
+
+        return part
+
     def save(self, *args, **kwargs):
         if self.assembly_number:
             cleaned = self.assembly_number.strip()
@@ -578,6 +715,10 @@ class BOM(models.Model):
         else:
             self.assembly_number = self.generate_next_assembly_number()
         super().save(*args, **kwargs)
+        try:
+            self.sync_part()
+        except Exception:
+            pass
 
     @property
     def total_items_count(self):
@@ -684,6 +825,19 @@ class Order(models.Model):
         ('CANCELLED', 'Cancelled'),
     ]
 
+    PAYMENT_METHOD_CHOICES = [
+        ('CREDIT_CARD', 'Credit Card'),
+        ('COMPANY_CARD', 'Company Card'),
+        ('DEBIT_CARD', 'Debit Card'),
+        ('E_TRANSFER', 'E-Transfer'),
+        ('NET_30', 'Account / Net 30'),
+        ('WIRE', 'Wire / ACH Transfer'),
+        ('CHEQUE', 'Cheque'),
+        ('CASH', 'Cash'),
+        ('PAYPAL', 'PayPal'),
+        ('OTHER', 'Other'),
+    ]
+
     order_number = models.CharField(
         max_length=50,
         unique=True,
@@ -725,6 +879,33 @@ class Order(models.Model):
         choices=STATUS_CHOICES,
         default='ORDERED',
         verbose_name="Status"
+    )
+    payment_method = models.CharField(
+        max_length=50,
+        choices=PAYMENT_METHOD_CHOICES,
+        default='CREDIT_CARD',
+        blank=True,
+        null=True,
+        verbose_name="Payment Method",
+        help_text="Method used to pay for this purchase order"
+    )
+    payment_reference = models.CharField(
+        max_length=150,
+        blank=True,
+        verbose_name="Payment Reference / Receipt #",
+        help_text="Receipt number, last 4 digits of card, transaction ID, or check number"
+    )
+    payment_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Payment Date",
+        help_text="Date payment was made or scheduled"
+    )
+    payment_notes = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="Payment Notes",
+        help_text="Additional payment notes or terms"
     )
     notes = CKEditor5Field(
         'Order Notes & Instructions',
@@ -784,6 +965,18 @@ class Order(models.Model):
     def is_fully_received(self):
         items = list(self.items.all())
         return len(items) > 0 and all(item.quantity_received >= item.quantity for item in items)
+
+    @property
+    def is_closed(self):
+        """
+        An order is closed once it has been fully received or cancelled.
+        Closed orders are locked from further editing.
+        """
+        return self.status in ['RECEIVED', 'CANCELLED']
+
+    @property
+    def can_edit(self):
+        return not self.is_closed
 
 
 class OrderItem(models.Model):

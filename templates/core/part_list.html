@@ -131,6 +131,11 @@
                             <a href="{% url 'part_detail' part.pk %}" class="fw-bold text-decoration-none text-custom">
                                 {{ part.part_number|default:"(No Part #)" }}
                             </a>
+                            {% if part.assembly_bom %}
+                                <a href="{% url 'bom_detail' part.assembly_bom.pk %}" class="badge bg-primary-subtle text-primary border border-primary-subtle text-decoration-none ms-1" style="font-size: 0.68rem;" title="Built 1000-series product assembly — click to view BoM">
+                                    <i class="bi bi-diagram-3-fill me-1"></i>Assembly
+                                </a>
+                            {% endif %}
                             {% if part.supplier_part_number %}
                                 <div class="text-muted small" style="font-size: 0.75rem;">
                                     SKU: {{ part.supplier_part_number }}

@@ -6,6 +6,17 @@ from .models import (
 
 
 class PartForm(forms.ModelForm):
+    adjustment_reason = forms.CharField(
+        required=False,
+        max_length=255,
+        label="Adjustment Reason",
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Required if changing On-Hand quantity (e.g. Cycle count, damaged, vendor return)'
+        }),
+        help_text="Required when modifying physical on-hand inventory count"
+    )
+
     class Meta:
         model = Part
         fields = [
@@ -107,6 +118,19 @@ class PartForm(forms.ModelForm):
                 )
             else:
                 cleaned_data['part_number'] = raw_pn
+
+        if self.instance and self.instance.pk:
+            old_part = Part.objects.filter(pk=self.instance.pk).first()
+            if old_part:
+                old_on_hand = old_part.quantity_on_hand or 0
+                new_on_hand = cleaned_data.get('quantity_on_hand')
+                if new_on_hand is not None and new_on_hand != old_on_hand:
+                    reason = (cleaned_data.get('adjustment_reason') or '').strip()
+                    if not reason:
+                        self.add_error(
+                            'adjustment_reason',
+                            f"A reason must be included when adjusting On-Hand quantity (from {old_on_hand} to {new_on_hand})."
+                        )
 
         return cleaned_data
 
@@ -234,18 +258,35 @@ class BOMItemForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if 'part' in self.fields:
             self.fields['part'].empty_label = "-- Select Component Part --"
+            existing_part_ids = []
             if self.bom:
                 # Exclude parts that are already in this BOM assembly
-                existing_part_ids = self.bom.items.values_list('part_id', flat=True)
+                existing_part_ids = list(self.bom.items.values_list('part_id', flat=True))
                 if self.instance and self.instance.pk and self.instance.part_id:
-                    existing_part_ids = existing_part_ids.exclude(part_id=self.instance.part_id)
-                self.fields['part'].queryset = Part.objects.exclude(id__in=existing_part_ids)
+                    existing_part_ids = [pid for pid in existing_part_ids if pid != self.instance.part_id]
+                # Exclude self-part to prevent circular self-reference
+                if self.bom.part_id:
+                    existing_part_ids.append(self.bom.part_id)
+
+            from django.db.models.functions import Length
+            parts = (
+                Part.objects.select_related('category')
+                .exclude(id__in=existing_part_ids)
+                .annotate(part_num_len=Length('part_number'))
+                .order_by('part_num_len', 'part_number')
+            )
+            self.fields['part'].queryset = parts
+            self.fields['part'].label_from_instance = lambda obj: (
+                f"{obj.part_number} - {obj.name or obj.description or 'Part'} (On-Hand: {obj.quantity_on_hand}{' — Sub-Assembly' if obj.category and obj.category.get_prefix() == '1000' else ''})"
+            )
 
     def clean(self):
         cleaned_data = super().clean()
         part = cleaned_data.get('part')
         bom = self.bom or (self.instance.bom if self.instance and self.instance.pk else None)
         if bom and part:
+            if bom.part_id and part.pk == bom.part_id:
+                self.add_error('part', "An assembly cannot contain itself as a sub-component.")
             qs = BOMItem.objects.filter(bom=bom, part=part)
             if self.instance and self.instance.pk:
                 qs = qs.exclude(pk=self.instance.pk)
@@ -268,6 +309,10 @@ class OrderForm(forms.ModelForm):
             'carrier',
             'tracking_number',
             'status',
+            'payment_method',
+            'payment_reference',
+            'payment_date',
+            'payment_notes',
             'notes',
         ]
         widgets = {
@@ -278,6 +323,10 @@ class OrderForm(forms.ModelForm):
             'carrier': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. UPS, FedEx, DHL, USPS, Freight'}),
             'tracking_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Tracking / Waybill #'}),
             'status': forms.Select(attrs={'class': 'form-select'}),
+            'payment_method': forms.Select(attrs={'class': 'form-select'}),
+            'payment_reference': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Visa ending 4821, Check #1042, Wire Ref'}),
+            'payment_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'payment_notes': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Optional payment details or terms'}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -285,6 +334,14 @@ class OrderForm(forms.ModelForm):
         if 'supplier' in self.fields:
             self.fields['supplier'].empty_label = "-- Select Supplier / Vendor --"
             self.fields['supplier'].queryset = Company.objects.all().order_by('name')
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if self.instance and self.instance.pk and self.instance.is_closed:
+            raise forms.ValidationError(
+                f"Order '{self.instance.order_number}' is closed ({self.instance.get_status_display()}) and locked. Closed orders cannot be edited."
+            )
+        return cleaned_data
 
 
 class OrderItemForm(forms.ModelForm):

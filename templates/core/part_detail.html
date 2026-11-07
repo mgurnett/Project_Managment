@@ -18,6 +18,11 @@
                 <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill font-monospace px-2.5 py-1">
                     {{ part.part_number|default:"(No Part Number)" }}
                 </span>
+                {% if part.assembly_bom %}
+                    <a href="{% url 'bom_detail' part.assembly_bom.pk %}" class="badge bg-info-subtle text-info border border-info-subtle rounded-pill text-decoration-none px-2.5 py-1" title="Click to view Bill of Materials and Kit">
+                        <i class="bi bi-diagram-3-fill me-1"></i> 1000-Series Built Assembly
+                    </a>
+                {% endif %}
                 {% if part.confirmed %}
                     <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1">
                         <i class="bi bi-check-circle-fill me-1"></i> Confirmed
@@ -31,7 +36,17 @@
             <p class="text-muted fs-6 mb-0 mt-1">{{ part.description }}</p>
         </div>
 
-        <div class="d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if part.assembly_bom %}
+                <a href="{% url 'bom_detail' part.assembly_bom.pk %}" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 shadow-sm" title="View Bill of Materials (BoM)">
+                    <i class="bi bi-diagram-3"></i>
+                    <span>View BoM / Kit</span>
+                </a>
+                <a href="{% url 'sale_create' %}?bom={{ part.assembly_bom.pk }}" class="btn btn-success btn-sm d-flex align-items-center gap-1 shadow-sm" title="Sell this assembly and generate invoice">
+                    <i class="bi bi-receipt"></i>
+                    <span>Sell / Invoice</span>
+                </a>
+            {% endif %}
             {% if part.document %}
                 <a href="{{ part.document.url }}" target="_blank" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 shadow-sm" title="Open Datasheet / Document">
                     <i class="bi bi-file-earmark-arrow-down"></i>
@@ -434,7 +449,13 @@
                                         </td>
                                         <td class="py-2.5 small">
                                             {% for chg in entry.changes %}
-                                                <span class="badge bg-body-tertiary text-body border font-monospace me-1 mb-1">{{ chg }}</span>
+                                                {% if chg|slice:":7" == "Reason:" %}
+                                                    <span class="badge bg-warning-subtle text-dark border border-warning-subtle me-1 mb-1 text-wrap text-start" style="max-width: 350px; font-weight: 500;">
+                                                        <i class="bi bi-chat-left-text me-1"></i>{{ chg }}
+                                                    </span>
+                                                {% else %}
+                                                    <span class="badge bg-body-tertiary text-body border font-monospace me-1 mb-1">{{ chg }}</span>
+                                                {% endif %}
                                             {% endfor %}
                                         </td>
                                         <td class="text-end pe-4 py-2.5 small text-muted">

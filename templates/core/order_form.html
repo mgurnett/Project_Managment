@@ -136,6 +136,60 @@
                         {% endif %}
                     </div>
                 </div>
+
+                <!-- Payment Details Card -->
+                <div class="card border-0 shadow-sm rounded-3 bg-body p-4 mb-4">
+                    <h5 class="fw-bold mb-3 d-flex align-items-center gap-2">
+                        <i class="bi bi-credit-card text-custom"></i>
+                        <span>Payment Details</span>
+                    </h5>
+
+                    <!-- Payment Method -->
+                    <div class="mb-3">
+                        <label for="{{ form.payment_method.id_for_label }}" class="form-label small fw-semibold">
+                            Payment Method
+                        </label>
+                        {{ form.payment_method }}
+                        {% if form.payment_method.errors %}
+                            <div class="text-danger small mt-1">{{ form.payment_method.errors.0 }}</div>
+                        {% endif %}
+                        <div class="form-text small">How this purchase order was paid or invoiced.</div>
+                    </div>
+
+                    <!-- Payment Reference / Receipt -->
+                    <div class="mb-3">
+                        <label for="{{ form.payment_reference.id_for_label }}" class="form-label small fw-semibold">
+                            Reference / Receipt # / Last 4
+                        </label>
+                        {{ form.payment_reference }}
+                        {% if form.payment_reference.errors %}
+                            <div class="text-danger small mt-1">{{ form.payment_reference.errors.0 }}</div>
+                        {% endif %}
+                        <div class="form-text small">e.g. Card ending 4912, Check #1042, Transaction ID.</div>
+                    </div>
+
+                    <!-- Payment Date -->
+                    <div class="mb-3">
+                        <label for="{{ form.payment_date.id_for_label }}" class="form-label small fw-semibold">
+                            Payment Date
+                        </label>
+                        {{ form.payment_date }}
+                        {% if form.payment_date.errors %}
+                            <div class="text-danger small mt-1">{{ form.payment_date.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Payment Notes -->
+                    <div class="mb-0">
+                        <label for="{{ form.payment_notes.id_for_label }}" class="form-label small fw-semibold">
+                            Payment Notes / Terms
+                        </label>
+                        {{ form.payment_notes }}
+                        {% if form.payment_notes.errors %}
+                            <div class="text-danger small mt-1">{{ form.payment_notes.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
             </div>
 
             <!-- Right Column: Parts to Order (Line Items) or Order Edit Notes -->

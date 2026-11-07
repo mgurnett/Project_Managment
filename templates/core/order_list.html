@@ -125,6 +125,7 @@
                         <th scope="col" class="ps-4 py-3">Order / PO #</th>
                         <th scope="col" class="py-3">Supplier</th>
                         <th scope="col" class="py-3">Status</th>
+                        <th scope="col" class="py-3">Payment</th>
                         <th scope="col" class="py-3">Order Date</th>
                         <th scope="col" class="py-3">Expected Delivery</th>
                         <th scope="col" class="py-3">Carrier / Tracking</th>
@@ -157,6 +158,15 @@
                                 <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">Received</span>
                             {% elif o.status == 'CANCELLED' %}
                                 <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1">Cancelled</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-3 small">
+                            {% if o.payment_method %}
+                                <span class="badge bg-light text-dark border font-monospace" style="font-size: 0.75rem;">
+                                    {{ o.get_payment_method_display }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">&mdash;</span>
                             {% endif %}
                         </td>
                         <td class="py-3 small text-muted">
@@ -195,12 +205,18 @@
                                 <a href="{% url 'order_detail' o.pk %}" class="btn btn-outline-secondary" title="View Order Details">
                                     <i class="bi bi-eye"></i>
                                 </a>
+                                {% if not o.is_closed %}
                                 <a href="{% url 'order_update' o.pk %}" class="btn btn-outline-secondary" title="Edit Order">
                                     <i class="bi bi-pencil"></i>
                                 </a>
                                 <a href="{% url 'order_delete' o.pk %}" class="btn btn-outline-danger" title="Delete Order">
                                     <i class="bi bi-trash"></i>
                                 </a>
+                                {% else %}
+                                <button type="button" class="btn btn-outline-secondary disabled" title="Order is closed and locked" disabled>
+                                    <i class="bi bi-lock-fill text-muted"></i>
+                                </button>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>

@@ -159,15 +159,16 @@
                 <table class="table table-hover align-middle mb-0">
                     <thead class="table-light border-bottom small text-uppercase text-muted">
                         <tr>
-                            <th class="ps-4 py-2" style="width: 12%;">Part #</th>
-                            <th class="py-2" style="width: 24%;">Component Name &amp; Description</th>
-                            <th class="py-2" style="width: 12%;">Storage Location</th>
-                            <th class="text-end py-2" style="width: 10%;">Unit Price</th>
-                            <th class="text-center py-2" style="width: 9%;">Committed</th>
-                            <th class="text-center py-2" style="width: 9%;">On Order</th>
-                            <th class="text-center py-2" style="width: 10%;">Should Be (On-Hand)</th>
-                            <th class="text-center py-2" style="width: 12%;">Actual Count</th>
-                            <th class="text-end pe-4 py-2" style="width: 10%;">Adjustment</th>
+                            <th class="ps-4 py-2" style="width: 10%;">Part #</th>
+                            <th class="py-2" style="width: 19%;">Component Name &amp; Description</th>
+                            <th class="py-2" style="width: 10%;">Storage Location</th>
+                            <th class="text-end py-2" style="width: 8%;">Unit Price</th>
+                            <th class="text-center py-2" style="width: 7%;">Committed</th>
+                            <th class="text-center py-2" style="width: 7%;">On Order</th>
+                            <th class="text-center py-2" style="width: 9%;">Should Be</th>
+                            <th class="text-center py-2" style="width: 9%;">Actual Count</th>
+                            <th class="text-center py-2" style="width: 8%;">Adjustment</th>
+                            <th class="py-2 pe-4" style="width: 13%;">Reason for Adjustment <span class="text-danger">*</span></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -208,13 +209,22 @@
                                 <input type="number"
                                        name="actual_count_{{ part.pk }}"
                                        class="form-control form-control-sm text-center fw-bold actual-count-input mx-auto"
-                                       style="max-width: 100px;"
+                                       style="max-width: 90px;"
                                        min="0"
                                        placeholder="{{ part.quantity_on_hand|default:0 }}"
                                        value="">
                             </td>
-                            <td class="text-end pe-4 py-2 font-monospace fw-bold delta-cell text-muted small">
+                            <td class="text-center py-2 font-monospace fw-bold delta-cell text-muted small">
                                 &mdash;
+                            </td>
+                            <td class="pe-4 py-2">
+                                <input type="text"
+                                       name="reason_{{ part.pk }}"
+                                       id="reason_{{ part.pk }}"
+                                       class="form-control form-control-sm adjustment-reason-input"
+                                       placeholder="Reason if changed..."
+                                       list="commonAdjustmentReasons"
+                                       value="">
                             </td>
                         </tr>
                         {% endfor %}
@@ -237,12 +247,24 @@
         {% endif %}
     </form>
 
+    <datalist id="commonAdjustmentReasons">
+        <option value="Cycle count discrepancy">
+        <option value="Physical count correction">
+        <option value="Damaged / broken items scrapped">
+        <option value="Found extra / untracked stock">
+        <option value="Vendor shipment error correction">
+        <option value="Internal testing / engineering use">
+        <option value="Customer return restocked">
+        <option value="Assembly build scrap">
+    </datalist>
+
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('takeInventoryForm');
     const rows = document.querySelectorAll('.inventory-row');
     const fillExpectedBtn = document.getElementById('fillExpectedBtn');
 
@@ -250,12 +272,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const expected = parseInt(row.getAttribute('data-expected')) || 0;
         const input = row.querySelector('.actual-count-input');
         const deltaCell = row.querySelector('.delta-cell');
+        const reasonInput = row.querySelector('.adjustment-reason-input');
         if (!input || !deltaCell) return;
 
         const raw = input.value.trim();
         if (raw === '') {
             deltaCell.textContent = '—';
-            deltaCell.className = 'text-end pe-4 py-2 font-monospace fw-bold delta-cell text-muted small';
+            deltaCell.className = 'text-center py-2 font-monospace fw-bold delta-cell text-muted small';
+            if (reasonInput) {
+                reasonInput.required = false;
+                reasonInput.classList.remove('border-warning', 'is-invalid');
+            }
             return;
         }
         const actual = parseInt(raw);
@@ -263,20 +290,40 @@ document.addEventListener('DOMContentLoaded', function() {
         const diff = actual - expected;
         if (diff === 0) {
             deltaCell.textContent = '0 (Match)';
-            deltaCell.className = 'text-end pe-4 py-2 font-monospace fw-bold delta-cell text-success small';
+            deltaCell.className = 'text-center py-2 font-monospace fw-bold delta-cell text-success small';
+            if (reasonInput) {
+                reasonInput.required = false;
+                reasonInput.classList.remove('border-warning', 'is-invalid');
+            }
         } else if (diff > 0) {
             deltaCell.textContent = '+' + diff;
-            deltaCell.className = 'text-end pe-4 py-2 font-monospace fw-bold delta-cell text-primary small';
+            deltaCell.className = 'text-center py-2 font-monospace fw-bold delta-cell text-primary small';
+            if (reasonInput) {
+                reasonInput.required = true;
+                reasonInput.classList.add('border-warning');
+            }
         } else {
             deltaCell.textContent = String(diff);
-            deltaCell.className = 'text-end pe-4 py-2 font-monospace fw-bold delta-cell text-danger small';
+            deltaCell.className = 'text-center py-2 font-monospace fw-bold delta-cell text-danger small';
+            if (reasonInput) {
+                reasonInput.required = true;
+                reasonInput.classList.add('border-warning');
+            }
         }
     }
 
     rows.forEach(row => {
         const input = row.querySelector('.actual-count-input');
+        const reasonInput = row.querySelector('.adjustment-reason-input');
         if (input) {
             input.addEventListener('input', () => updateRowDelta(row));
+        }
+        if (reasonInput) {
+            reasonInput.addEventListener('input', function() {
+                if (this.value.trim()) {
+                    this.classList.remove('is-invalid');
+                }
+            });
         }
     });
 
@@ -290,6 +337,42 @@ document.addEventListener('DOMContentLoaded', function() {
                     updateRowDelta(row);
                 }
             });
+        });
+    }
+
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            let hasError = false;
+            let firstInvalid = null;
+
+            rows.forEach(row => {
+                const expected = parseInt(row.getAttribute('data-expected')) || 0;
+                const input = row.querySelector('.actual-count-input');
+                const reasonInput = row.querySelector('.adjustment-reason-input');
+                if (input && reasonInput) {
+                    const raw = input.value.trim();
+                    if (raw !== '') {
+                        const actual = parseInt(raw);
+                        if (!isNaN(actual) && actual !== expected) {
+                            if (!reasonInput.value.trim()) {
+                                hasError = true;
+                                reasonInput.classList.add('is-invalid');
+                                if (!firstInvalid) firstInvalid = reasonInput;
+                            } else {
+                                reasonInput.classList.remove('is-invalid');
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (hasError) {
+                e.preventDefault();
+                alert('Please provide a mandatory reason for all parts where inventory count was adjusted.');
+                if (firstInvalid) {
+                    firstInvalid.focus();
+                }
+            }
         });
     }
 });

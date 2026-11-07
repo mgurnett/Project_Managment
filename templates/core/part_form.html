@@ -135,6 +135,18 @@
                         <label class="form-label small fw-semibold">Available</label>
                         {{ form.quantity_availible }}
                     </div>
+                    {% if object and object.pk %}
+                    <div class="col-12 mt-2">
+                        <label class="form-label small fw-semibold">
+                            Adjustment Reason <span class="text-muted fw-normal">(Required if changing On-Hand quantity)</span>
+                        </label>
+                        {{ form.adjustment_reason }}
+                        {% if form.adjustment_reason.errors %}
+                            <div class="text-danger small mt-1">{{ form.adjustment_reason.errors.0 }}</div>
+                        {% endif %}
+                        <div class="form-text small">A reason must be recorded whenever modifying the physical on-hand inventory count.</div>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>

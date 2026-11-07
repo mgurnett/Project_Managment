@@ -1,6 +1,7 @@
 agent dialog.txt
-What we need to be able to do is create an invoice for an assembly that is not built yet.  Then when it is built, then we nee to close the invoice by selling hte assembly and adding a big "PAID STAMPED" over the invoice.  
 
-This mean that we need to be able to create an invoice, chooes what assemblies (built or not) are on it and make it a PDF.  Then we need to mark that inovie as paid.  When we do that then the assembly needs to be removed from the list of assemblies that are built yet.  the PDF needs to be saved somewhere.
-
-I will work on getting an email address of michael@granrywatch.com working. Then we can send the invoice from django.
+There are some ideas that have come up while using it. 
+- we need to be able to edit order until it is closed.  Then it needs to be fixed.
+on orders, we need to record how it was paid.
+when duplicating parts, use a defauld quantity of 0.
+when adjusting part quantity in inventory, a reason must be included and that reson need to be added to the adjustment record. 

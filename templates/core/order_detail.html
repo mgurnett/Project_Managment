@@ -46,6 +46,7 @@
                 </button>
             </form>
             {% endif %}
+            {% if not order.is_closed %}
             <button type="button" class="btn btn-sm btn-custom" data-bs-toggle="modal" data-bs-target="#addItemModal">
                 <i class="bi bi-plus-circle me-1"></i> Add Part
             </button>
@@ -55,6 +56,11 @@
             <a href="{% url 'order_delete' order.pk %}" class="btn btn-outline-danger btn-sm">
                 <i class="bi bi-trash me-1"></i> Delete
             </a>
+            {% else %}
+            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-3 py-2 fw-semibold">
+                <i class="bi bi-lock-fill me-1"></i> Order Closed / Locked
+            </span>
+            {% endif %}
         </div>
     </div>
 
@@ -155,9 +161,11 @@
                 </h5>
                 <span class="text-muted small">All component parts included in this purchase order.</span>
             </div>
+            {% if not order.is_closed %}
             <button type="button" class="btn btn-sm btn-outline-custom" data-bs-toggle="modal" data-bs-target="#addItemModal">
                 <i class="bi bi-plus-circle me-1"></i> Add Part
             </button>
+            {% endif %}
         </div>
 
         <div class="table-responsive">
@@ -237,16 +245,18 @@
                         </td>
                         <td class="text-end pe-4 py-3">
                             <div class="btn-group btn-group-sm">
-                                {% if item.remaining_to_receive > 0 %}
+                                {% if item.remaining_to_receive > 0 and not order.is_closed %}
                                 <button type="button" class="btn btn-outline-success" 
                                         onclick="openReceiveModal('{{ item.pk }}', '{{ item.part.part_number|escapejs }}', '{{ item.remaining_to_receive }}', '{{ item.unit_price|default:item.part.price_per|default:'' }}', '{{ item.part.quantity|default:1 }}')"
                                         title="Receive Units">
                                     <i class="bi bi-box-arrow-in-down me-1"></i> Receive
                                 </button>
                                 {% endif %}
+                                {% if not order.is_closed %}
                                 <a href="{% url 'order_item_delete' item.pk %}" class="btn btn-outline-danger" title="Remove part from order">
                                     <i class="bi bi-trash"></i>
                                 </a>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>
@@ -256,9 +266,11 @@
                             <div class="my-3">
                                 <i class="bi bi-box-seam fs-2 text-secondary opacity-50 mb-2 d-block"></i>
                                 <span class="d-block mb-2">No parts attached to this order yet.</span>
+                                {% if not order.is_closed %}
                                 <button type="button" class="btn btn-sm btn-custom" data-bs-toggle="modal" data-bs-target="#addItemModal">
                                     <i class="bi bi-plus-circle me-1"></i> Add Component Part
                                 </button>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>
@@ -281,37 +293,86 @@
         </div>
     </div>
 
-    <!-- Notes & Logistics Card -->
-    {% if order.notes or order.carrier or order.tracking_number %}
-    <div class="card border-0 shadow-sm rounded-3 bg-body p-4 mb-4">
-        <h5 class="fw-bold mb-3 d-flex align-items-center gap-2">
-            <i class="bi bi-card-text text-custom"></i>
-            <span>Order Notes & Delivery Information</span>
-        </h5>
-        {% if order.carrier or order.tracking_number %}
-        <div class="row g-3 mb-3">
-            {% if order.carrier %}
-            <div class="col-12 col-md-4">
-                <span class="text-muted small text-uppercase fw-semibold d-block">Carrier</span>
-                <span class="fw-semibold text-body">{{ order.carrier }}</span>
+    <!-- Payment & Logistics Information -->
+    <div class="row g-4 mb-4">
+        <!-- Payment Details Card -->
+        <div class="col-12 col-lg-6">
+            <div class="card border-0 shadow-sm rounded-3 bg-body p-4 h-100">
+                <h5 class="fw-bold mb-3 d-flex align-items-center gap-2">
+                    <i class="bi bi-credit-card text-custom"></i>
+                    <span>Payment Information</span>
+                </h5>
+                <div class="row g-3">
+                    <div class="col-6">
+                        <span class="text-muted small text-uppercase fw-semibold d-block">Payment Method</span>
+                        {% if order.payment_method %}
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1 fw-semibold fs-6">
+                                <i class="bi bi-wallet2 me-1"></i>{{ order.get_payment_method_display }}
+                            </span>
+                        {% else %}
+                            <span class="text-muted small">Not recorded</span>
+                        {% endif %}
+                    </div>
+                    <div class="col-6">
+                        <span class="text-muted small text-uppercase fw-semibold d-block">Payment Date</span>
+                        {% if order.payment_date %}
+                            <span class="fw-semibold text-body"><i class="bi bi-calendar-check me-1 text-success"></i>{{ order.payment_date|date:"M j, Y" }}</span>
+                        {% else %}
+                            <span class="text-muted small">&mdash;</span>
+                        {% endif %}
+                    </div>
+                    <div class="col-12">
+                        <span class="text-muted small text-uppercase fw-semibold d-block">Reference / Receipt #</span>
+                        {% if order.payment_reference %}
+                            <span class="font-monospace fw-bold text-body bg-light border px-2 py-1 rounded d-inline-block">{{ order.payment_reference }}</span>
+                        {% else %}
+                            <span class="text-muted small">&mdash;</span>
+                        {% endif %}
+                    </div>
+                    {% if order.payment_notes %}
+                    <div class="col-12">
+                        <span class="text-muted small text-uppercase fw-semibold d-block">Payment Notes / Terms</span>
+                        <div class="small text-body">{{ order.payment_notes }}</div>
+                    </div>
+                    {% endif %}
+                </div>
             </div>
-            {% endif %}
-            {% if order.tracking_number %}
-            <div class="col-12 col-md-8">
-                <span class="text-muted small text-uppercase fw-semibold d-block">Tracking Number</span>
-                <span class="font-monospace fw-semibold text-body">{{ order.tracking_number }}</span>
-            </div>
-            {% endif %}
         </div>
-        {% endif %}
 
-        {% if order.notes %}
-        <div class="article-content border-top pt-3">
-            {{ order.notes|safe }}
+        <!-- Notes & Logistics Card -->
+        <div class="col-12 col-lg-6">
+            <div class="card border-0 shadow-sm rounded-3 bg-body p-4 h-100">
+                <h5 class="fw-bold mb-3 d-flex align-items-center gap-2">
+                    <i class="bi bi-card-text text-custom"></i>
+                    <span>Order Notes & Delivery Information</span>
+                </h5>
+                {% if order.carrier or order.tracking_number %}
+                <div class="row g-3 mb-3">
+                    {% if order.carrier %}
+                    <div class="col-12 col-md-4">
+                        <span class="text-muted small text-uppercase fw-semibold d-block">Carrier</span>
+                        <span class="fw-semibold text-body">{{ order.carrier }}</span>
+                    </div>
+                    {% endif %}
+                    {% if order.tracking_number %}
+                    <div class="col-12 col-md-8">
+                        <span class="text-muted small text-uppercase fw-semibold d-block">Tracking Number</span>
+                        <span class="font-monospace fw-semibold text-body">{{ order.tracking_number }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                {% if order.notes %}
+                <div class="article-content border-top pt-3">
+                    {{ order.notes|safe }}
+                </div>
+                {% elif not order.carrier and not order.tracking_number %}
+                <div class="text-muted small">No special delivery instructions or notes provided for this order.</div>
+                {% endif %}
+            </div>
         </div>
-        {% endif %}
     </div>
-    {% endif %}
 
 </div>
 

@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
     Company, Manufacturer, Category, Location, Part, PartDocument,
+    InventoryAdjustment,
     BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem
 )
 
@@ -206,23 +207,52 @@ class OrderItemInline(admin.TabularInline):
     fields = ('part', 'quantity', 'quantity_received', 'unit_price', 'notes')
 
 
+@admin.register(InventoryAdjustment)
+class InventoryAdjustmentAdmin(admin.ModelAdmin):
+    list_display = ('created_at', 'part', 'old_quantity', 'new_quantity', 'delta_display', 'reason', 'user')
+    list_filter = ('created_at', 'user')
+    search_fields = ('part__part_number', 'part__name', 'reason', 'user__username')
+    autocomplete_fields = ('part',)
+    readonly_fields = ('created_at', 'part', 'old_quantity', 'new_quantity', 'delta', 'reason', 'user')
+
+    def delta_display(self, obj):
+        color = '#10b981' if obj.delta > 0 else ('#ef4444' if obj.delta < 0 else '#64748b')
+        sign = f"+{obj.delta}" if obj.delta > 0 else str(obj.delta)
+        return format_html(
+            '<span style="color: {}; font-weight: bold; font-family: monospace;">{}</span>',
+            color, sign
+        )
+    delta_display.short_description = "Change"
+
+
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
         'order_number',
         'supplier',
         'status_badge',
+        'payment_method',
         'order_date',
         'expected_delivery_date',
         'tracking_number',
         'items_count_display',
         'total_cost_display',
     )
-    list_filter = ('status', 'supplier', 'order_date', 'expected_delivery_date')
-    search_fields = ('order_number', 'tracking_number', 'supplier__name', 'notes')
+    list_filter = ('status', 'payment_method', 'supplier', 'order_date', 'expected_delivery_date')
+    search_fields = ('order_number', 'tracking_number', 'supplier__name', 'payment_reference', 'notes')
     autocomplete_fields = ('supplier',)
     inlines = [OrderItemInline]
     date_hierarchy = 'order_date'
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.is_closed:
+            return [f.name for f in self.model._meta.fields]
+        return super().get_readonly_fields(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.is_closed:
+            return False
+        return super().has_delete_permission(request, obj)
 
     def items_count_display(self, obj):
         return f"{obj.total_items_count} items ({obj.total_units_ordered} pcs)"
