@@ -302,6 +302,48 @@
                             </a>
                         </div>
                     {% endif %}
+
+                    {% if assembly_bom and assembly_documents %}
+                        <div class="mt-3 p-3 bg-primary-subtle bg-opacity-10 rounded border border-primary-subtle">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="small fw-bold text-uppercase text-primary" style="font-size: 0.72rem; letter-spacing: 0.05em;">
+                                    <i class="bi bi-diagram-3 me-1"></i> Assembly BoM Documentation ({{ assembly_documents.count }})
+                                </span>
+                                <a href="{% url 'bom_document_create' assembly_bom.pk %}?next={% url 'part_detail' part.pk %}" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.72rem;">
+                                    + Add Schematic / Video
+                                </a>
+                            </div>
+                            <div class="list-group list-group-flush bg-transparent">
+                                {% for doc in assembly_documents %}
+                                    <div class="list-group-item bg-transparent px-0 py-1.5 d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <a href="{% url 'bom_document_detail' doc.pk %}?next={% url 'part_detail' part.pk %}" class="fw-semibold text-decoration-none text-body small">
+                                                {{ doc.title }}
+                                            </a>
+                                            <span class="badge {% if doc.document_type == 'video' %}bg-danger-subtle text-danger border border-danger-subtle{% elif doc.document_type == 'schematic' %}bg-primary-subtle text-primary border border-primary-subtle{% else %}bg-secondary-subtle text-secondary border border-secondary-subtle{% endif %} ms-1 py-0 px-1" style="font-size: 0.65rem;">
+                                                {{ doc.get_document_type_display }}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            {% if doc.is_youtube %}
+                                                <a href="{% url 'bom_document_detail' doc.pk %}?next={% url 'part_detail' part.pk %}" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.7rem;">
+                                                    <i class="bi bi-play-circle me-1"></i> Watch Video
+                                                </a>
+                                            {% elif doc.file %}
+                                                <a href="{{ doc.file.url }}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.7rem;">
+                                                    <i class="bi bi-eye me-1"></i> View
+                                                </a>
+                                            {% elif doc.external_url %}
+                                                <a href="{{ doc.external_url }}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.7rem;">
+                                                    Visit ↗
+                                                </a>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
                 </div>
             </div>
 

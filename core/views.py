@@ -19,12 +19,12 @@ from django.db.models.functions import Length
 from .models import (
     Part, Company, Manufacturer, Category, Location, PartDocument,
     InventoryAdjustment,
-    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem,
+    BOM, BOMItem, BOMDocument, Order, OrderItem, AssemblySale, AssemblySaleItem,
     Quote, QuoteItem
 )
 from .forms import (
     PartForm, CompanyForm, ManufacturerForm, CategoryForm, LocationForm,
-    PartDocumentForm, BOMForm, BOMItemForm, OrderForm, OrderItemForm, AssemblySaleForm,
+    PartDocumentForm, BOMForm, BOMItemForm, BOMDocumentForm, OrderForm, OrderItemForm, AssemblySaleForm,
     QuoteForm
 )
 
@@ -280,6 +280,9 @@ class PartDetailView(DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx['documents'] = self.object.documents.all()
         ctx['document_form'] = PartDocumentForm()
+        if hasattr(self.object, 'assembly_bom') and self.object.assembly_bom:
+            ctx['assembly_bom'] = self.object.assembly_bom
+            ctx['assembly_documents'] = self.object.assembly_bom.documents.all()
         ctx['order_items'] = (
             self.object.order_items
             .select_related('order', 'order__supplier')
@@ -1020,6 +1023,108 @@ class PartDocumentDeleteView(DeleteView):
 
 
 # ==============================================================================
+# BOM / ASSEMBLY / KIT DOCUMENT, SCHEMATIC & VIDEO VIEWS
+# ==============================================================================
+
+class BOMDocumentCreateView(CreateView):
+    """
+    Add a document, schematic, or YouTube video link for a BOM / Assembly / Kit.
+    """
+    model = BOMDocument
+    form_class = BOMDocumentForm
+    template_name = 'core/bom_document_form.html'
+
+    def get_bom(self):
+        return get_object_or_404(BOM, pk=self.kwargs['bom_pk'])
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['bom'] = self.get_bom()
+        ctx['next'] = self.request.GET.get('next') or self.request.POST.get('next', '')
+        return ctx
+
+    def form_valid(self, form):
+        bom = self.get_bom()
+        form.instance.bom = bom
+        self.object = form.save()
+        messages.success(
+            self.request,
+            f"Document '{self.object.title}' ({self.object.get_document_type_display()}) was added to {bom.name}!"
+        )
+        next_url = self.request.POST.get('next') or self.request.GET.get('next')
+        if next_url:
+            return redirect(next_url)
+        return redirect('bom_document_detail', pk=self.object.pk)
+
+
+class BOMDocumentDetailView(DetailView):
+    """
+    Viewer page for a BOM / Assembly / Kit document:
+    - Embedded YouTube player for video links
+    - PDF viewer / direct download for PDF schematics
+    - Image lightbox viewer for diagrams/scans
+    - Notes and instructions reader
+    """
+    model = BOMDocument
+    template_name = 'core/bom_document_detail.html'
+    context_object_name = 'doc'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['bom'] = self.object.bom
+        ctx['back_url'] = self.request.GET.get('next') or reverse('bom_detail', kwargs={'pk': self.object.bom.pk})
+        return ctx
+
+
+class BOMDocumentUpdateView(UpdateView):
+    """
+    Edit title, document type, file, URL, or notes for a BOM document.
+    """
+    model = BOMDocument
+    form_class = BOMDocumentForm
+    template_name = 'core/bom_document_form.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['bom'] = self.object.bom
+        ctx['next'] = self.request.GET.get('next') or self.request.POST.get('next', '')
+        return ctx
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, f"Document '{self.object.title}' was updated successfully!")
+        next_url = self.request.POST.get('next') or self.request.GET.get('next')
+        if next_url:
+            return redirect(next_url)
+        return redirect('bom_document_detail', pk=self.object.pk)
+
+
+class BOMDocumentDeleteView(DeleteView):
+    """
+    Delete a BOM document or link.
+    """
+    model = BOMDocument
+    template_name = 'core/confirm_delete.html'
+
+    def get_success_url(self):
+        next_url = self.request.GET.get('next') or self.request.POST.get('next')
+        if next_url:
+            return next_url
+        return reverse('bom_detail', kwargs={'pk': self.object.bom.pk})
+
+    def form_valid(self, form):
+        doc = self.get_object()
+        if doc.file:
+            try:
+                if os.path.exists(doc.file.path):
+                    os.remove(doc.file.path)
+            except Exception:
+                pass
+        messages.success(self.request, f"Document '{doc.title}' was deleted from {doc.bom.name}.")
+        return super().form_valid(form)
+
+
+# ==============================================================================
 # BILL OF MATERIALS (BOM) VIEWS
 # ==============================================================================
 
@@ -1066,6 +1171,8 @@ class BOMDetailView(DetailView):
         items = list(self.object.items.select_related('part', 'part__company', 'part__location').all())
         ctx['items'] = items
         ctx['item_form'] = BOMItemForm(bom=self.object)
+        ctx['documents'] = list(self.object.documents.all())
+        ctx['document_form'] = BOMDocumentForm()
         if items:
             max_kits = []
             max_builds = []
@@ -3113,7 +3220,7 @@ class KitActionView(TemplateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        boms = list(BOM.objects.prefetch_related('items__part', 'items__part__location').order_by('name'))
+        boms = list(BOM.objects.prefetch_related('items__part', 'items__part__location', 'documents').order_by('name'))
         active_kits_count = 0
         total_kitted_sets = 0
         for bom in boms:
@@ -3144,10 +3251,15 @@ class KitActionView(TemplateView):
         selected_id = self.request.GET.get('bom')
         if selected_id and selected_id.isdigit():
             ctx['selected_bom'] = next((b for b in boms if b.pk == int(selected_id)), None)
-        elif boms:
+        if boms:
             ctx['selected_bom'] = boms[0]
         else:
             ctx['selected_bom'] = None
+        if ctx['selected_bom']:
+            ctx['selected_bom_documents'] = list(ctx['selected_bom'].documents.all())
+        else:
+            ctx['selected_bom_documents'] = []
+        ctx['document_form'] = BOMDocumentForm()
         return ctx
 
     def post(self, request, *args, **kwargs):
@@ -3184,7 +3296,7 @@ class BuildActionView(TemplateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        boms = list(BOM.objects.prefetch_related('items__part', 'items__part__location').order_by('name'))
+        boms = list(BOM.objects.prefetch_related('items__part', 'items__part__location', 'documents').order_by('name'))
         for bom in boms:
             items = list(bom.items.all())
             if items:
@@ -3205,10 +3317,15 @@ class BuildActionView(TemplateView):
         selected_id = self.request.GET.get('bom')
         if selected_id and selected_id.isdigit():
             ctx['selected_bom'] = next((b for b in boms if b.pk == int(selected_id)), None)
-        elif boms:
+        if boms:
             ctx['selected_bom'] = boms[0]
         else:
             ctx['selected_bom'] = None
+        if ctx['selected_bom']:
+            ctx['selected_bom_documents'] = list(ctx['selected_bom'].documents.all())
+        else:
+            ctx['selected_bom_documents'] = []
+        ctx['document_form'] = BOMDocumentForm()
         return ctx
 
     def post(self, request, *args, **kwargs):

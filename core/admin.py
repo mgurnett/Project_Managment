@@ -3,7 +3,7 @@ from django.utils.html import format_html
 from .models import (
     Company, Manufacturer, Category, Location, Part, PartDocument,
     InventoryAdjustment,
-    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem,
+    BOM, BOMItem, BOMDocument, Order, OrderItem, AssemblySale, AssemblySaleItem,
     Quote, QuoteItem
 )
 
@@ -192,13 +192,19 @@ class BOMItemInline(admin.TabularInline):
     fields = ('part', 'reference', 'quantity', 'notes')
 
 
+class BOMDocumentInline(admin.TabularInline):
+    model = BOMDocument
+    extra = 1
+    fields = ('title', 'document_type', 'file', 'external_url')
+
+
 @admin.register(BOM)
 class BOMAdmin(admin.ModelAdmin):
     list_display = ('assembly_number', 'name', 'description', 'quantity_on_hand', 'sale_price', 'total_items_display', 'total_cost_display', 'updated_at')
     list_display_links = ('assembly_number', 'name')
     list_editable = ('quantity_on_hand', 'sale_price')
     search_fields = ('assembly_number', 'name', 'description', 'notes')
-    inlines = [BOMItemInline]
+    inlines = [BOMItemInline, BOMDocumentInline]
 
     def total_items_display(self, obj):
         return f"{obj.total_items_count} items ({obj.total_parts_quantity} pcs)"
@@ -207,6 +213,27 @@ class BOMAdmin(admin.ModelAdmin):
     def total_cost_display(self, obj):
         return f"${obj.total_cost:.2f}"
     total_cost_display.short_description = "Unit Cost"
+
+
+@admin.register(BOMDocument)
+class BOMDocumentAdmin(admin.ModelAdmin):
+    list_display = ('title', 'bom', 'document_type', 'file_link', 'external_url_link', 'created_at')
+    list_filter = ('document_type', 'created_at')
+    search_fields = ('title', 'bom__name', 'bom__assembly_number', 'notes')
+    autocomplete_fields = ('bom',)
+
+    def file_link(self, obj):
+        if obj.file:
+            return format_html('<a href="{}" target="_blank" class="button" style="padding: 2px 8px; font-size: 11px;">View File ↗</a>', obj.file.url)
+        return "-"
+    file_link.short_description = "File"
+
+    def external_url_link(self, obj):
+        if obj.external_url:
+            return format_html('<a href="{}" target="_blank" class="button" style="padding: 2px 8px; font-size: 11px;">Visit ↗</a>', obj.external_url)
+        return "-"
+    external_url_link.short_description = "URL"
+
 
 
 class OrderItemInline(admin.TabularInline):

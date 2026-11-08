@@ -1,7 +1,7 @@
 from django import forms
 from .models import (
     Part, Company, Manufacturer, Category, Location, PartDocument,
-    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem,
+    BOM, BOMItem, BOMDocument, Order, OrderItem, AssemblySale, AssemblySaleItem,
     Quote, QuoteItem
 )
 
@@ -303,6 +303,36 @@ class BOMItemForm(forms.ModelForm):
                     'part',
                     f"Component '{part.part_number}' is already included in '{bom.name}'. Each component can only appear once per BOM assembly."
                 )
+        return cleaned_data
+
+
+class BOMDocumentForm(forms.ModelForm):
+    class Meta:
+        model = BOMDocument
+        fields = ['title', 'document_type', 'file', 'external_url', 'notes']
+        widgets = {
+            'title': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'e.g. Main Board Schematic Rev C, YouTube Build Walkthrough, Enclosure Assembly Guide'
+            }),
+            'document_type': forms.Select(attrs={'class': 'form-select'}),
+            'file': forms.FileInput(attrs={'class': 'form-control'}),
+            'external_url': forms.URLInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'https://www.youtube.com/watch?v=... or https://...'
+            }),
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        file = cleaned_data.get('file')
+        external_url = cleaned_data.get('external_url')
+        notes = cleaned_data.get('notes')
+
+        if not file and not external_url and not notes:
+            raise forms.ValidationError(
+                "Please provide at least one resource: an uploaded file/schematic, an external URL / video link, or notes."
+            )
         return cleaned_data
 
 

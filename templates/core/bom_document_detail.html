@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}{{ doc.title }} | {{ bom.name }} | Inventory Manager{% endblock %}
+
+{% block breadcrumb %}
+    <a href="{% url 'bom_list' %}" class="text-decoration-none text-muted">BoMs</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <a href="{% url 'bom_detail' bom.pk %}" class="text-decoration-none text-muted">{{ bom.name }}</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>{{ doc.title }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0" style="max-width: 980px;">
+
+    <!-- Top Action Toolbar -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                <span class="badge bg-primary text-white font-monospace px-2 py-0.5">
+                    {{ bom.assembly_number|default:"1000-001" }}
+                </span>
+                <span class="badge {% if doc.document_type == 'schematic' %}bg-primary-subtle text-primary border border-primary-subtle{% elif doc.document_type == 'video' %}bg-danger-subtle text-danger border border-danger-subtle{% elif doc.document_type == 'instructions' %}bg-success-subtle text-success border border-success-subtle{% elif doc.document_type == 'drawing' %}bg-info-subtle text-info border border-info-subtle{% else %}bg-secondary-subtle text-secondary border border-secondary-subtle{% endif %} px-2.5 py-1 text-uppercase fw-semibold" style="font-size: 0.75rem;">
+                    {% if doc.document_type == 'video' %}<i class="bi bi-youtube me-1"></i>{% elif doc.document_type == 'schematic' %}<i class="bi bi-diagram-3 me-1"></i>{% endif %}
+                    {{ doc.get_document_type_display }}
+                </span>
+            </div>
+            <h1 class="h3 fw-bold mb-1 text-custom">{{ doc.title }}</h1>
+            <p class="text-muted small mb-0">
+                Attached to BoM / Kit Assembly: <a href="{% url 'bom_detail' bom.pk %}" class="fw-semibold text-decoration-none text-body">{{ bom.name }}</a>
+                &bull; Added {{ doc.created_at|date:"F d, Y" }}
+            </p>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i> Back
+            </a>
+            <a href="{% url 'kit_action' %}?bom={{ bom.pk }}#pullSheetSection" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-box-seam me-1"></i> View Kit Pull Sheet
+            </a>
+            <a href="{% url 'bom_document_update' doc.pk %}?next={{ back_url|urlencode }}" class="btn btn-outline-custom btn-sm">
+                <i class="bi bi-pencil me-1"></i> Edit
+            </a>
+            <a href="{% url 'bom_document_delete' doc.pk %}?next={{ back_url|urlencode }}" class="btn btn-outline-danger btn-sm" title="Delete">
+                <i class="bi bi-trash"></i>
+            </a>
+        </div>
+    </div>
+
+    <!-- 1. Viewer Pane: YouTube Video Player / PDF / Image / Web Link -->
+    {% if doc.is_youtube %}
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
+            <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center">
+                <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-youtube me-2 text-danger"></i>Video Guide Player
+                </h2>
+                <a href="{{ doc.external_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.75rem;">
+                    <i class="bi bi-box-arrow-up-right me-1"></i> Open on YouTube
+                </a>
+            </div>
+            <div class="card-body p-0">
+                <div class="ratio ratio-16x9">
+                    <iframe src="{{ doc.youtube_embed_url }}" title="{{ doc.title }}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+                </div>
+            </div>
+        </div>
+    {% elif doc.file %}
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
+            <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                        <i class="bi bi-file-earmark-check me-2 text-custom"></i>Attached File: {{ doc.file.name|slice:"15:" }}
+                    </h2>
+                    <span class="text-muted small">File format: <strong>{{ doc.file_extension|upper }}</strong> &bull; Size: {{ doc.file_size_display }}</span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <a href="{{ doc.file.url }}" target="_blank" class="btn btn-sm btn-primary">
+                        <i class="bi bi-box-arrow-up-right me-1"></i> Open in New Tab
+                    </a>
+                    <a href="{{ doc.file.url }}" download class="btn btn-sm btn-outline-success">
+                        <i class="bi bi-download me-1"></i> Download File
+                    </a>
+                </div>
+            </div>
+            <div class="card-body p-4 text-center">
+                {% if doc.is_image %}
+                    <div class="p-2 border rounded bg-body-tertiary d-inline-block">
+                        <img src="{{ doc.file.url }}" alt="{{ doc.title }}" class="img-fluid rounded shadow-sm" style="max-height: 650px;">
+                    </div>
+                {% elif doc.is_pdf %}
+                    <div class="p-4 bg-light rounded text-center">
+                        <i class="bi bi-file-earmark-pdf display-3 text-danger mb-3 d-block"></i>
+                        <h5 class="fw-bold text-dark mb-1">{{ doc.title }}</h5>
+                        <p class="text-muted small mb-3">Schematic / Documentation PDF Document ({{ doc.file_size_display }})</p>
+                        <a href="{{ doc.file.url }}" target="_blank" class="btn btn-primary px-4 fw-semibold me-2">
+                            <i class="bi bi-eye me-1"></i> View PDF Reader
+                        </a>
+                        <a href="{{ doc.file.url }}" download class="btn btn-outline-secondary px-3">
+                            <i class="bi bi-download me-1"></i> Download
+                        </a>
+                    </div>
+                {% else %}
+                    <div class="p-4 bg-light rounded text-center">
+                        <i class="bi bi-file-earmark-zip display-3 text-primary mb-3 d-block"></i>
+                        <h5 class="fw-bold text-dark mb-1">{{ doc.title }}</h5>
+                        <p class="text-muted small mb-3">File format: {{ doc.file_extension|upper }} ({{ doc.file_size_display }})</p>
+                        <a href="{{ doc.file.url }}" download class="btn btn-primary px-4 fw-semibold">
+                            <i class="bi bi-download me-1"></i> Download {{ doc.file_extension|upper }} File
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% elif doc.external_url %}
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2">
+                <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-link-45deg me-2 text-custom"></i>External Web Link / Online Reference
+                </h2>
+            </div>
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 p-3 bg-body-tertiary rounded border">
+                    <div>
+                        <div class="fw-bold text-body fs-6">{{ doc.title }}</div>
+                        <div class="text-muted small font-monospace text-truncate mt-1" style="max-width: 550px;">
+                            <i class="bi bi-globe me-1"></i>{{ doc.external_url }}
+                        </div>
+                    </div>
+                    <a href="{{ doc.external_url }}" target="_blank" rel="noopener" class="btn btn-primary fw-semibold">
+                        <i class="bi bi-box-arrow-up-right me-1"></i> Visit Resource ↗
+                    </a>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- 2. Notes & Assembly Instructions Reader -->
+    {% if doc.notes %}
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2">
+                <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-journal-text me-2 text-custom"></i>Technical Notes &amp; Assembly Steps
+                </h2>
+            </div>
+            <div class="card-body p-4">
+                <div class="article-content" style="line-height: 1.7; font-size: 0.95rem;">
+                    {{ doc.notes|safe }}
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- Metadata Footer Card -->
+    <div class="card border-0 shadow-sm rounded-3 bg-body mb-5">
+        <div class="card-body p-3 small text-muted d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <span>Associated BoM: <strong>{{ bom.name }}</strong> ({{ bom.assembly_number }})</span>
+                {% if bom.quantity_on_hand > 0 %}
+                    <span class="badge bg-success-subtle text-success ms-2">{{ bom.quantity_on_hand }} Built In Stock</span>
+                {% endif %}
+            </div>
+            <div>
+                <span>Last updated: {{ doc.updated_at|date:"M d, Y H:i" }}</span>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+

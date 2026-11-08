@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if form.instance.pk %}Edit Document{% else %}Add Document / Schematic / Video{% endif %} | {{ bom.name }} | Inventory Manager
+{% endblock %}
+
+{% block extra_head %}
+    {{ form.media }}
+{% endblock %}
+
+{% block breadcrumb %}
+    <a href="{% url 'bom_list' %}" class="text-decoration-none text-muted">BoMs</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <a href="{% url 'bom_detail' bom.pk %}" class="text-decoration-none text-muted">{{ bom.name }}</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>{% if form.instance.pk %}Edit Document{% else %}Add Document / Schematic / Video{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0" style="max-width: 840px;">
+
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge bg-primary text-white font-monospace px-2 py-0.5">
+                    {{ bom.assembly_number|default:"1000-001" }}
+                </span>
+                <h1 class="h3 fw-bold mb-0 text-custom">
+                    {% if form.instance.pk %}Edit BoM Document{% else %}Attach Document, Schematic or Video{% endif %}
+                </h1>
+            </div>
+            <p class="text-muted small mb-0">
+                Adding documentation, schematics, YouTube assembly videos, or technical links for BoM / Assembly: <strong class="text-body">{{ bom.name }}</strong>
+            </p>
+        </div>
+        <a href="{% if next %}{{ next }}{% else %}{% url 'bom_detail' bom.pk %}{% endif %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-x-lg me-1"></i> Cancel
+        </a>
+    </div>
+
+    <!-- Form -->
+    <form method="post" enctype="multipart/form-data" novalidate>
+        {% csrf_token %}
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+
+        {% if form.errors %}
+            <div class="alert alert-danger shadow-sm mb-4">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <strong>Please correct the following errors:</strong>
+                <ul class="mb-0 mt-2 small">
+                    {% for field, errors in form.errors.items %}
+                        <li><strong>{{ field|title }}:</strong> {{ errors|striptags }}</li>
+                    {% endfor %}
+                    {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
+        <!-- Card 1: Identification & Type -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-card-text me-2 text-custom"></i>1. Document Identification
+                </h3>
+            </div>
+            <div class="card-body p-4 pt-3">
+                <div class="row g-3">
+                    <div class="col-12 col-md-7">
+                        <label class="form-label small fw-semibold">Title / Description <span class="text-danger">*</span></label>
+                        {{ form.title }}
+                        <div class="form-text small">e.g. Main Circuit Board Schematic Rev C, YouTube Build &amp; Soldering Walkthrough, Assembly Guide.</div>
+                    </div>
+                    <div class="col-12 col-md-5">
+                        <label class="form-label small fw-semibold">Document Type <span class="text-danger">*</span></label>
+                        {{ form.document_type }}
+                        <div class="form-text small">Select category (Schematic, YouTube Video, Instructions, CAD, etc.).</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 2: File Upload or External Link / YouTube Video -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-link-45deg me-2 text-custom"></i>2. Upload File or External Web / YouTube Link
+                </h3>
+            </div>
+            <div class="card-body p-4 pt-3">
+                <div class="row g-4">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold d-flex align-items-center gap-1">
+                            <i class="bi bi-upload text-primary"></i>
+                            <span>Upload Schematic or File (PDF, Image, CAD)</span>
+                        </label>
+                        {{ form.file }}
+                        <div class="form-text small text-muted">Supports PDF schematics, PNG/JPG drawings, diagrams, or zip archives.</div>
+                        {% if form.instance.file %}
+                            <div class="mt-2 p-2 bg-body-tertiary rounded small d-flex align-items-center gap-2">
+                                <i class="bi bi-paperclip text-custom"></i>
+                                <span class="text-truncate">Current: <a href="{{ form.instance.file.url }}" target="_blank" class="fw-semibold">{{ form.instance.file.name }}</a></span>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold d-flex align-items-center gap-1">
+                            <i class="bi bi-youtube text-danger"></i>
+                            <span>External URL or YouTube Video Link</span>
+                        </label>
+                        {{ form.external_url }}
+                        <div class="form-text small text-muted">
+                            Paste a YouTube link (e.g. <code>https://www.youtube.com/watch?v=...</code>) or direct link to Google Drive, Onshape, or online docs.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 3: Notes & Instructions Content -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-journal-text me-2 text-custom"></i>3. Technical Notes &amp; Assembly Instructions (Optional)
+                </h3>
+            </div>
+            <div class="card-body p-4 pt-3">
+                {{ form.notes }}
+                <div class="form-text small text-muted mt-2">
+                    Enter step-by-step assembly steps, soldering tips, jumper configurations, or component placement notes.
+                </div>
+            </div>
+        </div>
+
+        <!-- Submit & Actions -->
+        <div class="d-flex justify-content-end gap-2 mb-5">
+            <a href="{% if next %}{{ next }}{% else %}{% url 'bom_detail' bom.pk %}{% endif %}" class="btn btn-outline-secondary px-4">Cancel</a>
+            <button type="submit" class="btn btn-primary px-4 fw-semibold shadow-sm">
+                <i class="bi bi-check-circle me-1"></i> {% if form.instance.pk %}Save Changes{% else %}Attach Document / Link{% endif %}
+            </button>
+        </div>
+    </form>
+
+</div>
+{% endblock %}
+

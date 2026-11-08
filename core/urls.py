@@ -51,6 +51,12 @@ urlpatterns = [
     path('documents/<int:pk>/edit/', views.PartDocumentUpdateView.as_view(), name='part_document_update'),
     path('documents/<int:pk>/delete/', views.PartDocumentDeleteView.as_view(), name='part_document_delete'),
 
+    # BoM / Assembly / Kit Documents, Schematics & Video Links
+    path('boms/<int:bom_pk>/documents/add/', views.BOMDocumentCreateView.as_view(), name='bom_document_create'),
+    path('boms/documents/<int:pk>/', views.BOMDocumentDetailView.as_view(), name='bom_document_detail'),
+    path('boms/documents/<int:pk>/edit/', views.BOMDocumentUpdateView.as_view(), name='bom_document_update'),
+    path('boms/documents/<int:pk>/delete/', views.BOMDocumentDeleteView.as_view(), name='bom_document_delete'),
+
     # Bills of Materials (BOM) / Product Assemblies
     path('boms/', views.BOMListView.as_view(), name='bom_list'),
     path('boms/add/', views.BOMCreateView.as_view(), name='bom_create'),

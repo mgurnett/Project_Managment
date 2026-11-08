@@ -45,6 +45,9 @@
             <a href="{% url 'quote_create' %}?bom={{ bom.pk }}" class="btn btn-sm btn-outline-success fw-semibold" title="Build a quote using this BoM's price">
                 <i class="bi bi-file-earmark-text me-1"></i> Create Quote
             </a>
+            <a href="{% url 'bom_document_create' bom.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-outline-secondary fw-semibold" title="Attach Schematic, Video, or Document">
+                <i class="bi bi-file-earmark-medical me-1"></i> Add Document
+            </a>
             {% if bom.part %}
                 <a href="{% url 'part_detail' bom.part.pk %}" class="btn btn-outline-secondary btn-sm" title="View in Parts Catalog ({{ bom.part.part_number }})">
                     <i class="bi bi-cpu me-1"></i> Parts Catalog
@@ -283,6 +286,102 @@
         </div>
     </div>
     {% endif %}
+
+    <!-- Documents, Schematics & YouTube Videos -->
+    <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
+        <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-file-earmark-medical me-2 text-custom"></i>Documents, Schematics &amp; Video Guides ({{ documents|length }})
+                </h3>
+                <span class="text-muted small">Schematics, YouTube video walkthroughs, wiring pinouts, and technical attachments.</span>
+            </div>
+            <a href="{% url 'bom_document_create' bom.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-custom fw-semibold">
+                <i class="bi bi-plus-circle me-1"></i> Add Document / Video
+            </a>
+        </div>
+        <div class="card-body p-0">
+            {% if documents %}
+                <div class="list-group list-group-flush">
+                    {% for doc in documents %}
+                        <div class="list-group-item p-3 d-flex align-items-center justify-content-between flex-wrap gap-3">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle p-2.5 {% if doc.document_type == 'video' %}bg-danger-subtle text-danger{% elif doc.document_type == 'schematic' %}bg-primary-subtle text-primary{% elif doc.document_type == 'instructions' %}bg-success-subtle text-success{% else %}bg-secondary-subtle text-secondary{% endif %}">
+                                    {% if doc.document_type == 'video' %}
+                                        <i class="bi bi-youtube fs-5"></i>
+                                    {% elif doc.document_type == 'schematic' %}
+                                        <i class="bi bi-diagram-3 fs-5"></i>
+                                    {% elif doc.is_pdf %}
+                                        <i class="bi bi-file-earmark-pdf fs-5"></i>
+                                    {% elif doc.is_image %}
+                                        <i class="bi bi-file-earmark-image fs-5"></i>
+                                    {% else %}
+                                        <i class="bi bi-file-earmark-text fs-5"></i>
+                                    {% endif %}
+                                </div>
+                                <div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <a href="{% url 'bom_document_detail' doc.pk %}?next={{ request.get_full_path|urlencode }}" class="fw-bold text-decoration-none text-body">
+                                            {{ doc.title }}
+                                        </a>
+                                        <span class="badge {% if doc.document_type == 'video' %}bg-danger-subtle text-danger border border-danger-subtle{% elif doc.document_type == 'schematic' %}bg-primary-subtle text-primary border border-primary-subtle{% elif doc.document_type == 'instructions' %}bg-success-subtle text-success border border-success-subtle{% else %}bg-secondary-subtle text-secondary border border-secondary-subtle{% endif %} px-2 py-0.5 text-uppercase" style="font-size: 0.65rem;">
+                                            {{ doc.get_document_type_display }}
+                                        </span>
+                                    </div>
+                                    <div class="small text-muted mt-0.5">
+                                        {% if doc.file %}
+                                            <span class="me-2"><i class="bi bi-paperclip me-1"></i>{{ doc.file_extension|upper }} ({{ doc.file_size_display }})</span>
+                                        {% endif %}
+                                        {% if doc.external_url %}
+                                            <span class="me-2 font-monospace text-truncate d-inline-block" style="max-width: 320px;">
+                                                <i class="bi bi-link-45deg me-1"></i>{{ doc.external_url }}
+                                            </span>
+                                        {% endif %}
+                                        <span>Added {{ doc.created_at|date:"M d, Y" }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                {% if doc.is_youtube %}
+                                    <a href="{% url 'bom_document_detail' doc.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-outline-danger">
+                                        <i class="bi bi-play-circle me-1"></i> Watch Video
+                                    </a>
+                                {% elif doc.file %}
+                                    <a href="{{ doc.file.url }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-eye me-1"></i> View
+                                    </a>
+                                    <a href="{{ doc.file.url }}" download class="btn btn-sm btn-outline-secondary">
+                                        <i class="bi bi-download"></i>
+                                    </a>
+                                {% elif doc.external_url %}
+                                    <a href="{{ doc.external_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-box-arrow-up-right me-1"></i> Visit ↗
+                                    </a>
+                                {% endif %}
+                                <a href="{% url 'bom_document_detail' doc.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-outline-secondary" title="Details / Reader">
+                                    <i class="bi bi-file-text"></i>
+                                </a>
+                                <a href="{% url 'bom_document_update' doc.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-outline-secondary" title="Edit">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <a href="{% url 'bom_document_delete' doc.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-outline-danger" title="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="text-center py-4 text-muted">
+                    <i class="bi bi-file-earmark-medical display-6 d-block mb-2 text-secondary opacity-50"></i>
+                    <p class="small mb-2">No schematics, YouTube videos, or documents attached to this BoM yet.</p>
+                    <a href="{% url 'bom_document_create' bom.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-outline-custom">
+                        <i class="bi bi-plus-circle me-1"></i> Add First Schematic or Video Link
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
 
 </div>
 

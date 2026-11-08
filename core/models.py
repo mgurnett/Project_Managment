@@ -1,4 +1,5 @@
 import os
+import re
 from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -691,6 +692,14 @@ class Part(models.Model):
             pass
         return ""
 
+    @property
+    def assembly_documents(self):
+        bom = getattr(self, 'assembly_bom', None)
+        if bom:
+            return bom.documents.all()
+        return BOMDocument.objects.none()
+
+
 
 class PartDocument(models.Model):
     """
@@ -1260,6 +1269,119 @@ class BOMItem(models.Model):
         if self.part and self.part.price_per:
             return Decimal(str(self.part.price_per)) * Decimal(str(self.quantity))
         return Decimal('0.00')
+
+
+class BOMDocument(models.Model):
+    """
+    Associated documentation, schematics, YouTube videos, manuals, and technical links
+    for a BoM / Kit / 1000-series Assembly.
+    """
+    DOCUMENT_TYPES = [
+        ('schematic', 'Schematic / Circuit Diagram'),
+        ('video', 'Video / YouTube Tutorial'),
+        ('instructions', 'Assembly Instructions / Manual'),
+        ('datasheet', 'Datasheet / Specification'),
+        ('drawing', 'CAD / Mechanical Drawing / 3D Model'),
+        ('firmware', 'Firmware / Code / Configuration'),
+        ('other', 'Other Document / Link'),
+    ]
+
+    bom = models.ForeignKey(
+        BOM,
+        on_delete=models.CASCADE,
+        related_name='documents',
+        verbose_name="BoM / Assembly"
+    )
+    title = models.CharField(
+        max_length=200,
+        verbose_name="Title / Description",
+        help_text="e.g. Main Board Schematic Rev C, YouTube Build Walkthrough, Enclosure Assembly Guide"
+    )
+    document_type = models.CharField(
+        max_length=50,
+        choices=DOCUMENT_TYPES,
+        default='schematic',
+        verbose_name="Document Type"
+    )
+    file = models.FileField(
+        upload_to='boms/documents/%Y/%m/',
+        blank=True,
+        null=True,
+        verbose_name="Uploaded File / Schematic",
+        help_text="Upload PDF, Image (PNG, JPG, SVG, WEBP), CAD file, or document"
+    )
+    external_url = models.URLField(
+        max_length=500,
+        blank=True,
+        verbose_name="External URL / Video Link",
+        help_text="Direct link (e.g. YouTube video, Google Drive, Onshape CAD, online manual)"
+    )
+    notes = CKEditor5Field(
+        'Notes & Instructions',
+        config_name='notes',
+        blank=True,
+        null=True,
+        help_text="Assembly instructions, wiring details, or technical notes"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "BoM Document / Schematic"
+        verbose_name_plural = "BoM Documents & Schematics"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.title} ({self.get_document_type_display()}) - {self.bom.name}"
+
+    def clean(self):
+        super().clean()
+        if not self.file and not self.external_url and not self.notes:
+            raise ValidationError("Please provide at least one of: an uploaded file, an external URL / video link, or notes.")
+
+    @property
+    def file_extension(self):
+        if self.file and self.file.name:
+            _, ext = os.path.splitext(self.file.name)
+            return ext.lstrip('.').lower()
+        return ""
+
+    @property
+    def is_image(self):
+        return self.file_extension in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']
+
+    @property
+    def is_pdf(self):
+        return self.file_extension == 'pdf'
+
+    @property
+    def youtube_embed_url(self):
+        if not self.external_url:
+            return ""
+        url = self.external_url.strip()
+        m = re.search(r'(?:youtu\.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|&v=)([^#&?]{11})', url)
+        if m:
+            return f"https://www.youtube.com/embed/{m.group(1)}"
+        return ""
+
+    @property
+    def is_youtube(self):
+        return bool(self.youtube_embed_url)
+
+    @property
+    def file_size_display(self):
+        try:
+            if self.file and hasattr(self.file, 'size') and self.file.size:
+                size = self.file.size
+                if size < 1024:
+                    return f"{size} B"
+                elif size < 1024 * 1024:
+                    return f"{size / 1024:.1f} KB"
+                else:
+                    return f"{size / (1024 * 1024):.1f} MB"
+        except Exception:
+            pass
+        return ""
 
 
 class Order(models.Model):

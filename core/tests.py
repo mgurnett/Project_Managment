@@ -5,7 +5,7 @@ from django.urls import reverse
 from django.utils import timezone
 from core.models import (
     Company, Category, Location, Part, Order, OrderItem, BOM, BOMItem, InventoryAdjustment,
-    AssemblySale, AssemblySaleItem, Quote, QuoteItem
+    AssemblySale, AssemblySaleItem, Quote, QuoteItem, BOMDocument
 )
 
 
@@ -2374,6 +2374,108 @@ class QuoteWorkflowTestCase(TestCase):
         self.assertIn('Quotes &amp; Estimates', html)
         self.assertIn(reverse('quote_list'), html)
         self.assertIn(reverse('quote_create'), html)
+
+
+class BOMDocumentsTestCase(TestCase):
+    """
+    Tests document, schematic, and video attachment capabilities for BoMs, Kits, and Assemblies.
+    """
+    def setUp(self):
+        self.client = Client()
+        self.category = Category.objects.create(name="Passives", prefix="200")
+        self.part = Part.objects.create(
+            part_number="200-001",
+            name="10k Resistor",
+            category=self.category,
+            quantity_on_hand=50,
+            price_per=Decimal("0.25")
+        )
+        self.bom = BOM.objects.create(
+            name="LiPo Battery Checker",
+            assembly_number="1000-001",
+            quantity_on_hand=2,
+            sale_price=Decimal("25.00")
+        )
+        BOMItem.objects.create(bom=self.bom, part=self.part, quantity=2)
+
+    def test_bom_document_creation_and_youtube_embed(self):
+        """Verifies creating a BOMDocument with YouTube link detects video and produces embed URL."""
+        doc = BOMDocument.objects.create(
+            bom=self.bom,
+            title="LiPo Checker Assembly Video Tutorial",
+            document_type="video",
+            external_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            notes="Watch this video for step-by-step soldering guide."
+        )
+        self.assertTrue(doc.is_youtube)
+        self.assertEqual(doc.youtube_embed_url, "https://www.youtube.com/embed/dQw4w9WgXcQ")
+
+        # Also test short youtu.be link
+        doc2 = BOMDocument.objects.create(
+            bom=self.bom,
+            title="Short link test",
+            document_type="video",
+            external_url="https://youtu.be/dQw4w9WgXcQ"
+        )
+        self.assertTrue(doc2.is_youtube)
+        self.assertEqual(doc2.youtube_embed_url, "https://www.youtube.com/embed/dQw4w9WgXcQ")
+
+    def test_bom_document_create_view_with_next_redirect(self):
+        """Verifies adding a document via BOMDocumentCreateView with next parameter."""
+        create_url = reverse('bom_document_create', kwargs={'bom_pk': self.bom.pk})
+        post_data = {
+            'title': 'Circuit Schematic Rev B',
+            'document_type': 'schematic',
+            'external_url': 'https://example.com/schematic.pdf',
+            'notes': 'High-voltage isolated schematic diagram.',
+            'next': f"{reverse('kit_action')}?bom={self.bom.pk}#pullSheetSection"
+        }
+        res = self.client.post(create_url, post_data)
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(res.url, f"{reverse('kit_action')}?bom={self.bom.pk}#pullSheetSection")
+
+        doc = BOMDocument.objects.filter(bom=self.bom, title='Circuit Schematic Rev B').first()
+        self.assertIsNotNone(doc)
+        self.assertEqual(doc.document_type, 'schematic')
+
+    def test_bom_document_detail_view_renders_video_embed(self):
+        """Verifies BOMDocumentDetailView renders YouTube video embed player."""
+        doc = BOMDocument.objects.create(
+            bom=self.bom,
+            title="Full Assembly Guide",
+            document_type="video",
+            external_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        )
+        res = self.client.get(reverse('bom_document_detail', kwargs={'pk': doc.pk}))
+        self.assertEqual(res.status_code, 200)
+        html = res.content.decode('utf-8')
+        self.assertIn('https://www.youtube.com/embed/dQw4w9WgXcQ', html)
+        self.assertIn('Full Assembly Guide', html)
+
+    def test_documents_visible_on_bom_detail_kit_action_and_assemblies(self):
+        """Verifies attached documents show up across BoM Detail, Kit Action, and Assemblies pages."""
+        doc = BOMDocument.objects.create(
+            bom=self.bom,
+            title="Wiring Pinout Diagram",
+            document_type="schematic",
+            external_url="https://example.com/pinouts.pdf"
+        )
+
+        # 1. BoM Detail page
+        res_bom = self.client.get(reverse('bom_detail', kwargs={'pk': self.bom.pk}))
+        self.assertEqual(res_bom.status_code, 200)
+        self.assertIn('Wiring Pinout Diagram', res_bom.content.decode('utf-8'))
+
+        # 2. Kit Action page (selected_bom)
+        res_kit = self.client.get(f"{reverse('kit_action')}?bom={self.bom.pk}")
+        self.assertEqual(res_kit.status_code, 200)
+        self.assertIn('Wiring Pinout Diagram', res_kit.content.decode('utf-8'))
+
+        # 3. Assemblies page (BuildActionView)
+        res_assemblies = self.client.get(f"{reverse('assemblies')}?bom={self.bom.pk}")
+        self.assertEqual(res_assemblies.status_code, 200)
+        self.assertIn('Wiring Pinout Diagram', res_assemblies.content.decode('utf-8'))
+
 
 
 
