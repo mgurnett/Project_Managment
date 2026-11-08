@@ -55,7 +55,7 @@
                     <div class="col-12">
                         <div class="alert alert-light border small text-muted mb-0 py-2">
                             <i class="bi bi-info-circle text-custom me-1"></i>
-                            <strong>Part Numbering:</strong> When assigned to this category, parts will auto-generate numbers formatted as <code>&lt;prefix&gt;-1001</code> (e.g. <code>100-1234</code>). Subcategories inherit this prefix if left blank.
+                            <strong>Part Numbering:</strong> When assigned to this category, parts will auto-generate numbers formatted as <code>&lt;prefix&gt;-001</code> (e.g. <code>230-001</code>). Subcategories auto-generate the next sequential prefix (e.g. <code>231</code> under <code>230</code>) if left blank.
                         </div>
                     </div>
                     <div class="col-12">
@@ -81,4 +81,36 @@
     </form>
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const parentSelect = document.querySelector('select[name="parent"]');
+    const prefixInput = document.querySelector('input[name="prefix"]');
+    if (!parentSelect || !prefixInput) return;
+
+    parentSelect.addEventListener('change', function() {
+        const parentId = this.value;
+        if (!parentId) return;
+
+        // If prefix is currently empty or was previously auto-filled, suggest the next prefix
+        if (!prefixInput.value || prefixInput.dataset.autofilled === 'true') {
+            fetch(`/categories/${parentId}/next-prefix/`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'ok' && data.suggested_prefix) {
+                        prefixInput.value = data.suggested_prefix;
+                        prefixInput.dataset.autofilled = 'true';
+                    }
+                })
+                .catch(() => {});
+        }
+    });
+
+    prefixInput.addEventListener('input', function() {
+        this.dataset.autofilled = 'false';
+    });
+});
+</script>
 {% endblock %}

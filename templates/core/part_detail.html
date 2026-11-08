@@ -65,6 +65,10 @@
                 <i class="bi bi-copy"></i>
                 <span>Duplicate</span>
             </a>
+            <button type="button" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 shadow-sm" data-bs-toggle="modal" data-bs-target="#moveCategoryModal" title="Move to another category & auto-assign new part number">
+                <i class="bi bi-folder-symlink"></i>
+                <span>Move Category</span>
+            </button>
             <a href="{% url 'part_update' part.pk %}" class="btn btn-outline-custom btn-sm d-flex align-items-center gap-1">
                 <i class="bi bi-pencil"></i>
                 <span>Edit Part</span>
@@ -571,4 +575,86 @@
     </div>
 
 </div>
+
+<!-- Modal: Move Part to Another Category -->
+<div class="modal fade" id="moveCategoryModal" tabindex="-1" aria-labelledby="moveCategoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <h5 class="modal-title fw-bold" id="moveCategoryModalLabel">
+                    <i class="bi bi-folder-symlink me-2 text-primary"></i>Move Category &amp; Renumber
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{% url 'part_move_category' part.pk %}" method="post">
+                {% csrf_token %}
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-muted">Component</label>
+                        <div class="fw-bold fs-6 text-custom font-monospace">{{ part.part_number }}</div>
+                        <div class="small text-muted">{{ part.name|default:part.description }}</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-muted">Current Category</label>
+                        <div class="small fw-semibold">{{ part.category|default:"Uncategorized" }}</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Target Category <span class="text-danger">*</span></label>
+                        <select name="target_category" id="moveTargetCategorySelect" class="form-select" required>
+                            <option value="">-- Select Target Category --</option>
+                            {% for c in all_categories %}
+                                {% if c.pk != part.category_id %}
+                                    <option value="{{ c.pk }}">
+                                        {{ c }}
+                                    </option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div id="movePreviewBox" class="alert alert-info py-2 px-3 small" style="display: none;">
+                        <i class="bi bi-info-circle me-1"></i>
+                        New Part Number will be: <strong id="moveTargetPnDisplay" class="font-monospace text-primary"></strong>
+                    </div>
+                </div>
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm px-3 fw-semibold">
+                        <i class="bi bi-folder-symlink me-1"></i> Move &amp; Assign New Part #
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const moveCatSelect = document.getElementById('moveTargetCategorySelect');
+    const movePreview = document.getElementById('movePreviewBox');
+    const movePnDisplay = document.getElementById('moveTargetPnDisplay');
+
+    if (moveCatSelect) {
+        moveCatSelect.addEventListener('change', function() {
+            const catId = this.value;
+            if (!catId) {
+                if (movePreview) movePreview.style.display = 'none';
+                return;
+            }
+            fetch(`/categories/${catId}/next-part-number/`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'ok' && data.next_part_number) {
+                        if (movePnDisplay) movePnDisplay.textContent = data.next_part_number;
+                        if (movePreview) movePreview.style.display = 'block';
+                    }
+                })
+                .catch(() => {
+                    if (movePreview) movePreview.style.display = 'none';
+                });
+        });
+    }
+});
+</script>
 {% endblock %}

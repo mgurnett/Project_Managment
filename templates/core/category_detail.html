@@ -75,6 +75,55 @@
                             </td>
                             <td class="text-end pe-4 py-3">
                                 <a href="{% url 'part_detail' part.pk %}" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.75rem;">View</a>
+                                <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 ms-1" style="font-size: 0.75rem;" data-bs-toggle="modal" data-bs-target="#movePartModal{{ part.pk }}">Move</button>
+
+                                <!-- Modal: Move Part from Category Detail -->
+                                <div class="modal fade" id="movePartModal{{ part.pk }}" tabindex="-1" aria-labelledby="movePartModalLabel{{ part.pk }}" aria-hidden="true">
+                                    <div class="modal-dialog modal-dialog-centered">
+                                        <div class="modal-content border-0 shadow">
+                                            <div class="modal-header border-bottom">
+                                                <h5 class="modal-title fw-bold" id="movePartModalLabel{{ part.pk }}">
+                                                    <i class="bi bi-folder-symlink me-2 text-primary"></i>Move Category &amp; Renumber
+                                                </h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                            </div>
+                                            <form action="{% url 'part_move_category' part.pk %}" method="post">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="next" value="{{ request.path }}">
+                                                <div class="modal-body p-4 text-start">
+                                                    <div class="mb-3">
+                                                        <label class="form-label small fw-semibold text-muted">Component</label>
+                                                        <div class="fw-bold fs-6 text-custom font-monospace">{{ part.part_number }}</div>
+                                                        <div class="small text-muted">{{ part.name|default:part.description }}</div>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label class="form-label small fw-semibold text-muted">Current Category</label>
+                                                        <div class="small fw-semibold">{{ category.name }} ({{ category.get_prefix }})</div>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label class="form-label small fw-semibold">Target Category <span class="text-danger">*</span></label>
+                                                        <select name="target_category" class="form-select cat-move-select" data-target-display="#movePartPn{{ part.pk }}" data-target-box="#movePartBox{{ part.pk }}" required>
+                                                            <option value="">-- Select Target Category --</option>
+                                                            {% for c in all_categories %}
+                                                                <option value="{{ c.pk }}">{{ c }}</option>
+                                                            {% endfor %}
+                                                        </select>
+                                                    </div>
+                                                    <div id="movePartBox{{ part.pk }}" class="alert alert-info py-2 px-3 small" style="display: none;">
+                                                        <i class="bi bi-info-circle me-1"></i>
+                                                        New Part Number will be: <strong id="movePartPn{{ part.pk }}" class="font-monospace text-primary"></strong>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer border-top bg-light">
+                                                    <button type="button" class="btn btn-outline-secondary btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
+                                                    <button type="submit" class="btn btn-primary btn-sm px-3 fw-semibold">
+                                                        <i class="bi bi-folder-symlink me-1"></i> Move Part
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
                             </td>
                         </tr>
                         {% empty %}
@@ -89,4 +138,37 @@
     </div>
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.cat-move-select').forEach(sel => {
+        sel.addEventListener('change', function() {
+            const catId = this.value;
+            const displaySelector = this.dataset.targetDisplay;
+            const boxSelector = this.dataset.targetBox;
+            const displayEl = document.querySelector(displaySelector);
+            const boxEl = document.querySelector(boxSelector);
+
+            if (!catId) {
+                if (boxEl) boxEl.style.display = 'none';
+                return;
+            }
+
+            fetch(`/categories/${catId}/next-part-number/`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'ok' && data.next_part_number) {
+                        if (displayEl) displayEl.textContent = data.next_part_number;
+                        if (boxEl) boxEl.style.display = 'block';
+                    }
+                })
+                .catch(() => {
+                    if (boxEl) boxEl.style.display = 'none';
+                });
+        });
+    });
+});
+</script>
 {% endblock %}

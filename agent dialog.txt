@@ -3,4 +3,3 @@ agent dialog.txt
 There are some ideas that have come up while using it. 
 When enetering parts inot a bom, we need to be able to choose a catagory to limit the drop down, but we also need to be able to just type in a part number.
 
-When add parts to a bom we need to be able to add another bom that then seperates out.  So a bom of recharable battery bom would be a 18650, a holder, a 300-002, 270-006

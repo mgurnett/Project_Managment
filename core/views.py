@@ -9,6 +9,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.urls import reverse_lazy, reverse
+from urllib.parse import urlencode
 from django.contrib import messages
 from django.utils import timezone
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView, TemplateView
@@ -105,7 +106,7 @@ def resolve_persistent_filters(request, session_key, filter_keys):
 # ==============================================================================
 
 PART_FILTER_KEYS = ['q', 'company', 'category', 'location', 'confirmed']
-COUNT_SHEET_FILTER_KEYS = ['q', 'category', 'location', 'stock']
+COUNT_SHEET_FILTER_KEYS = ['q', 'category', 'location', 'stock', 'company', 'confirmed']
 ORDER_FILTER_KEYS = ['q', 'status', 'supplier']
 
 
@@ -113,6 +114,7 @@ def get_parts_filtered_queryset(request):
     """
     Applies search query, supplier, category, location, and confirmed status filters to the Part queryset.
     Persists filters in session until cleared.
+    When a parent category is selected, parts in that category and all nested subcategories are returned.
     """
     filters = resolve_persistent_filters(request, 'part_list_filters', PART_FILTER_KEYS)
     qs = Part.objects.select_related('company', 'manufacturer', 'category', 'location', 'superseded_by').all()
@@ -133,7 +135,13 @@ def get_parts_filtered_queryset(request):
     if company_id:
         qs = qs.filter(company_id=company_id)
     if category_id:
-        qs = qs.filter(category_id=category_id)
+        if category_id == 'none':
+            qs = qs.filter(category__isnull=True)
+        elif category_id.isdigit():
+            category_ids = Category.get_family_ids(int(category_id))
+            qs = qs.filter(category_id__in=category_ids)
+        else:
+            qs = qs.filter(category_id=category_id)
     if location_id:
         qs = qs.filter(location_id=location_id)
     if confirmed in ['true', '1']:
@@ -244,9 +252,17 @@ class PartListView(ListView):
         ctx['current_location'] = filters['location']
         ctx['current_confirmed'] = filters['confirmed']
         ctx['companies'] = Company.objects.all()
-        ctx['categories'] = Category.objects.all().annotate(prefix_len=Length('prefix')).order_by('prefix_len', 'prefix', 'name')
+        ctx['categories'] = Category.get_hierarchical_categories()
         ctx['locations'] = Location.objects.all()
         ctx['total_count'] = self.get_queryset().count()
+
+        # Forward active parts filters to Count Sheet URL
+        cs_params = {'from_parts': '1'}
+        for k in PART_FILTER_KEYS:
+            v = filters.get(k)
+            if v:
+                cs_params[k] = v
+        ctx['count_sheet_url'] = f"{reverse('inventory_count_sheet')}?{urlencode(cs_params)}"
         return ctx
 
 
@@ -368,6 +384,7 @@ class PartDetailView(DetailView):
 
         journal_entries.sort(key=lambda x: x.get('datetime') or timezone.now(), reverse=True)
         ctx['journal_entries'] = journal_entries
+        ctx['all_categories'] = Category.objects.all().order_by('prefix', 'name')
         return ctx
 
 
@@ -495,6 +512,8 @@ class PartUpdateView(UpdateView):
         old_part = Part.objects.get(pk=self.get_object().pk)
         old_on_hand = old_part.quantity_on_hand or 0
         old_superseded_by_id = old_part.superseded_by_id
+        old_category_id = old_part.category_id
+        old_part_number = old_part.part_number
         response = super().form_valid(form)
         new_on_hand = self.object.quantity_on_hand or 0
         if new_on_hand != old_on_hand:
@@ -506,6 +525,12 @@ class PartUpdateView(UpdateView):
                 delta=new_on_hand - old_on_hand,
                 reason=reason or "Manual stock adjustment via part edit",
                 user=self.request.user if self.request.user.is_authenticated else None,
+            )
+        if self.object.category_id != old_category_id and self.object.part_number != old_part_number:
+            cat_name = self.object.category.name if self.object.category else "Uncategorized"
+            messages.info(
+                self.request,
+                f"Component moved to category '{cat_name}'. Automatically assigned new part number '{self.object.part_number}' (formerly '{old_part_number}')."
             )
         if self.object.superseded_by_id and self.object.superseded_by_id != old_superseded_by_id:
             updated_count = self.object.propagate_supersession()
@@ -528,6 +553,46 @@ class PartDeleteView(DeleteView):
         part = self.get_object()
         messages.success(request, f"Part '{part}' was deleted successfully.")
         return super().delete(request, *args, **kwargs)
+
+
+def part_move_category_action(request, pk):
+    """
+    POST action to move a part to a new category, automatically finding and assigning
+    the next available sequential part number for that category.
+    """
+    if request.method != 'POST':
+        return redirect('part_detail', pk=pk)
+
+    part = get_object_or_404(Part.objects.select_related('category'), pk=pk)
+    target_cat_id = (request.POST.get('target_category') or '').strip()
+    if not target_cat_id or not target_cat_id.isdigit():
+        messages.error(request, "Please select a target category.")
+        return redirect('part_detail', pk=pk)
+
+    target_category = get_object_or_404(Category, pk=int(target_cat_id))
+    old_cat_name = part.category.name if part.category else "Uncategorized"
+    old_pn = part.part_number
+
+    custom_pn = (request.POST.get('custom_part_number') or '').strip()
+    if custom_pn:
+        new_pn = custom_pn
+    else:
+        new_pn = Part.generate_next_part_number(target_category)
+
+    with transaction.atomic():
+        part.category = target_category
+        part.part_number = new_pn
+        part.save(update_fields=['category', 'part_number', 'updated_at'])
+
+    messages.success(
+        request,
+        f"Moved '{part.name or part.description or old_pn}' from '{old_cat_name}' to '{target_category.name}'. "
+        f"Assigned new part number '{new_pn}' (formerly '{old_pn}')."
+    )
+
+    next_url = request.POST.get('next') or reverse('part_detail', kwargs={'pk': pk})
+    return redirect(next_url)
+
 
 
 # ==============================================================================
@@ -737,6 +802,7 @@ class CategoryDetailView(DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['parts'] = self.object.parts.select_related('company', 'location').all()
+        ctx['all_categories'] = Category.objects.exclude(pk=self.object.pk).order_by('prefix', 'name')
         return ctx
 
 
@@ -773,6 +839,38 @@ class CategoryDeleteView(DeleteView):
         cat = self.get_object()
         messages.success(request, f"Category '{cat.name}' was deleted successfully.")
         return super().delete(request, *args, **kwargs)
+
+
+def category_next_part_number_json(request, pk):
+    """
+    GET endpoint returning the next sequential part number and prefix for a given category.
+    """
+    category = get_object_or_404(Category, pk=pk)
+    next_pn = Part.generate_next_part_number(category)
+    prefix = category.get_prefix()
+    return JsonResponse({
+        'status': 'ok',
+        'category_id': category.pk,
+        'category_name': category.name,
+        'prefix': prefix,
+        'next_part_number': next_pn,
+    })
+
+
+def category_next_prefix_json(request, pk):
+    """
+    GET endpoint returning the next suggested subcategory prefix under a parent category.
+    """
+    parent = get_object_or_404(Category, pk=pk)
+    next_prefix = Category.generate_next_prefix(parent)
+    return JsonResponse({
+        'status': 'ok',
+        'parent_id': parent.pk,
+        'parent_name': parent.name,
+        'parent_prefix': parent.get_prefix(),
+        'suggested_prefix': next_prefix,
+    })
+
 
 
 # ==============================================================================
@@ -1406,6 +1504,7 @@ def get_count_sheet_queryset(request, session_key='count_sheet_filters'):
     """
     Returns filtered Part queryset for the Inventory Count Sheet / Take Inventory:
     Grouped by Category (by category prefix/name) and sorted by part_number.
+    When a parent category is selected, parts in that category and all nested subcategories are returned.
     """
     from django.db.models.functions import Length
     filters = resolve_persistent_filters(request, session_key, COUNT_SHEET_FILTER_KEYS)
@@ -1422,13 +1521,17 @@ def get_count_sheet_queryset(request, session_key='count_sheet_filters'):
             Q(part_number__icontains=q) |
             Q(name__icontains=q) |
             Q(description__icontains=q) |
-            Q(supplier_part_number__icontains=q)
+            Q(supplier_part_number__icontains=q) |
+            Q(company__name__icontains=q)
         )
 
     category_id = filters['category']
     if category_id:
         if category_id == 'none':
             qs = qs.filter(category__isnull=True)
+        elif category_id.isdigit():
+            category_ids = Category.get_family_ids(int(category_id))
+            qs = qs.filter(category_id__in=category_ids)
         else:
             qs = qs.filter(category_id=category_id)
 
@@ -1447,6 +1550,16 @@ def get_count_sheet_queryset(request, session_key='count_sheet_filters'):
     elif stock == 'negative':
         qs = qs.filter(quantity_on_hand__lt=0)
 
+    company_id = filters.get('company')
+    if company_id:
+        qs = qs.filter(company_id=company_id)
+
+    confirmed = filters.get('confirmed')
+    if confirmed in ['true', '1']:
+        qs = qs.filter(confirmed=True)
+    elif confirmed in ['false', '0']:
+        qs = qs.filter(confirmed=False)
+
     return qs
 
 
@@ -1457,6 +1570,9 @@ class InventoryCountSheetView(TemplateView):
         if request.GET.get('clear') or request.GET.get('reset'):
             request.session.pop('count_sheet_filters', None)
             return redirect('inventory_count_sheet')
+        if request.GET.get('from_parts'):
+            # Clear previous count sheet filters so active parts filters apply cleanly
+            request.session.pop('count_sheet_filters', None)
         return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -1489,12 +1605,19 @@ class InventoryCountSheetView(TemplateView):
         ctx['total_parts'] = qs.count()
         ctx['total_categories'] = len(groups)
         ctx['total_on_hand'] = sum(g['total_on_hand'] for g in groups)
-        ctx['categories'] = Category.objects.all().annotate(prefix_len=Length('prefix')).order_by('prefix_len', 'prefix', 'name')
+        ctx['categories'] = Category.get_hierarchical_categories()
         ctx['locations'] = Location.objects.all().order_by('name')
         ctx['current_category'] = filters['category']
         ctx['current_location'] = filters['location']
         ctx['current_stock'] = filters['stock']
         ctx['current_q'] = filters['q']
+        ctx['current_company'] = filters.get('company', '')
+        ctx['current_confirmed'] = filters.get('confirmed', '')
+        if filters.get('company'):
+            comp = Company.objects.filter(pk=filters['company']).first()
+            ctx['company_name'] = comp.name if comp else ''
+        ctx['generated_at'] = timezone.now()
+        return ctx
         ctx['generated_at'] = timezone.now()
         return ctx
 
@@ -3137,7 +3260,7 @@ class TakeInventoryView(TemplateView):
         ctx['total_parts'] = qs.count()
         ctx['total_categories'] = len(groups)
         ctx['total_on_hand'] = sum(g['total_on_hand'] for g in groups)
-        ctx['categories'] = Category.objects.all().annotate(prefix_len=Length('prefix')).order_by('prefix_len', 'prefix', 'name')
+        ctx['categories'] = Category.get_hierarchical_categories()
         ctx['locations'] = Location.objects.all().order_by('name')
         ctx['current_category'] = filters['category']
         ctx['current_location'] = filters['location']

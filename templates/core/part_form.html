@@ -67,6 +67,11 @@
                     <div class="col-12 col-md-6">
                         <label class="form-label small fw-semibold">Part Number</label>
                         {{ form.part_number }}
+                        <div id="categoryChangedAlert" class="alert alert-info py-2 px-3 mt-2 small shadow-sm" style="display: none;">
+                            <i class="bi bi-arrow-repeat text-primary me-1"></i>
+                            Category changed! Assigned next sequential part number: <strong id="newSuggestedPn" class="font-monospace text-primary"></strong>
+                            <span class="text-muted" id="prevPnText"></span>
+                        </div>
                         <div class="form-text small" id="partNumberHelp">
                             Leave blank to auto-generate (e.g. <code>100-001</code>), enter digits (e.g. <code>001</code> or <code>1</code> &rarr; <code>100-001</code>), or enter custom identifier.
                         </div>
@@ -246,4 +251,47 @@
     </form>
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const catSelect = document.querySelector('select[name="category"]');
+    const pnInput = document.querySelector('input[name="part_number"]');
+    const alertBox = document.getElementById('categoryChangedAlert');
+    const suggestedEl = document.getElementById('newSuggestedPn');
+    const prevPnEl = document.getElementById('prevPnText');
+
+    if (!catSelect || !pnInput) return;
+
+    const initialCatId = catSelect.value;
+    const initialPn = pnInput.value;
+
+    catSelect.addEventListener('change', function() {
+        const catId = this.value;
+        if (!catId) {
+            if (alertBox) alertBox.style.display = 'none';
+            return;
+        }
+
+        if (catId === initialCatId) {
+            pnInput.value = initialPn;
+            if (alertBox) alertBox.style.display = 'none';
+            return;
+        }
+
+        fetch(`/categories/${catId}/next-part-number/`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok' && data.next_part_number) {
+                    pnInput.value = data.next_part_number;
+                    if (suggestedEl) suggestedEl.textContent = data.next_part_number;
+                    if (prevPnEl) prevPnEl.textContent = initialPn ? ` (formerly ${initialPn})` : '';
+                    if (alertBox) alertBox.style.display = 'block';
+                }
+            })
+            .catch(() => {});
+    });
+});
+</script>
 {% endblock %}

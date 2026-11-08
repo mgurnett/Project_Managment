@@ -13,6 +13,7 @@ urlpatterns = [
     path('parts/<int:pk>/duplicate/', views.PartDuplicateView.as_view(), name='part_duplicate'),
     path('parts/<int:pk>/edit/', views.PartUpdateView.as_view(), name='part_update'),
     path('parts/<int:pk>/delete/', views.PartDeleteView.as_view(), name='part_delete'),
+    path('parts/<int:pk>/move-category/', views.part_move_category_action, name='part_move_category'),
 
     # Companies / Suppliers CRUD
     path('companies/', views.CompanyListView.as_view(), name='company_list'),
@@ -34,6 +35,8 @@ urlpatterns = [
     path('categories/<int:pk>/', views.CategoryDetailView.as_view(), name='category_detail'),
     path('categories/<int:pk>/edit/', views.CategoryUpdateView.as_view(), name='category_update'),
     path('categories/<int:pk>/delete/', views.CategoryDeleteView.as_view(), name='category_delete'),
+    path('categories/<int:pk>/next-part-number/', views.category_next_part_number_json, name='category_next_part_number'),
+    path('categories/<int:pk>/next-prefix/', views.category_next_prefix_json, name='category_next_prefix'),
 
     # Locations CRUD
     path('locations/', views.LocationListView.as_view(), name='location_list'),

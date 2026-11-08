@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.utils import timezone
-from core.models import Company, Category, Part, Order, OrderItem, BOM, BOMItem, InventoryAdjustment
+from core.models import Company, Category, Location, Part, Order, OrderItem, BOM, BOMItem, InventoryAdjustment
 
 
 class OrderActionTestCase(TestCase):
@@ -1802,6 +1802,267 @@ class IdeasFeaturesTestCase(TestCase):
         self.assertEqual(created_bom.items.count(), 2)
         self.assertEqual(created_bom.items.get(part=p1).reference, 'BT1')
         self.assertEqual(created_bom.items.get(part=p2).reference, 'H1')
+
+    def test_category_prefix_generation_for_subcategories(self):
+        """Subcategories auto-generate the next sequential prefix under their parent."""
+        mcu_cat = Category.objects.create(name="Microcontrollers", prefix="230")
+        # Next subcategory under 230 should be 231
+        prefix_1 = Category.generate_next_prefix(mcu_cat)
+        self.assertEqual(prefix_1, "231")
+
+        # Create subcategory RPis leaving prefix empty -> auto-generates 231
+        rpi_cat = Category.objects.create(name="RPis", parent=mcu_cat)
+        self.assertEqual(rpi_cat.prefix, "231")
+        self.assertEqual(rpi_cat.get_prefix(), "231")
+
+        # Next subcategory under 230 should now be 232
+        prefix_2 = Category.generate_next_prefix(mcu_cat)
+        self.assertEqual(prefix_2, "232")
+
+    def test_move_part_to_new_category_assigns_new_part_number(self):
+        """
+        When a part is moved to another category (e.g. from Microcontrollers 230
+        to subcategory RPis 231), a new sequential part number is automatically found.
+        """
+        mcu_cat = Category.objects.create(name="MCUs", prefix="230")
+        rpi_cat = Category.objects.create(name="Raspberry Pis", prefix="231", parent=mcu_cat)
+
+        part = Part.objects.create(
+            part_number="230-003",
+            name="Raspberry Pi 4 Model B",
+            category=mcu_cat,
+            quantity_on_hand=5,
+            price_per=Decimal("35.00")
+        )
+
+        # 1. Test move via part_move_category_action POST view
+        res = self.client.post(reverse('part_move_category', kwargs={'pk': part.pk}), {
+            'target_category': rpi_cat.pk,
+        })
+        self.assertEqual(res.status_code, 302)
+        part.refresh_from_db()
+        self.assertEqual(part.category, rpi_cat)
+        self.assertEqual(part.part_number, "231-001")
+
+        # 2. Add second part in MCUs and move via direct save()
+        part2 = Part.objects.create(
+            part_number="230-006",
+            name="Raspberry Pi ZERO",
+            category=mcu_cat,
+            quantity_on_hand=10,
+        )
+        part2.category = rpi_cat
+        part2.save()
+        part2.refresh_from_db()
+        self.assertEqual(part2.part_number, "231-002")
+
+    def test_part_update_view_category_change_renumbers_part(self):
+        """Updating part's category in PartUpdateView automatically assigns new part number."""
+        cat_a = Category.objects.create(name="Sensors", prefix="250")
+        cat_b = Category.objects.create(name="Actuators", prefix="260")
+
+        sensor_part = Part.objects.create(
+            part_number="250-001",
+            name="Temp Sensor",
+            category=cat_a,
+            quantity_on_hand=10,
+            price_per=Decimal("1.50")
+        )
+
+        # POST PartUpdateView changing category to cat_b
+        res = self.client.post(reverse('part_update', kwargs={'pk': sensor_part.pk}), {
+            'category': cat_b.pk,
+            'name': 'Temp Sensor Motorized',
+            'quantity_on_hand': 10,
+            'part_number': '250-001',  # Left as old PN by form
+            'adjustment_reason': 'Category transfer',
+        })
+        self.assertEqual(res.status_code, 302)
+        sensor_part.refresh_from_db()
+        self.assertEqual(sensor_part.category, cat_b)
+        self.assertEqual(sensor_part.part_number, "260-001")
+
+    def test_category_json_endpoints(self):
+        """Tests the category next-part-number and next-prefix JSON endpoints."""
+        parent_cat = Category.objects.create(name="Computers", prefix="700")
+        Part.objects.create(part_number="700-001", name="PC 1", category=parent_cat)
+        Part.objects.create(part_number="700-002", name="PC 2", category=parent_cat)
+
+        # Next part number endpoint
+        res_pn = self.client.get(reverse('category_next_part_number', kwargs={'pk': parent_cat.pk}))
+        self.assertEqual(res_pn.status_code, 200)
+        data_pn = res_pn.json()
+        self.assertEqual(data_pn['status'], 'ok')
+        self.assertEqual(data_pn['next_part_number'], '700-003')
+
+        # Next subcategory prefix endpoint
+        res_pfx = self.client.get(reverse('category_next_prefix', kwargs={'pk': parent_cat.pk}))
+        self.assertEqual(res_pfx.status_code, 200)
+        data_pfx = res_pfx.json()
+        self.assertEqual(data_pfx['status'], 'ok')
+        self.assertEqual(data_pfx['suggested_prefix'], '710')
+
+
+class CategoryHierarchyAndCountSheetFilterTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.supplier = Company.objects.create(name="Mouser Electronics")
+        self.loc_main = Location.objects.create(name="Bin A1", code="A1")
+        self.loc_other = Location.objects.create(name="Bin B2", code="B2")
+
+        # Category tree:
+        # Electronic components (prefix 200)
+        #   -> Microcontrollers (prefix 230, parent=Electronic components)
+        #        -> RPis (prefix 231, parent=Microcontrollers)
+        # Hardware (prefix 500)
+        self.cat_electronics = Category.objects.create(name="Electronic components", prefix="200")
+        self.cat_micro = Category.objects.create(name="Microcontrollers", prefix="230", parent=self.cat_electronics)
+        self.cat_rpis = Category.objects.create(name="RPis", prefix="231", parent=self.cat_micro)
+        self.cat_hardware = Category.objects.create(name="Hardware", prefix="500")
+
+        # Parts in each category
+        self.part_elec = Part.objects.create(
+            part_number="200-001",
+            name="Generic Resistor Pack",
+            category=self.cat_electronics,
+            company=self.supplier,
+            location=self.loc_main,
+            quantity_on_hand=100
+        )
+        self.part_micro = Part.objects.create(
+            part_number="230-001",
+            name="ATmega328",
+            category=self.cat_micro,
+            company=self.supplier,
+            location=self.loc_main,
+            quantity_on_hand=25
+        )
+        self.part_rpi = Part.objects.create(
+            part_number="231-001",
+            name="Raspberry Pi 4B",
+            category=self.cat_rpis,
+            company=self.supplier,
+            location=self.loc_main,
+            quantity_on_hand=10
+        )
+        self.part_hw = Part.objects.create(
+            part_number="500-001",
+            name="M3 Screw 10mm",
+            category=self.cat_hardware,
+            company=self.supplier,
+            location=self.loc_other,
+            quantity_on_hand=500
+        )
+
+    def test_category_family_and_descendants_ids(self):
+        """Verifies get_descendant_ids and get_family_ids collect all nested subcategories recursively."""
+        # Top-level Electronics should include itself, Microcontrollers, and RPis
+        family_elec = Category.get_family_ids(self.cat_electronics.pk)
+        self.assertEqual(family_elec, {self.cat_electronics.pk, self.cat_micro.pk, self.cat_rpis.pk})
+
+        # Mid-level Microcontrollers should include itself and RPis
+        family_micro = Category.get_family_ids(self.cat_micro.pk)
+        self.assertEqual(family_micro, {self.cat_micro.pk, self.cat_rpis.pk})
+
+        # Leaf RPis should only include itself
+        family_rpi = Category.get_family_ids(self.cat_rpis.pk)
+        self.assertEqual(family_rpi, {self.cat_rpis.pk})
+
+        # Category model instance method get_descendant_ids
+        self.assertEqual(self.cat_micro.get_descendant_ids(), {self.cat_micro.pk, self.cat_rpis.pk})
+        self.assertEqual(self.cat_micro.get_descendant_ids(include_self=False), {self.cat_rpis.pk})
+
+    def test_hierarchical_categories_ordering_and_labels(self):
+        """Verifies Category.get_hierarchical_categories() structures children under parents with dropdown labels."""
+        ordered = Category.get_hierarchical_categories()
+        ordered_ids = [c.pk for c in ordered]
+
+        # Microcontrollers and RPis must follow Electronic components
+        idx_elec = ordered_ids.index(self.cat_electronics.pk)
+        idx_micro = ordered_ids.index(self.cat_micro.pk)
+        idx_rpi = ordered_ids.index(self.cat_rpis.pk)
+
+        self.assertTrue(idx_elec < idx_micro < idx_rpi)
+
+        # Check dropdown label formatting
+        label_elec = self.cat_electronics.dropdown_label
+        label_micro = self.cat_micro.dropdown_label
+        label_rpi = self.cat_rpis.dropdown_label
+
+        self.assertIn("[200] Electronic components", label_elec)
+        self.assertIn("(+ subcategories)", label_elec)
+        self.assertIn("↳ [230] Microcontrollers", label_micro)
+        self.assertIn("(+ subcategories)", label_micro)
+        self.assertIn("↳ [231] RPis", label_rpi)
+
+    def test_part_list_parent_category_filter_includes_subcategories(self):
+        """Selecting Microcontrollers on /parts/ must return Microcontrollers AND RPis parts."""
+        response = self.client.get(reverse('part_list') + f'?category={self.cat_micro.pk}')
+        self.assertEqual(response.status_code, 200)
+
+        parts = list(response.context['parts'])
+        part_pks = [p.pk for p in parts]
+
+        self.assertIn(self.part_micro.pk, part_pks)
+        self.assertIn(self.part_rpi.pk, part_pks)
+        self.assertNotIn(self.part_elec.pk, part_pks)
+        self.assertNotIn(self.part_hw.pk, part_pks)
+        self.assertEqual(response.context['total_count'], 2)
+
+    def test_part_list_grandparent_category_filter_includes_all_descendants(self):
+        """Selecting root Electronic components returns its direct parts, Microcontrollers parts, and RPis parts."""
+        response = self.client.get(reverse('part_list') + f'?category={self.cat_electronics.pk}')
+        self.assertEqual(response.status_code, 200)
+
+        parts = list(response.context['parts'])
+        part_pks = [p.pk for p in parts]
+
+        self.assertIn(self.part_elec.pk, part_pks)
+        self.assertIn(self.part_micro.pk, part_pks)
+        self.assertIn(self.part_rpi.pk, part_pks)
+        self.assertNotIn(self.part_hw.pk, part_pks)
+        self.assertEqual(response.context['total_count'], 3)
+
+    def test_count_sheet_parent_category_filter_includes_subcategories(self):
+        """Inventory Count Sheet filtered by Microcontrollers includes both Microcontrollers and RPis groups."""
+        response = self.client.get(reverse('inventory_count_sheet') + f'?category={self.cat_micro.pk}')
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(response.context['total_parts'], 2)
+        group_names = [g['category_name'] for g in response.context['groups']]
+        self.assertIn('Microcontrollers', group_names)
+        self.assertIn('RPis', group_names)
+
+    def test_part_list_to_count_sheet_filter_forwarding(self):
+        """Count Sheet link on /parts/ carries active filters and applies them when opened."""
+        # User filters on /parts/ by Microcontrollers and Location A1
+        res_parts = self.client.get(reverse('part_list') + f'?category={self.cat_micro.pk}&location={self.loc_main.pk}')
+        self.assertEqual(res_parts.status_code, 200)
+
+        count_sheet_url = res_parts.context['count_sheet_url']
+        self.assertIn(f"category={self.cat_micro.pk}", count_sheet_url)
+        self.assertIn(f"location={self.loc_main.pk}", count_sheet_url)
+        self.assertIn("from_parts=1", count_sheet_url)
+
+        # User clicks the Count Sheet link
+        res_cs = self.client.get(count_sheet_url)
+        self.assertEqual(res_cs.status_code, 200)
+        self.assertEqual(res_cs.context['current_category'], str(self.cat_micro.pk))
+        self.assertEqual(res_cs.context['current_location'], str(self.loc_main.pk))
+        self.assertEqual(res_cs.context['total_parts'], 2)
+
+    def test_count_sheet_csv_export_respects_category_hierarchy_filter(self):
+        """CSV export of count sheet includes parent and all subcategory parts."""
+        res_csv = self.client.get(reverse('inventory_count_sheet_csv') + f'?category={self.cat_micro.pk}')
+        self.assertEqual(res_csv.status_code, 200)
+        content = res_csv.content.decode('utf-8')
+
+        self.assertIn("230-001", content)
+        self.assertIn("231-001", content)
+        self.assertNotIn("200-001", content)
+        self.assertNotIn("500-001", content)
+
+
 
 
 

@@ -107,6 +107,155 @@ class Category(models.Model):
         prefix_str = f"[{prefix}] " if prefix else ""
         return f"{prefix_str}{self.get_full_path()}"
 
+    @classmethod
+    def generate_next_prefix(cls, parent):
+        """
+        Generates the next sequential category prefix under `parent`.
+        e.g., if parent prefix is '230' (Microcontrollers), subcategories will be '231', '232', etc.
+        If parent prefix is '100' (ends in 00), subcategories will be '110', '120', etc.
+        """
+        parent_prefix = parent.get_prefix() if hasattr(parent, 'get_prefix') else str(parent).strip()
+        if not parent_prefix:
+            parent_prefix = "100"
+
+        cleaned = parent_prefix.strip()
+        if cleaned.isdigit():
+            val = int(cleaned)
+            if len(cleaned) >= 3 and cleaned.endswith('00'):
+                step = 10
+                base_start = val + 10
+                max_val = val + 90
+            elif len(cleaned) >= 2 and cleaned.endswith('0'):
+                step = 1
+                base_start = val + 1
+                max_val = val + 9
+            else:
+                step = 1
+                base_start = val + 1
+                max_val = val + 99
+
+            for candidate_num in range(base_start, max_val + 1, step):
+                cand_str = f"{candidate_num:0{len(cleaned)}d}"
+                if not cls.objects.filter(prefix=cand_str).exists():
+                    return cand_str
+
+        # Fallback if numeric stepping doesn't apply or range is exhausted
+        idx = 1
+        while True:
+            candidate = f"{cleaned}-{idx}"
+            if not cls.objects.filter(prefix=candidate).exists():
+                return candidate
+            idx += 1
+
+    def save(self, *args, **kwargs):
+        if self.parent and not (self.prefix and self.prefix.strip()):
+            self.prefix = self.generate_next_prefix(self.parent)
+        super().save(*args, **kwargs)
+
+    def get_descendant_ids(self, include_self=True):
+        """
+        Returns a set of IDs for this category and all its nested subcategories.
+        """
+        ids = {self.id} if include_self else set()
+        queue = [self.id]
+        while queue:
+            current_id = queue.pop(0)
+            child_ids = list(Category.objects.filter(parent_id=current_id).values_list('id', flat=True))
+            for cid in child_ids:
+                if cid not in ids:
+                    ids.add(cid)
+                    queue.append(cid)
+        return ids
+
+    @classmethod
+    def get_family_ids(cls, category):
+        """
+        Given a Category instance or ID, returns a set containing that ID and all descendant IDs.
+        """
+        if not category:
+            return set()
+        if isinstance(category, cls):
+            cat_id = category.id
+        else:
+            try:
+                cat_id = int(category)
+            except (ValueError, TypeError):
+                return set()
+
+        ids = {cat_id}
+        queue = [cat_id]
+        while queue:
+            current_id = queue.pop(0)
+            child_ids = list(cls.objects.filter(parent_id=current_id).values_list('id', flat=True))
+            for cid in child_ids:
+                if cid not in ids:
+                    ids.add(cid)
+                    queue.append(cid)
+        return ids
+
+    @classmethod
+    def get_hierarchical_categories(cls):
+        """
+        Returns all categories ordered hierarchically so children appear directly under their parents.
+        Each category is annotated with `tree_depth` (0 for root, 1 for child, etc.) and `has_children`.
+        """
+        all_cats = list(cls.objects.select_related('parent').all())
+        from collections import defaultdict
+        by_parent = defaultdict(list)
+        for cat in all_cats:
+            by_parent[cat.parent_id].append(cat)
+
+        def sort_key(c):
+            pref = c.get_prefix()
+            return (len(pref), pref, c.name.lower())
+
+        for p_id in by_parent:
+            by_parent[p_id].sort(key=sort_key)
+
+        result = []
+        def traverse(parent_id, level):
+            for cat in by_parent.get(parent_id, []):
+                cat.tree_depth = level
+                cat.has_children = bool(by_parent.get(cat.id))
+                result.append(cat)
+                traverse(cat.id, level + 1)
+
+        traverse(None, 0)
+        if len(result) < len(all_cats):
+            seen_ids = {c.id for c in result}
+            for cat in all_cats:
+                if cat.id not in seen_ids:
+                    cat.tree_depth = 0
+                    cat.has_children = bool(by_parent.get(cat.id))
+                    result.append(cat)
+        return result
+
+    @property
+    def dropdown_label(self):
+        """
+        Formatted label for HTML dropdown selects showing prefix, hierarchy indentation, and subcategory status.
+        """
+        depth = getattr(self, 'tree_depth', None)
+        if depth is None:
+            depth = 0
+            curr = self.parent
+            while curr:
+                depth += 1
+                curr = curr.parent
+
+        prefix = self.get_prefix()
+        pref_str = f"[{prefix}] " if prefix else ""
+        if depth > 0:
+            indent = "\u00A0\u00A0\u00A0\u00A0" * depth + "↳ "
+        else:
+            indent = ""
+        has_sub = getattr(self, 'has_children', None)
+        if has_sub is None:
+            has_sub = self.subcategories.exists()
+        sub_indicator = " (+ subcategories)" if has_sub else ""
+        return f"{indent}{pref_str}{self.name}{sub_indicator}"
+
+
 
 class Location(models.Model):
     """
@@ -277,6 +426,16 @@ class Part(models.Model):
 
     def clean(self):
         super().clean()
+        if self.pk and self.category:
+            orig = Part.objects.filter(pk=self.pk).select_related('category').first()
+            if orig and orig.category_id != self.category_id:
+                orig_prefix = orig.category.get_prefix() if orig.category else ""
+                new_prefix = self.category.get_prefix() if self.category else ""
+                if orig_prefix != new_prefix:
+                    raw_pn = (self.part_number or '').strip()
+                    if not raw_pn or raw_pn == orig.part_number or raw_pn.startswith(f"{orig_prefix}-") or raw_pn.isdigit():
+                        self.part_number = self.generate_next_part_number(self.category)
+
         if self.part_number:
             raw_pn = self.part_number.strip()
             # If user entered digits only and category has prefix, resolve full target
@@ -284,6 +443,7 @@ class Part(models.Model):
                 prefix = self.category.get_prefix()
                 if prefix and raw_pn.isdigit():
                     raw_pn = f"{prefix}-{int(raw_pn):03d}"
+                    self.part_number = raw_pn
 
             # Case-insensitive uniqueness check across all parts
             existing = Part.objects.filter(part_number__iexact=raw_pn)
@@ -335,6 +495,17 @@ class Part(models.Model):
 
     def save(self, *args, **kwargs):
         # 1. Part Number auto-generation / formatting based on Category prefix
+        # Check if category changed on an existing part and part number needs updating
+        if self.pk and self.category:
+            orig = Part.objects.filter(pk=self.pk).select_related('category').first()
+            if orig and orig.category_id != self.category_id:
+                orig_prefix = orig.category.get_prefix() if orig.category else ""
+                new_prefix = self.category.get_prefix() if self.category else ""
+                if orig_prefix != new_prefix:
+                    raw_pn = (self.part_number or '').strip()
+                    if not raw_pn or raw_pn == orig.part_number or raw_pn.startswith(f"{orig_prefix}-") or raw_pn.isdigit():
+                        self.part_number = self.generate_next_part_number(self.category)
+
         if self.category:
             prefix = self.category.get_prefix()
             if prefix:

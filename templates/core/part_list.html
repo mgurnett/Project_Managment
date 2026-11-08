@@ -20,7 +20,7 @@
         </div>
 
         <div class="d-flex align-items-center gap-2">
-            <a href="{% url 'inventory_count_sheet' %}" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 shadow-sm" title="Printable inventory count and physical audit sheet">
+            <a href="{{ count_sheet_url|default:'/inventory/count-sheet/' }}" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 shadow-sm" id="btnCountSheet" title="Printable inventory count and physical audit sheet with current filters applied">
                 <i class="bi bi-clipboard2-check"></i>
                 <span class="fw-semibold">Count Sheet</span>
             </a>
@@ -66,7 +66,7 @@
                     <select name="category" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="">All Categories</option>
                         {% for cat in categories %}
-                            <option value="{{ cat.id }}" {% if current_category == cat.id|stringformat:"s" %}selected{% endif %}>{{ cat.name }}</option>
+                            <option value="{{ cat.id }}" {% if current_category == cat.id|stringformat:"s" %}selected{% endif %}>{{ cat.dropdown_label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -287,4 +287,20 @@
     </div>
 
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.querySelector('input[name="q"]');
+    const countSheetBtn = document.getElementById('btnCountSheet');
+    if (searchInput && countSheetBtn) {
+        countSheetBtn.addEventListener('click', function(e) {
+            const query = searchInput.value.trim();
+            if (query && !countSheetBtn.href.includes('q=')) {
+                const sep = countSheetBtn.href.includes('?') ? '&' : '?';
+                countSheetBtn.href += sep + 'q=' + encodeURIComponent(query);
+            }
+        });
+    }
+});
+</script>
 {% endblock %}

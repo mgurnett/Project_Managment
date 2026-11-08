@@ -310,7 +310,7 @@
                         <option value="">All Categories</option>
                         {% for cat in categories %}
                             <option value="{{ cat.id }}" {% if current_category == cat.id|stringformat:"s" %}selected{% endif %}>
-                                {% if cat.prefix %}[{{ cat.prefix }}]{% endif %} {{ cat.name }}
+                                {{ cat.dropdown_label }}
                             </option>
                         {% endfor %}
                     </select>
@@ -335,12 +335,15 @@
                     </select>
                 </div>
 
+                {% if current_company %}<input type="hidden" name="company" value="{{ current_company }}">{% endif %}
+                {% if current_confirmed %}<input type="hidden" name="confirmed" value="{{ current_confirmed }}">{% endif %}
+
                 <!-- Submit / Reset -->
                 <div class="col-6 col-md-1 d-flex gap-1">
                     <button type="submit" class="btn btn-sm btn-outline-custom flex-grow-1" title="Apply Filters">
                         <i class="bi bi-filter"></i>
                     </button>
-                    {% if current_q or current_category or current_location or current_stock %}
+                    {% if current_q or current_category or current_location or current_stock or current_company or current_confirmed %}
                         <a href="{% url 'inventory_count_sheet' %}?clear=1" class="btn btn-sm btn-outline-secondary" title="Clear Filters">
                             <i class="bi bi-x-lg"></i>
                         </a>
@@ -349,6 +352,18 @@
             </form>
         </div>
     </div>
+
+    {% if current_company or current_confirmed %}
+    <div class="alert alert-info py-2 px-3 small d-flex align-items-center justify-content-between mb-4 no-print shadow-sm rounded-3">
+        <span class="d-flex align-items-center gap-1.5">
+            <i class="bi bi-funnel-fill text-primary"></i>
+            <span>Active filters from Parts Catalog:</span>
+            {% if current_company %}<span class="badge bg-primary-subtle text-primary border border-primary-subtle ms-1">Supplier: {{ company_name|default:current_company }}</span>{% endif %}
+            {% if current_confirmed %}<span class="badge bg-info-subtle text-info border border-info-subtle ms-1">Status: {% if current_confirmed == "1" %}Confirmed{% else %}Unconfirmed{% endif %}</span>{% endif %}
+        </span>
+        <a href="{% url 'inventory_count_sheet' %}?clear=1" class="btn btn-sm btn-outline-secondary py-0 px-2 small" title="Clear all filters">Clear</a>
+    </div>
+    {% endif %}
 
     <!-- Category Groups Table -->
     {% if groups %}
