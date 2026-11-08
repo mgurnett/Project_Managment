@@ -3,7 +3,8 @@ from django.utils.html import format_html
 from .models import (
     Company, Manufacturer, Category, Location, Part, PartDocument,
     InventoryAdjustment,
-    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem
+    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem,
+    Quote, QuoteItem
 )
 
 
@@ -339,5 +340,47 @@ class AssemblySaleItemAdmin(admin.ModelAdmin):
     def subtotal_display(self, obj):
         return f"${obj.subtotal:.2f}"
     subtotal_display.short_description = "Subtotal"
+
+
+class QuoteItemInline(admin.TabularInline):
+    model = QuoteItem
+    extra = 1
+    autocomplete_fields = ('bom',)
+    fields = ('bom', 'item_number', 'description', 'quantity', 'unit_price')
+
+
+@admin.register(Quote)
+class QuoteAdmin(admin.ModelAdmin):
+    list_display = (
+        'quote_number',
+        'status',
+        'quote_date',
+        'valid_until',
+        'customer_name',
+        'customer_phone',
+        'customer_email',
+        'invoice',
+        'total_amount_display',
+    )
+    list_filter = ('status', 'quote_date', 'valid_until')
+    search_fields = ('quote_number', 'customer_name', 'customer_email', 'customer_phone', 'notes')
+    inlines = [QuoteItemInline]
+    date_hierarchy = 'quote_date'
+
+    def total_amount_display(self, obj):
+        return f"${obj.total_amount:.2f}"
+    total_amount_display.short_description = "Total Amount"
+
+
+@admin.register(QuoteItem)
+class QuoteItemAdmin(admin.ModelAdmin):
+    list_display = ('quote', 'item_number', 'description', 'quantity', 'unit_price', 'subtotal_display')
+    search_fields = ('quote__quote_number', 'item_number', 'description')
+    autocomplete_fields = ('quote', 'bom')
+
+    def subtotal_display(self, obj):
+        return f"${obj.subtotal:.2f}"
+    subtotal_display.short_description = "Subtotal"
+
 
 

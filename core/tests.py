@@ -3,7 +3,10 @@ from decimal import Decimal
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.utils import timezone
-from core.models import Company, Category, Location, Part, Order, OrderItem, BOM, BOMItem, InventoryAdjustment
+from core.models import (
+    Company, Category, Location, Part, Order, OrderItem, BOM, BOMItem, InventoryAdjustment,
+    AssemblySale, AssemblySaleItem, Quote, QuoteItem
+)
 
 
 class OrderActionTestCase(TestCase):
@@ -2061,6 +2064,321 @@ class CategoryHierarchyAndCountSheetFilterTestCase(TestCase):
         self.assertIn("231-001", content)
         self.assertNotIn("200-001", content)
         self.assertNotIn("500-001", content)
+
+
+class SidebarNavigationLayoutTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_sidebar_headings_and_routes(self):
+        """Verifies the new sidebar headings (Parts, Movement) and all primary navigation routes."""
+        res = self.client.get(reverse('home'))
+        self.assertEqual(res.status_code, 200)
+        html = res.content.decode('utf-8')
+
+        # Check Headings
+        self.assertIn("Parts", html)
+        self.assertIn("Movement", html)
+
+        # Check 'Parts' section links
+        self.assertIn(reverse('category_list'), html)
+        self.assertIn(reverse('part_list'), html)
+        self.assertIn(reverse('part_create'), html)
+        self.assertIn(reverse('take_inventory'), html)
+
+        # Check 'Movement' section links
+        self.assertIn(reverse('order_list'), html)
+        self.assertIn(reverse('bom_list'), html)
+        self.assertIn(reverse('kit_action'), html)
+        self.assertIn(reverse('assemblies'), html)
+        self.assertIn(reverse('sale_list'), html)
+
+    def test_assemblies_alias_route(self):
+        """Verifies /assemblies/ route loads BuildActionView successfully."""
+        res = self.client.get(reverse('assemblies'))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, "Assemblies")
+
+
+class KitPullSheetStockStatusTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.category = Category.objects.create(name="Electronic components", prefix="200")
+        self.bom = BOM.objects.create(name="LiPo battery checker", assembly_number="1000-005")
+
+        # 1. Sufficient on hand: req=1, on_hand=10, on_order=0 (Green)
+        self.part_green = Part.objects.create(
+            part_number="240-001",
+            name="Rocker Switch",
+            category=self.category,
+            quantity_on_hand=10,
+            quantity_on_order=0
+        )
+        BOMItem.objects.create(bom=self.bom, part=self.part_green, quantity=1)
+
+        # 2. Below needed, but on-order covers it: req=1, on_hand=0, on_order=5 (Yellow)
+        self.part_yellow = Part.objects.create(
+            part_number="270-006",
+            name="5V Boost Module",
+            category=self.category,
+            quantity_on_hand=0,
+            quantity_on_order=5
+        )
+        BOMItem.objects.create(bom=self.bom, part=self.part_yellow, quantity=1)
+
+        # 3. Below needed, none on order: req=2, on_hand=0, on_order=0 (Red)
+        self.part_red = Part.objects.create(
+            part_number="217-019",
+            name="2n2222 BJT NPN",
+            category=self.category,
+            quantity_on_hand=0,
+            quantity_on_order=0
+        )
+        BOMItem.objects.create(bom=self.bom, part=self.part_red, quantity=2)
+
+    def test_kit_pull_sheet_no_quick_adjust_column(self):
+        """Verifies that the Quick Adjust column and its action buttons are removed from pullSheetSection."""
+        res = self.client.get(reverse('kit_action') + f'?bom={self.bom.pk}')
+        self.assertEqual(res.status_code, 200)
+        html = res.content.decode('utf-8')
+
+        # In pullSheetSection, Quick Adjust should not appear as a column header
+        pull_sheet_html = html.split('id="pullSheetSection"')[1]
+        self.assertNotIn('Quick Adjust', pull_sheet_html)
+        self.assertIn('On Order</th>', pull_sheet_html)
+
+    def test_kit_pull_sheet_stock_status_colors(self):
+        """
+        Verifies:
+        - In-stock component has green badge.
+        - Shortage with on-order incoming has yellow badge / table-warning.
+        - Shortage without on-order has red badge / table-danger.
+        """
+        res = self.client.get(reverse('kit_action') + f'?bom={self.bom.pk}')
+        self.assertEqual(res.status_code, 200)
+        html = res.content.decode('utf-8')
+        pull_sheet_html = html.split('id="pullSheetSection"')[1]
+
+        # Green: Rocker Switch
+        self.assertIn('bg-success-subtle', pull_sheet_html)
+        # Yellow: 5V Boost Module (0 on hand, 5 on order)
+        self.assertIn('bg-warning', pull_sheet_html)
+        self.assertIn('table-warning', pull_sheet_html)
+        self.assertIn('5 on order', pull_sheet_html)
+        # Red: 2n2222 (0 on hand, 0 on order)
+        self.assertIn('bg-danger', pull_sheet_html)
+        self.assertIn('table-danger', pull_sheet_html)
+
+    def test_part_adjust_pick_action(self):
+        """Verifies part_adjust_committed_action with mode='pick' deducts from on-hand and committed."""
+        self.part_green.quantity_committed = 3
+        self.part_green.save()
+
+        res = self.client.post(reverse('part_adjust_committed_action', kwargs={'pk': self.part_green.pk}), {
+            'mode': 'pick',
+            'quantity': 2,
+        }, follow=True)
+        self.assertEqual(res.status_code, 200)
+
+        self.part_green.refresh_from_db()
+        self.assertEqual(self.part_green.quantity_on_hand, 8)  # 10 - 2
+        self.assertEqual(self.part_green.quantity_committed, 1)  # 3 - 2
+        messages = [str(m) for m in res.context['messages']]
+        self.assertTrue(any('Picked 2 kitted unit(s)' in m for m in messages))
+
+    def test_kit_table_name_links_to_pull_sheet_and_no_inspect_btn(self):
+        """Verifies that kit name links to #pullSheetSection and Inspect button is removed."""
+        res = self.client.get(reverse('kit_action'))
+        self.assertEqual(res.status_code, 200)
+        html = res.content.decode('utf-8')
+
+        # Link to pull sheet section on kit name
+        expected_link = f'?bom={self.bom.pk}#pullSheetSection'
+        self.assertIn(f'href="{expected_link}"', html)
+        # Inspect button should be removed
+        self.assertNotIn('>Inspect</a>', html)
+        self.assertNotIn('> Inspect</a>', html)
+        self.assertNotIn('Inspect Kit Pull Sheet', html)
+
+
+class QuoteWorkflowTestCase(TestCase):
+    """
+    Tests the complete Quote -> Accepted -> Invoice -> Paid & Closed workflow:
+    1. A quote can be built pulling prices from BOMs.
+    2. It produces an invoice-styled quote with sequential QTE-xxxx numbering.
+    3. When the quote is accepted, an AssemblySale invoice (INV-xxxx) is created.
+    4. Line items and customer details are replicated on the invoice.
+    5. The quote is marked ACCEPTED and linked to the invoice.
+    6. Once the invoice is paid, it is marked PAID & closed, finished stock is deducted, and PAID stamp is applied.
+    """
+    def setUp(self):
+        self.client = Client()
+        self.company = Company.objects.create(name="Mouser Electronics")
+        self.category = Category.objects.create(name="Passives", prefix="200")
+        self.part1 = Part.objects.create(
+            part_number="200-001",
+            name="10k Resistor",
+            category=self.category,
+            company=self.company,
+            quantity_on_hand=100,
+            price_per=Decimal("0.25")
+        )
+        self.part2 = Part.objects.create(
+            part_number="200-002",
+            name="100uF Capacitor",
+            category=self.category,
+            company=self.company,
+            quantity_on_hand=50,
+            price_per=Decimal("1.50")
+        )
+        # BOM with 2x part1 (2 * $0.25 = $0.50) and 1x part2 (1 * $1.50 = $1.50) -> total_cost = $2.00
+        # Explicit sale_price = $15.00
+        self.bom = BOM.objects.create(
+            name="Sensor Board Assembly",
+            assembly_number="1000-010",
+            sale_price=Decimal("15.00"),
+            quantity_on_hand=5,
+        )
+        BOMItem.objects.create(bom=self.bom, part=self.part1, quantity=2)
+        BOMItem.objects.create(bom=self.bom, part=self.part2, quantity=1)
+
+    def test_quote_create_pulls_bom_price_and_calculates_totals(self):
+        """Verifies creating a quote pulls BOM sale_price and correctly calculates totals."""
+        self.assertEqual(self.bom.effective_sale_price, Decimal("15.00"))
+
+        post_data = {
+            'quote_number': 'QTE-0001',
+            'quote_date': timezone.now().date(),
+            'valid_until': timezone.now().date() + datetime.timedelta(days=30),
+            'status': 'DRAFT',
+            'customer_name': 'Acme Corporation',
+            'customer_address': '123 Industrial Way, Calgary, AB',
+            'customer_phone': '403-555-0199',
+            'customer_email': 'procurement@acme.com',
+            'notes': 'Delivery within 2 weeks of approval.',
+            'item_bom[]': [str(self.bom.pk)],
+            'item_number[]': [self.bom.assembly_number],
+            'item_description[]': [self.bom.name],
+            'item_quantity[]': ['3'],
+            'item_unit_price[]': [str(self.bom.effective_sale_price)],
+        }
+
+        res = self.client.post(reverse('quote_create'), post_data, follow=True)
+        self.assertEqual(res.status_code, 200)
+
+        quote = Quote.objects.filter(quote_number='QTE-0001').first()
+        self.assertIsNotNone(quote)
+        self.assertEqual(quote.customer_name, 'Acme Corporation')
+        self.assertEqual(quote.status, 'DRAFT')
+        self.assertEqual(quote.items.count(), 1)
+
+        item = quote.items.first()
+        self.assertEqual(item.bom, self.bom)
+        self.assertEqual(item.item_number, '1000-010')
+        self.assertEqual(item.quantity, 3)
+        self.assertEqual(item.unit_price, Decimal('15.00'))
+        self.assertEqual(item.subtotal, Decimal('45.00'))
+        self.assertEqual(quote.total_amount, Decimal('45.00'))
+
+    def test_quote_accept_generates_invoice_and_links(self):
+        """Verifies accepting a quote generates an AssemblySale invoice and marks quote ACCEPTED."""
+        quote = Quote.objects.create(
+            quote_number='QTE-0002',
+            quote_date=timezone.now().date(),
+            customer_name='Alberta Robotics',
+            customer_address='789 Tech Ave, Edmonton, AB',
+            customer_phone='780-555-1234',
+            customer_email='billing@abrobotics.ca',
+            status='DRAFT'
+        )
+        QuoteItem.objects.create(
+            quote=quote,
+            bom=self.bom,
+            item_number=self.bom.assembly_number,
+            description=self.bom.name,
+            quantity=2,
+            unit_price=Decimal('15.00')
+        )
+
+        # Accept the quote
+        accept_url = reverse('quote_accept', kwargs={'pk': quote.pk})
+        res = self.client.post(accept_url, follow=True)
+        self.assertEqual(res.status_code, 200)
+
+        quote.refresh_from_db()
+        self.assertEqual(quote.status, 'ACCEPTED')
+        self.assertTrue(quote.is_accepted)
+        self.assertIsNotNone(quote.invoice)
+
+        sale = quote.invoice
+        self.assertEqual(sale.customer_name, 'Alberta Robotics')
+        self.assertEqual(sale.status, 'UNPAID')
+        self.assertFalse(sale.stock_deducted)
+        self.assertEqual(sale.total_amount, Decimal('30.00'))
+        self.assertEqual(sale.originating_quote, quote)
+
+        # Verify sale items were created
+        self.assertEqual(sale.items.count(), 1)
+        sale_item = sale.items.first()
+        self.assertEqual(sale_item.item_number, '1000-010')
+        self.assertEqual(sale_item.quantity, 2)
+        self.assertEqual(sale_item.unit_price, Decimal('15.00'))
+
+    def test_quote_to_invoice_paid_and_closed(self):
+        """Verifies the full end-to-end flow: Quote accepted -> Invoice created -> Paid & Closed -> Stock deducted."""
+        quote = Quote.objects.create(
+            customer_name='Western Controls',
+            status='DRAFT'
+        )
+        QuoteItem.objects.create(
+            quote=quote,
+            bom=self.bom,
+            item_number='1000-010',
+            description='Sensor Board Assembly',
+            quantity=2,
+            unit_price=Decimal('15.00')
+        )
+
+        # Initial BOM built stock is 5
+        self.assertEqual(self.bom.quantity_on_hand, 5)
+
+        # 1. Accept quote
+        self.client.post(reverse('quote_accept', kwargs={'pk': quote.pk}), follow=True)
+        quote.refresh_from_db()
+        sale = quote.invoice
+        self.assertEqual(sale.status, 'UNPAID')
+        # Stock not yet deducted
+        self.bom.refresh_from_db()
+        self.assertEqual(self.bom.quantity_on_hand, 5)
+
+        # 2. Mark invoice as Paid & Close
+        pay_url = reverse('sale_mark_paid', kwargs={'pk': sale.pk})
+        res = self.client.post(pay_url, follow=True)
+        self.assertEqual(res.status_code, 200)
+
+        sale.refresh_from_db()
+        self.assertEqual(sale.status, 'PAID')
+        self.assertTrue(sale.is_paid)
+        self.assertTrue(sale.stock_deducted)
+        self.assertIsNotNone(sale.payment_date)
+
+        # Finished assembly stock deducted: 5 - 2 = 3
+        self.bom.refresh_from_db()
+        self.assertEqual(self.bom.quantity_on_hand, 3)
+
+    def test_quote_sidebar_navigation_and_list_view(self):
+        """Verifies quotes page and sidebar navigation links."""
+        res = self.client.get(reverse('quote_list'))
+        self.assertEqual(res.status_code, 200)
+        html = res.content.decode('utf-8')
+        self.assertIn('Quotes &amp; Estimates', html)
+        self.assertIn(reverse('quote_list'), html)
+        self.assertIn(reverse('quote_create'), html)
+
+
+
+
+
 
 
 

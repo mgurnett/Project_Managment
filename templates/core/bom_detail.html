@@ -42,6 +42,9 @@
             <button type="button" class="btn btn-sm btn-primary fw-semibold" data-bs-toggle="modal" data-bs-target="#kitBomModal">
                 <i class="bi bi-box-seam me-1"></i> Move to Kit
             </button>
+            <a href="{% url 'quote_create' %}?bom={{ bom.pk }}" class="btn btn-sm btn-outline-success fw-semibold" title="Build a quote using this BoM's price">
+                <i class="bi bi-file-earmark-text me-1"></i> Create Quote
+            </a>
             {% if bom.part %}
                 <a href="{% url 'part_detail' bom.part.pk %}" class="btn btn-outline-secondary btn-sm" title="View in Parts Catalog ({{ bom.part.part_number }})">
                     <i class="bi bi-cpu me-1"></i> Parts Catalog

@@ -1,5 +1,8 @@
 agent dialog.txt
 
-There are some ideas that have come up while using it. 
-When enetering parts inot a bom, we need to be able to choose a catagory to limit the drop down, but we also need to be able to just type in a part number.
+
+
+We need to make a quote form.  A quote can be built.  It pulls prices from boms and produces a quote that should look like a n invoice.  Then went the quote is accepted, then the invoice is sent out.  Once it is paid for then it is close.
+
+In BOMS, kits and assemblies, we need to be able to add documents.  Both ones that are uploaded as well as links to documents.  These are schematics, youtube videos and other things.
 

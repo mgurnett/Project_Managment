@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Close Kit | Inventory Manager{% endblock %}
-{% block breadcrumb %}Close Kit{% endblock %}
+{% block title %}Assemblies (Build from Kits) | Inventory Manager{% endblock %}
+{% block breadcrumb %}Assemblies{% endblock %}
 
 {% block content %}
 <div class="container-fluid p-0">
@@ -10,9 +10,9 @@
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
         <div>
             <h1 class="h3 fw-bold mb-1 text-custom">
-                <i class="bi bi-tools me-2"></i>Close Kit (Deduct from Inventory)
+                <i class="bi bi-tools me-2"></i>Assemblies (Build from Kits)
             </h1>
-            <p class="text-muted small mb-0">Select a Bill of Materials (BoM) assembly to close the kit and deduct all required component parts from on-hand inventory.</p>
+            <p class="text-muted small mb-0">Select a Bill of Materials (BoM) assembly to build finished 1000-series units, close active kits, and deduct component parts from inventory.</p>
         </div>
         <div class="d-flex align-items-center gap-2">
             <a href="{% url 'bom_list' %}" class="btn btn-outline-secondary btn-sm">
@@ -139,13 +139,14 @@
                                 <th class="py-2">Location</th>
                                 <th class="text-center py-2">Req / Build</th>
                                 <th class="text-center py-2">Current On Hand</th>
-                                <th class="text-center py-2">Committed (Kit)</th>
+                                <th class="text-center py-2">On Order</th>
+                                <th class="text-center pe-4 py-2">Committed (Kit)</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% if selected_bom %}
                                 {% for item in selected_bom.items.all %}
-                                <tr>
+                                <tr class="{% if item.part.quantity_on_hand < item.quantity %}{% if item.part.quantity_on_order >= item.quantity %}table-warning bg-opacity-25{% elif item.part.quantity_on_hand|add:item.part.quantity_on_order >= item.quantity %}table-warning bg-opacity-25{% elif item.part.quantity_on_order > 0 %}table-warning bg-opacity-25{% else %}table-danger bg-opacity-25{% endif %}{% endif %}">
                                     <td class="ps-4 py-2 font-monospace fw-bold">
                                         <a href="{% url 'part_detail' item.part.pk %}" class="text-decoration-none text-custom">{{ item.part.part_number }}</a>
                                     </td>
@@ -163,23 +164,32 @@
                                     <td class="text-center py-2 fw-bold text-danger">&minus; {{ item.quantity }}</td>
                                     <td class="text-center py-2">
                                         {% if item.part.quantity_on_hand >= item.quantity %}
-                                            <span class="badge bg-success-subtle text-success border border-success-subtle">{{ item.part.quantity_on_hand }}</span>
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 font-monospace">{{ item.part.quantity_on_hand }}</span>
+                                        {% elif item.part.quantity_on_order >= item.quantity or item.part.quantity_on_hand|add:item.part.quantity_on_order >= item.quantity or item.part.quantity_on_order > 0 %}
+                                            <span class="badge bg-warning text-dark border border-warning px-2 py-1 font-monospace">{{ item.part.quantity_on_hand }} <small class="fw-normal">({{ item.part.quantity_on_order }} on order)</small></span>
                                         {% else %}
-                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle">{{ item.part.quantity_on_hand }} (Low)</span>
+                                            <span class="badge bg-danger text-white border border-danger px-2 py-1 font-monospace">{{ item.part.quantity_on_hand }} <small class="fw-normal">(Low)</small></span>
                                         {% endif %}
                                     </td>
                                     <td class="text-center py-2">
-                                        <span class="badge bg-info-subtle text-info border border-info-subtle">{{ item.part.quantity_committed|default:0 }}</span>
+                                        {% if item.part.quantity_on_order > 0 %}
+                                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle font-monospace">{{ item.part.quantity_on_order }}</span>
+                                        {% else %}
+                                            <span class="text-muted small">0</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center pe-4 py-2">
+                                        <span class="badge bg-info-subtle text-info border border-info-subtle font-monospace">{{ item.part.quantity_committed|default:0 }}</span>
                                     </td>
                                 </tr>
                                 {% empty %}
                                 <tr>
-                                    <td colspan="6" class="text-center py-4 text-muted">This BoM has no component items yet.</td>
+                                    <td colspan="7" class="text-center py-4 text-muted">This BoM has no component items yet.</td>
                                 </tr>
                                 {% endfor %}
                             {% else %}
                                 <tr>
-                                    <td colspan="6" class="text-center py-4 text-muted">Select a BoM to view its build consumption table.</td>
+                                    <td colspan="7" class="text-center py-4 text-muted">Select a BoM to view its build consumption table.</td>
                                 </tr>
                             {% endif %}
                         </tbody>

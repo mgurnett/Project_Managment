@@ -136,6 +136,34 @@
             color: #5ac77d;
         }
 
+        .nav-link-custom.nav-sub-link {
+            padding: 0.35rem 1.25rem 0.35rem 2.65rem;
+            margin-top: -0.05rem;
+            margin-bottom: 0.15rem;
+            font-size: 0.84rem;
+            font-weight: 500;
+            color: var(--bs-secondary-color);
+        }
+
+        .nav-link-custom.nav-sub-link i {
+            font-size: 0.95rem;
+            width: 18px;
+            margin-right: 0.5rem;
+        }
+
+        .nav-link-custom.nav-sub-link:hover {
+            color: var(--bs-primary);
+        }
+
+        .nav-link-custom.nav-sub-link.active {
+            color: var(--bs-primary);
+            font-weight: 600;
+        }
+
+        [data-bs-theme="dark"] .nav-link-custom.nav-sub-link.active {
+            color: #5ac77d;
+        }
+
         .sidebar-footer {
             margin-top: auto;
             padding: 1rem 1.25rem;
@@ -195,46 +223,66 @@
             <!-- Sidebar Navigation Links -->
             <div class="flex-grow-1 py-2">
                 
-                <div class="sidebar-heading">Assets & Inventory</div>
-                
-                <a href="{% url 'home' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'home' %}active{% endif %}">
+                <a href="{% url 'home' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'home' %}active{% endif %}" title="Dashboard Overview">
                     <i class="bi bi-grid-1x2-fill"></i>
                     <span>Dashboard</span>
                 </a>
 
-                <a href="{% url 'part_list' %}" class="nav-link-custom {% if 'parts' in request.path %}active{% endif %}">
+                <div class="sidebar-heading">Parts</div>
+                
+                <a href="{% url 'category_list' %}" class="nav-link-custom {% if 'categories' in request.path %}active{% endif %}" title="Categories &amp; Subcategories Taxonomy">
+                    <i class="bi bi-diagram-2"></i>
+                    <span>Categories</span>
+                </a>
+
+                <a href="{% url 'part_list' %}" class="nav-link-custom {% if 'parts' in request.path and request.resolver_match.url_name != 'part_create' %}active{% endif %}" title="Parts Catalog &amp; Component List">
                     <i class="bi bi-cpu"></i>
-                    <span>Parts Catalog</span>
+                    <span>Parts</span>
                 </a>
 
-                <a href="{% url 'bom_list' %}" class="nav-link-custom {% if 'boms' in request.path %}active{% endif %}">
-                    <i class="bi bi-diagram-3"></i>
-                    <span>BoMs</span>
+                <a href="{% url 'part_create' %}" class="nav-link-custom nav-sub-link {% if request.resolver_match.url_name == 'part_create' %}active{% endif %}" title="Add New Part">
+                    <i class="bi bi-plus-circle"></i>
+                    <span>Add Part</span>
                 </a>
 
-                <div class="sidebar-heading">Actions</div>
-
-                <a href="{% url 'order_list' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'order_list' or request.resolver_match.url_name == 'order_create' or request.resolver_match.url_name == 'order_detail' or request.resolver_match.url_name == 'order_update' or request.resolver_match.url_name == 'order_receive_action' %}active{% endif %}">
-                    <i class="bi bi-cart3"></i>
-                    <span>Orders</span>
-                </a>
-
-                <a href="{% url 'kit_action' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'kit_action' or request.resolver_match.url_name == 'build_action' %}active{% endif %}">
-                    <i class="bi bi-box-seam"></i>
-                    <span>Kits</span>
-                </a>
-
-                <a href="{% url 'sale_list' %}" class="nav-link-custom {% if 'sales' in request.path %}active{% endif %}">
-                    <i class="bi bi-receipt"></i>
-                    <span>Sales &amp; Invoices</span>
-                </a>
-
-                <a href="{% url 'take_inventory' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'take_inventory' or request.resolver_match.url_name == 'inventory_count_sheet' %}active{% endif %}">
+                <a href="{% url 'take_inventory' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'take_inventory' or request.resolver_match.url_name == 'inventory_count_sheet' %}active{% endif %}" title="Take Inventory &amp; Stock Count Sheet">
                     <i class="bi bi-sliders"></i>
                     <span>Inventory</span>
                 </a>
 
-                <div class="sidebar-heading">System & Admin</div>
+                <div class="sidebar-heading">Movement</div>
+
+                <a href="{% url 'order_list' %}" class="nav-link-custom {% if 'orders' in request.path %}active{% endif %}" title="Purchase Orders &amp; Supplier Receipts">
+                    <i class="bi bi-cart3"></i>
+                    <span>Orders</span>
+                </a>
+
+                <a href="{% url 'bom_list' %}" class="nav-link-custom {% if 'boms' in request.path and 'kit' not in request.path %}active{% endif %}" title="Bills of Materials (BoMs) Assembly Recipes">
+                    <i class="bi bi-diagram-3"></i>
+                    <span>BoMs</span>
+                </a>
+
+                <a href="{% url 'kit_action' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'kit_action' %}active{% endif %}" title="Pick Kits &amp; Component Commitments">
+                    <i class="bi bi-box-seam"></i>
+                    <span>Kits</span>
+                </a>
+
+                <a href="{% url 'assemblies' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'assemblies' or request.resolver_match.url_name == 'build_action' %}active{% endif %}" title="1000-Series Built Assemblies &amp; Kit Completion">
+                    <i class="bi bi-tools"></i>
+                    <span>Assemblies</span>
+                </a>
+
+                <a href="{% url 'quote_list' %}" class="nav-link-custom {% if 'quotes' in request.path %}active{% endif %}" title="Quotes &amp; Estimates (Built from BoMs)">
+                    <i class="bi bi-file-earmark-text"></i>
+                    <span>Quotes</span>
+                </a>
+
+                <a href="{% url 'sale_list' %}" class="nav-link-custom {% if 'sales' in request.path %}active{% endif %}" title="Sales, Customer Invoices &amp; Revenue">
+                    <i class="bi bi-receipt"></i>
+                    <span>Sales</span>
+                </a>
+
+                <div class="sidebar-heading">System &amp; Admin</div>
 
                 <a href="{% url 'admin:index' %}" class="nav-link-custom" target="_blank" rel="noopener">
                     <i class="bi bi-shield-lock"></i>

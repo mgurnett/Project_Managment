@@ -314,6 +314,14 @@
                         <span class="text-muted">Payment Date:</span>
                         <strong>{% if sale.payment_date %}{{ sale.payment_date|date:"Y-m-d" }}{% else %}Pending (Unpaid){% endif %}</strong>
                     </div>
+                    {% if sale.originating_quote %}
+                    <div class="d-flex justify-content-between small mt-1 pt-1 border-top">
+                        <span class="text-muted">Originating Quote:</span>
+                        <a href="{% url 'quote_detail' sale.originating_quote.pk %}" class="fw-bold font-monospace text-decoration-none text-primary">
+                            {{ sale.originating_quote.quote_number }}
+                        </a>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>

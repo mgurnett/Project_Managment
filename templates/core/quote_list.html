@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}Quotes &amp; Estimates (Built from BoMs) | Inventory Manager{% endblock %}
+{% block breadcrumb %}Quotes &amp; Estimates{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+
+    <!-- Page Header -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
+        <div>
+            <h1 class="h3 fw-bold mb-1 text-custom">
+                <i class="bi bi-file-earmark-text me-2"></i>Quotes &amp; Estimates
+            </h1>
+            <p class="text-muted small mb-0">
+                Build quotes directly from BoMs, pull assembly pricing, and generate invoice-ready quotes. When a quote is accepted, convert it to an invoice to send to the client and close upon payment.
+            </p>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <a href="{% url 'bom_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-diagram-3 me-1"></i> BoMs
+            </a>
+            <a href="{% url 'quote_create' %}" class="btn btn-custom btn-sm d-flex align-items-center gap-1 shadow-sm fw-semibold">
+                <i class="bi bi-plus-circle"></i>
+                <span>Build New Quote ({{ next_quote_number }})</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- Summary KPI Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Total Quotes</span>
+                        <h3 class="fw-bold mb-0 mt-1 text-primary">{{ total_quotes_count|default:0 }}</h3>
+                        <div class="small text-muted mt-1">Quotes and estimates generated</div>
+                    </div>
+                    <div class="rounded-circle p-3 bg-primary-subtle text-primary">
+                        <i class="bi bi-file-earmark-text fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Open / Active Quotes</span>
+                        <h3 class="fw-bold mb-0 mt-1 text-warning">{{ draft_quotes_count|add:sent_quotes_count }}</h3>
+                        <div class="small mt-1">
+                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle me-1">{{ draft_quotes_count|default:0 }} Draft</span>
+                            <span class="badge bg-info-subtle text-info border border-info-subtle">{{ sent_quotes_count|default:0 }} Sent</span>
+                        </div>
+                    </div>
+                    <div class="rounded-circle p-3 bg-warning-subtle text-warning">
+                        <i class="bi bi-hourglass-split fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Accepted Quotes</span>
+                        <h3 class="fw-bold mb-0 mt-1 text-success">{{ accepted_quotes_count|default:0 }}</h3>
+                        <div class="small text-muted mt-1">Converted to customer invoices</div>
+                    </div>
+                    <div class="rounded-circle p-3 bg-success-subtle text-success">
+                        <i class="bi bi-check2-circle fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Total Quoted Value</span>
+                        <h3 class="fw-bold mb-0 mt-1 text-custom">${{ total_quoted_amount|floatformat:2 }}</h3>
+                        <div class="small text-muted mt-1">${{ total_accepted_amount|floatformat:2 }} accepted</div>
+                    </div>
+                    <div class="rounded-circle p-3 bg-success-subtle text-custom">
+                        <i class="bi bi-currency-dollar fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter and Search Bar -->
+    <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+        <div class="card-body p-3">
+            <form method="get" class="row g-2 align-items-center">
+                <div class="col-12 col-md-5">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-transparent border-end-0"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" name="q" class="form-control border-start-0 ps-0" placeholder="Search quote #, customer, email, or item description..." value="{{ current_q }}">
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="">-- All Statuses --</option>
+                        {% for code, label in status_choices %}
+                            <option value="{{ code }}" {% if current_status == code %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-md-4 d-flex gap-2">
+                    <button type="submit" class="btn btn-sm btn-outline-primary fw-semibold px-3">Filter</button>
+                    {% if current_q or current_status %}
+                        <a href="{% url 'quote_list' %}" class="btn btn-sm btn-outline-secondary">Reset</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Quotes Table -->
+    <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
+        <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center">
+            <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                <i class="bi bi-list-ul me-2 text-custom"></i>Quotes &amp; Estimates List
+            </h2>
+            <span class="text-muted small">Showing {{ quotes|length }} record(s)</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light border-bottom small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-4 py-3" style="width: 12%;">Quote Number</th>
+                            <th class="py-3" style="width: 11%;">Quote Date</th>
+                            <th class="py-3" style="width: 18%;">Customer</th>
+                            <th class="py-3" style="width: 22%;">Quoted Items</th>
+                            <th class="py-3 text-end" style="width: 12%;">Total Amount</th>
+                            <th class="py-3 text-center" style="width: 12%;">Status</th>
+                            <th class="pe-4 py-3 text-end" style="width: 13%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for q in quotes %}
+                        <tr>
+                            <td class="ps-4 py-3">
+                                <a href="{% url 'quote_detail' q.pk %}" class="fw-bold font-monospace text-decoration-none text-custom">
+                                    {{ q.quote_number }}
+                                </a>
+                            </td>
+                            <td class="py-3 small text-muted">
+                                {{ q.quote_date|date:"M d, Y" }}
+                                {% if q.valid_until %}
+                                    <div class="text-muted" style="font-size: 0.75rem;">Exp: {{ q.valid_until|date:"M d, Y" }}</div>
+                                {% endif %}
+                            </td>
+                            <td class="py-3">
+                                <div class="fw-semibold text-truncate" style="max-width: 220px;" title="{{ q.customer_name }}">
+                                    {{ q.customer_name }}
+                                </div>
+                                {% if q.customer_email %}
+                                    <div class="text-muted small text-truncate" style="max-width: 220px;">
+                                        <i class="bi bi-envelope me-1"></i>{{ q.customer_email }}
+                                    </div>
+                                {% endif %}
+                            </td>
+                            <td class="py-3">
+                                <div class="small">
+                                    {% for item in q.items.all|slice:":2" %}
+                                        <div class="text-truncate" style="max-width: 260px;" title="{{ item.item_number }} - {{ item.description }}">
+                                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle font-monospace py-0 px-1 me-1">{{ item.item_number }}</span>
+                                            <span>{{ item.description }}</span>
+                                            <span class="text-muted">&times;{{ item.quantity }}</span>
+                                        </div>
+                                    {% endfor %}
+                                    {% if q.items.count > 2 %}
+                                        <div class="text-muted small">+{{ q.items.count|add:"-2" }} more item(s)...</div>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td class="py-3 text-end font-monospace fw-bold">
+                                ${{ q.total_amount|floatformat:2 }}
+                            </td>
+                            <td class="py-3 text-center">
+                                {% if q.status == 'ACCEPTED' %}
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
+                                        <i class="bi bi-check-circle-fill me-1"></i> Accepted
+                                    </span>
+                                    {% if q.invoice %}
+                                        <div class="mt-1">
+                                            <a href="{% url 'sale_detail' q.invoice.pk %}" class="badge bg-primary-subtle text-primary border border-primary-subtle text-decoration-none font-monospace py-0 px-1.5" title="View converted invoice">
+                                                <i class="bi bi-receipt me-1"></i>{{ q.invoice.invoice_number }}
+                                            </a>
+                                            {% if q.invoice.is_paid %}
+                                                <span class="badge bg-success text-white py-0 px-1" style="font-size: 0.65rem;">PAID</span>
+                                            {% else %}
+                                                <span class="badge bg-warning-subtle text-dark border border-warning-subtle py-0 px-1" style="font-size: 0.65rem;">UNPAID</span>
+                                            {% endif %}
+                                        </div>
+                                    {% endif %}
+                                {% elif q.status == 'SENT' %}
+                                    <span class="badge bg-info-subtle text-info border border-info-subtle px-2 py-1">
+                                        <i class="bi bi-send-check me-1"></i> Sent
+                                    </span>
+                                {% elif q.status == 'DECLINED' %}
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1">
+                                        Declined
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2 py-1">
+                                        Draft
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td class="pe-4 py-3 text-end">
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{% url 'quote_detail' q.pk %}" class="btn btn-outline-secondary" title="View Quote &amp; Invoice Sheet">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    {% if not q.is_accepted %}
+                                        <form method="post" action="{% url 'quote_accept' q.pk %}" class="d-inline">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-outline-success" title="Accept Quote &amp; Convert to Invoice">
+                                                <i class="bi bi-check2-circle"></i>
+                                            </button>
+                                        </form>
+                                        <a href="{% url 'quote_update' q.pk %}" class="btn btn-outline-primary" title="Edit Quote">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                    {% endif %}
+                                    <a href="{% url 'quote_pdf' q.pk %}" target="_blank" class="btn btn-outline-secondary" title="View PDF">
+                                        <i class="bi bi-file-earmark-pdf"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center py-5 text-muted">
+                                <i class="bi bi-file-earmark-text display-6 d-block mb-2 text-secondary opacity-50"></i>
+                                <div class="fw-semibold">No Quotes Found</div>
+                                <div class="small mt-1">Start by building a quote from existing BoMs to produce an invoice-styled estimate.</div>
+                                <div class="mt-3">
+                                    <a href="{% url 'quote_create' %}" class="btn btn-custom btn-sm">
+                                        <i class="bi bi-plus-circle me-1"></i> Build First Quote
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+

@@ -121,13 +121,13 @@
                     {% for b in boms %}
                     <tr class="{% if b.kitted_sets > 0 %}table-info bg-opacity-10{% endif %}">
                         <td class="ps-4 py-3 font-monospace fw-bold">
-                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1">
+                            <a href="?bom={{ b.pk }}#pullSheetSection" class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 text-decoration-none" title="View Pull Sheet for {{ b.name }}">
                                 {{ b.assembly_number|default:"1000-001" }}
-                            </span>
+                            </a>
                         </td>
                         <td class="py-3">
                             <div class="d-flex align-items-center gap-2">
-                                <a href="?bom={{ b.pk }}" class="fw-bold text-decoration-none text-custom">
+                                <a href="?bom={{ b.pk }}#pullSheetSection" class="fw-bold text-decoration-none text-custom" title="View Pull Sheet for {{ b.name }}">
                                     {{ b.name }}
                                 </a>
                                 {% if b.kitted_sets > 0 %}
@@ -198,9 +198,6 @@
                         </td>
                         <td class="text-end pe-4 py-3">
                             <div class="d-flex align-items-center justify-content-end gap-1 flex-wrap">
-                                <a href="?bom={{ b.pk }}#pullSheetSection" class="btn btn-sm btn-outline-secondary" title="Inspect Kit Pull Sheet">
-                                    <i class="bi bi-list-check"></i> Inspect
-                                </a>
                                 {% if b.kitted_sets > 0 or b.total_committed_parts > 0 %}
                                 <!-- Close & Build 1 or All Kits -->
                                 <form method="post" action="{% url 'bom_adjust_kit_action' b.pk %}" class="d-inline">
@@ -227,6 +224,9 @@
                                     <i class="bi bi-receipt"></i> Sell ({{ b.quantity_on_hand }})
                                 </a>
                                 {% endif %}
+                                {% if b.kitted_sets <= 0 and b.total_committed_parts <= 0 and b.quantity_on_hand <= 0 %}
+                                    <span class="text-muted small">&mdash;</span>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>
@@ -249,7 +249,7 @@
                 <h5 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
                     <i class="bi bi-sliders me-2 text-custom"></i>2. Kitted / Committed Component Parts (Direct Quantity Adjustments)
                 </h5>
-                <span class="text-muted small">View every component currently allocated to a kit. Add, subtract, set exact committed quantity, consume, or remove from kit.</span>
+                <span class="text-muted small">View every component currently allocated to a kit. Add, subtract, set exact committed quantity, pick, or remove from kit.</span>
             </div>
             <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#addStandaloneKitPartCollapse" aria-expanded="false">
                 <i class="bi bi-plus-circle me-1"></i> Commit Individual Part to Kit
@@ -376,14 +376,14 @@
                         </td>
                         <td class="text-end pe-4 py-2">
                             <div class="btn-group btn-group-sm">
-                                <!-- Consume Kitted Qty from On-Hand -->
+                                <!-- Pick Kitted Qty from On-Hand -->
                                 <form method="post" action="{% url 'part_adjust_committed_action' part.pk %}" class="d-inline">
                                     {% csrf_token %}
-                                    <input type="hidden" name="mode" value="consume">
+                                    <input type="hidden" name="mode" value="pick">
                                     <input type="hidden" name="quantity" value="{{ part.quantity_committed }}">
                                     <input type="hidden" name="next" value="{% url 'kit_action' %}{% if selected_bom %}?bom={{ selected_bom.pk }}{% endif %}">
-                                    <button type="submit" class="btn btn-sm btn-outline-success" title="Consume Kitted Units (Deduct from On-Hand &amp; Committed)">
-                                        <i class="bi bi-check2-circle"></i> Consume
+                                    <button type="submit" class="btn btn-sm btn-outline-success" title="Pick Kitted Units (Deduct from On-Hand &amp; Committed)">
+                                        <i class="bi bi-check2-circle"></i> Pick
                                     </button>
                                 </form>
                                 <!-- Remove / Uncommit All -->
@@ -482,7 +482,7 @@
                         <div class="input-group input-group-sm mb-2">
                             <span class="input-group-text">Kits</span>
                             <input type="number" name="quantity" class="form-control" value="1" min="1">
-                            <button type="submit" name="action_type" value="build" class="btn btn-success fw-semibold" title="Consume kitted parts from on-hand inventory and add built 1000-series assembly">
+                            <button type="submit" name="action_type" value="build" class="btn btn-success fw-semibold" title="Pick kitted parts from on-hand inventory and add built 1000-series assembly">
                                 <i class="bi bi-check2-circle me-1"></i> Build Assembly
                             </button>
                             <button type="submit" name="action_type" value="return" class="btn btn-outline-secondary fw-semibold" title="Return kitted parts back to uncommitted stock">
@@ -508,7 +508,7 @@
             <div class="card border-0 shadow-sm rounded-3 bg-body overflow-hidden">
                 <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center">
                     <h5 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
-                        <i class="bi bi-list-check me-2 text-custom"></i>4. Kit Pull Sheet &amp; Line-Item Adjustments: {% if selected_bom %}{{ selected_bom.name }}{% else %}None Selected{% endif %}
+                        <i class="bi bi-list-check me-2 text-custom"></i>4. Kit Pull Sheet: {% if selected_bom %}{{ selected_bom.name }}{% else %}None Selected{% endif %}
                     </h5>
                     {% if selected_bom %}
                         <a href="{% url 'bom_detail' selected_bom.pk %}" class="btn btn-sm btn-outline-secondary py-0">Edit BoM Components</a>
@@ -523,14 +523,14 @@
                                 <th class="py-2">Location</th>
                                 <th class="text-center py-2">Qty / Kit</th>
                                 <th class="text-center py-2">On Hand</th>
-                                <th class="text-center py-2">Committed (Kitted)</th>
-                                <th class="text-end pe-4 py-2">Quick Adjust</th>
+                                <th class="text-center py-2">On Order</th>
+                                <th class="text-center pe-4 py-2">Committed (Kitted)</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% if selected_bom %}
                                 {% for item in selected_bom.items.all %}
-                                <tr>
+                                <tr class="{% if item.part.quantity_on_hand < item.quantity %}{% if item.part.quantity_on_order >= item.quantity %}table-warning bg-opacity-25{% elif item.part.quantity_on_hand|add:item.part.quantity_on_order >= item.quantity %}table-warning bg-opacity-25{% elif item.part.quantity_on_order > 0 %}table-warning bg-opacity-25{% else %}table-danger bg-opacity-25{% endif %}{% endif %}">
                                     <td class="ps-4 py-2 font-monospace fw-bold">
                                         <a href="{% url 'part_detail' item.part.pk %}" class="text-decoration-none text-custom">{{ item.part.part_number }}</a>
                                     </td>
@@ -547,32 +547,29 @@
                                     </td>
                                     <td class="text-center py-2 fw-bold">&times; {{ item.quantity }}</td>
                                     <td class="text-center py-2">
-                                        <span class="badge bg-success-subtle text-success border border-success-subtle">{{ item.part.quantity_on_hand }}</span>
+                                        {% if item.part.quantity_on_hand >= item.quantity %}
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 font-monospace" title="In Stock: {{ item.part.quantity_on_hand }} on hand &ge; {{ item.quantity }} needed">
+                                                {{ item.part.quantity_on_hand }}
+                                            </span>
+                                        {% elif item.part.quantity_on_order >= item.quantity or item.part.quantity_on_hand|add:item.part.quantity_on_order >= item.quantity or item.part.quantity_on_order > 0 %}
+                                            <span class="badge bg-warning text-dark border border-warning px-2 py-1 font-monospace" title="On Order: {{ item.part.quantity_on_order }} incoming from supplier (On-hand: {{ item.part.quantity_on_hand }}, Needed: {{ item.quantity }})">
+                                                {{ item.part.quantity_on_hand }} <small class="fw-normal">({{ item.part.quantity_on_order }} on order)</small>
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-danger text-white border border-danger px-2 py-1 font-monospace" title="Shortage: {{ item.part.quantity_on_hand }} on hand, {{ item.quantity }} needed, 0 on order">
+                                                {{ item.part.quantity_on_hand }} <small class="fw-normal">(Low)</small>
+                                            </span>
+                                        {% endif %}
                                     </td>
                                     <td class="text-center py-2">
-                                        <span class="badge bg-info-subtle text-info border border-info-subtle font-monospace">{{ item.part.quantity_committed|default:0 }}</span>
+                                        {% if item.part.quantity_on_order > 0 %}
+                                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle font-monospace">{{ item.part.quantity_on_order }}</span>
+                                        {% else %}
+                                            <span class="text-muted small">0</span>
+                                        {% endif %}
                                     </td>
-                                    <td class="text-end pe-4 py-2">
-                                        <div class="d-inline-flex align-items-center gap-1">
-                                            <form method="post" action="{% url 'part_adjust_committed_action' item.part.pk %}" class="d-inline">
-                                                {% csrf_token %}
-                                                <input type="hidden" name="mode" value="subtract">
-                                                <input type="hidden" name="quantity" value="{{ item.quantity }}">
-                                                <input type="hidden" name="next" value="{% url 'kit_action' %}?bom={{ selected_bom.pk }}">
-                                                <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-1.5" title="Subtract {{ item.quantity }} from Committed" {% if item.part.quantity_committed <= 0 %}disabled{% endif %}>
-                                                    &minus;{{ item.quantity }}
-                                                </button>
-                                            </form>
-                                            <form method="post" action="{% url 'part_adjust_committed_action' item.part.pk %}" class="d-inline">
-                                                {% csrf_token %}
-                                                <input type="hidden" name="mode" value="add">
-                                                <input type="hidden" name="quantity" value="{{ item.quantity }}">
-                                                <input type="hidden" name="next" value="{% url 'kit_action' %}?bom={{ selected_bom.pk }}">
-                                                <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-1.5" title="Add {{ item.quantity }} to Committed">
-                                                    +{{ item.quantity }}
-                                                </button>
-                                            </form>
-                                        </div>
+                                    <td class="text-center pe-4 py-2">
+                                        <span class="badge bg-info-subtle text-info border border-info-subtle font-monospace">{{ item.part.quantity_committed|default:0 }}</span>
                                     </td>
                                 </tr>
                                 {% empty %}

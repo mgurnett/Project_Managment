@@ -73,6 +73,17 @@ urlpatterns = [
     # Kit & Build Actions
     path('actions/kit/', views.KitActionView.as_view(), name='kit_action'),
     path('actions/build/', views.BuildActionView.as_view(), name='build_action'),
+    path('assemblies/', views.BuildActionView.as_view(), name='assemblies'),
+
+    # Sales Quotes & Estimates (Built from BOMs)
+    path('quotes/', views.QuoteListView.as_view(), name='quote_list'),
+    path('quotes/create/', views.QuoteCreateView.as_view(), name='quote_create'),
+    path('quotes/<int:pk>/', views.QuoteDetailView.as_view(), name='quote_detail'),
+    path('quotes/<int:pk>/edit/', views.QuoteUpdateView.as_view(), name='quote_update'),
+    path('quotes/<int:pk>/delete/', views.QuoteDeleteView.as_view(), name='quote_delete'),
+    path('quotes/<int:pk>/accept/', views.quote_accept, name='quote_accept'),
+    path('quotes/<int:pk>/send-email/', views.quote_send_email, name='quote_send_email'),
+    path('quotes/<int:pk>/pdf/', views.quote_pdf, name='quote_pdf'),
 
     # Sales & Invoices (1000-Series Built Assemblies)
     path('sales/', views.AssemblySaleListView.as_view(), name='sale_list'),

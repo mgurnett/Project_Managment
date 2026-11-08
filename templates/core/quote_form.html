@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if form.instance.pk %}Edit Quote {{ form.instance.quote_number }}{% else %}Build Sales Quote / Estimate{% endif %} | Inventory Manager
+{% endblock %}
+
+{% block breadcrumb %}
+    <a href="{% url 'quote_list' %}" class="text-decoration-none text-muted">Quotes &amp; Estimates</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>{% if form.instance.pk %}Edit {{ form.instance.quote_number }}{% else %}Build New Quote{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0" style="max-width: 1080px;">
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2">
+        <div>
+            <h1 class="h3 fw-bold mb-1 text-custom">
+                <i class="bi bi-file-earmark-text me-2"></i>{% if form.instance.pk %}Edit Quote {{ form.instance.quote_number }}{% else %}Build Sales Quote / Estimate{% endif %}
+            </h1>
+            <p class="text-muted small mb-0">
+                A quote can be built pulling prices directly from BoMs. Produces an invoice-styled quote. When the quote is accepted, it automatically converts to an invoice to be sent out.
+            </p>
+        </div>
+        <a href="{% url 'quote_list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-x-lg me-1"></i> Cancel
+        </a>
+    </div>
+
+    <form method="post" novalidate id="quoteForm">
+        {% csrf_token %}
+
+        {% if form.errors %}
+            <div class="alert alert-danger shadow-sm mb-4">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <strong>Please correct the errors below:</strong>
+                <ul class="mb-0 mt-2 small">
+                    {% for field, errors in form.errors.items %}
+                        <li><strong>{{ field|title }}:</strong> {{ errors|striptags }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
+        <!-- 1. Quote Information & Customer Info -->
+        <div class="row g-4 mb-4">
+            <!-- Left: Quote Details -->
+            <div class="col-12 col-lg-5">
+                <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                    <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2">
+                        <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                            <i class="bi bi-hash me-2 text-custom"></i>1. Quote Information
+                        </h2>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <label class="form-label small fw-semibold">Quote Number <span class="text-danger">*</span></label>
+                                {{ form.quote_number }}
+                                <div class="form-text small">Sequential (e.g. <code>{{ next_quote_number|default:"QTE-0001" }}</code>)</div>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-semibold">Quote Date <span class="text-danger">*</span></label>
+                                {{ form.quote_date }}
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-semibold">Valid Until (Expiry)</label>
+                                {{ form.valid_until }}
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-semibold">Status</label>
+                                {{ form.status }}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small fw-semibold">Quote Notes / Payment Terms (Optional)</label>
+                                {{ form.notes }}
+                                <div class="form-text small text-muted">Special terms, validity period (e.g. Net 30, Valid for 30 days), delivery notes.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Customer Information -->
+            <div class="col-12 col-lg-7">
+                <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                    <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center">
+                        <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                            <i class="bi bi-building me-2 text-custom"></i>2. Customer / Client Information
+                        </h2>
+                        <span class="badge bg-info-subtle text-info border border-info-subtle small">Default Client</span>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label small fw-semibold">Customer / Company Name <span class="text-danger">*</span></label>
+                                {{ form.customer_name }}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small fw-semibold">Customer Address <span class="text-danger">*</span></label>
+                                {{ form.customer_address }}
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small fw-semibold">Phone Number</label>
+                                {{ form.customer_phone }}
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small fw-semibold">Email Address</label>
+                                {{ form.customer_email }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Quoted Item Information (Pulls prices directly from BoMs) -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                        <i class="bi bi-boxes me-2 text-custom"></i>3. Build Quoted Items (Pulls prices from BoMs)
+                    </h2>
+                    <span class="text-muted small">Select any BoM assembly to auto-pull its Assembly Number, Description, and Price, or enter custom items.</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-custom fw-semibold" id="addQuoteItemRowBtn">
+                    <i class="bi bi-plus-circle me-1"></i> Add Line Item
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0" id="quoteItemsTable">
+                        <thead class="table-light border-bottom small text-uppercase text-muted">
+                            <tr>
+                                <th class="ps-4 py-2" style="width: 28%;">Pull from BoM Assembly</th>
+                                <th class="py-2" style="width: 14%;">Item Number</th>
+                                <th class="py-2" style="width: 26%;">Description</th>
+                                <th class="py-2 text-center" style="width: 10%;">Quantity</th>
+                                <th class="py-2 text-end" style="width: 12%;">Unit Price ($)</th>
+                                <th class="py-2 text-end" style="width: 8%;">Line Total</th>
+                                <th class="pe-4 py-2 text-end" style="width: 2%;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="quoteItemsBody">
+                            {% if existing_items %}
+                                {% for item in existing_items %}
+                                <tr class="quote-item-row">
+                                    <td class="ps-4 py-2">
+                                        <select name="item_bom[]" class="form-select form-select-sm bom-select">
+                                            <option value="">-- Custom / Manual Item --</option>
+                                            {% for asm in assemblies %}
+                                                <option value="{{ asm.pk }}"
+                                                        data-number="{{ asm.assembly_number|default:'' }}"
+                                                        data-desc="{{ asm.name }}{% if asm.description %} — {{ asm.description }}{% endif %}"
+                                                        data-price="{{ asm.effective_sale_price|floatformat:2 }}"
+                                                        {% if item.bom_id == asm.pk %}selected{% endif %}>
+                                                    {{ asm.assembly_number }} &mdash; {{ asm.name }} (${{ asm.effective_sale_price|floatformat:2 }})
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                    </td>
+                                    <td class="py-2">
+                                        <input type="text" name="item_number[]" class="form-control form-control-sm font-monospace item-number-input" value="{{ item.item_number }}" placeholder="1000-001" required>
+                                    </td>
+                                    <td class="py-2">
+                                        <input type="text" name="item_description[]" class="form-control form-control-sm item-desc-input" value="{{ item.description }}" placeholder="Item / assembly description..." required>
+                                    </td>
+                                    <td class="py-2">
+                                        <input type="number" name="item_quantity[]" class="form-control form-control-sm text-center font-monospace item-qty-input" value="{{ item.quantity }}" min="1" required>
+                                    </td>
+                                    <td class="py-2">
+                                        <input type="number" name="item_unit_price[]" step="0.01" min="0" class="form-control form-control-sm text-end font-monospace item-price-input" value="{{ item.unit_price|floatformat:2 }}" required>
+                                    </td>
+                                    <td class="py-2 text-end font-monospace fw-bold item-subtotal-display">
+                                        ${{ item.subtotal|floatformat:2 }}
+                                    </td>
+                                    <td class="pe-4 py-2 text-end">
+                                        <button type="button" class="btn btn-outline-danger btn-sm p-1 remove-quote-row" title="Remove row">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr class="quote-item-row">
+                                    <td class="ps-4 py-2">
+                                        <select name="item_bom[]" class="form-select form-select-sm bom-select">
+                                            <option value="">-- Select BoM Assembly to Pull Price --</option>
+                                            {% for asm in assemblies %}
+                                                <option value="{{ asm.pk }}"
+                                                        data-number="{{ asm.assembly_number|default:'' }}"
+                                                        data-desc="{{ asm.name }}{% if asm.description %} — {{ asm.description }}{% endif %}"
+                                                        data-price="{{ asm.effective_sale_price|floatformat:2 }}"
+                                                        {% if preselected_bom and preselected_bom.pk == asm.pk %}selected{% endif %}>
+                                                    {{ asm.assembly_number }} &mdash; {{ asm.name }} (${{ asm.effective_sale_price|floatformat:2 }})
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                    </td>
+                                    <td class="py-2">
+                                        <input type="text" name="item_number[]" class="form-control form-control-sm font-monospace item-number-input"
+                                               value="{% if preselected_bom %}{{ preselected_bom.assembly_number }}{% endif %}" placeholder="1000-001" required>
+                                    </td>
+                                    <td class="py-2">
+                                        <input type="text" name="item_description[]" class="form-control form-control-sm item-desc-input"
+                                               value="{% if preselected_bom %}{{ preselected_bom.name }}{% if preselected_bom.description %} — {{ preselected_bom.description }}{% endif %}{% endif %}" placeholder="Item / assembly description..." required>
+                                    </td>
+                                    <td class="py-2">
+                                        <input type="number" name="item_quantity[]" class="form-control form-control-sm text-center font-monospace item-qty-input" value="1" min="1" required>
+                                    </td>
+                                    <td class="py-2">
+                                        <input type="number" name="item_unit_price[]" step="0.01" min="0" class="form-control form-control-sm text-end font-monospace item-price-input"
+                                               value="{% if preselected_bom %}{{ preselected_bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}" required>
+                                    </td>
+                                    <td class="py-2 text-end font-monospace fw-bold item-subtotal-display">
+                                        ${% if preselected_bom %}{{ preselected_bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}
+                                    </td>
+                                    <td class="pe-4 py-2 text-end">
+                                        <button type="button" class="btn btn-outline-danger btn-sm p-1 remove-quote-row" title="Remove row">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                        <tfoot class="table-light border-top">
+                            <tr>
+                                <td colspan="5" class="ps-4 py-3 text-end fw-bold text-uppercase small text-muted">Total Quoted Amount:</td>
+                                <td class="py-3 text-end font-monospace fw-bold fs-5 text-custom" id="grandTotalDisplay">$0.00</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mb-5">
+            <a href="{% url 'quote_list' %}" class="btn btn-outline-secondary px-4">Cancel</a>
+            <button type="submit" class="btn btn-success px-4 fw-semibold">
+                <i class="bi bi-file-earmark-check me-1"></i> {% if form.instance.pk %}Save Quote Changes{% else %}Build &amp; Save Quote{% endif %}
+            </button>
+        </div>
+    </form>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const tbody = document.getElementById('quoteItemsBody');
+    const addBtn = document.getElementById('addQuoteItemRowBtn');
+    const grandTotalEl = document.getElementById('grandTotalDisplay');
+    if (!tbody) return;
+
+    function recalcTotals() {
+        let grandTotal = 0;
+        tbody.querySelectorAll('.quote-item-row').forEach(row => {
+            const qty = parseFloat(row.querySelector('.item-qty-input')?.value || '0') || 0;
+            const price = parseFloat(row.querySelector('.item-price-input')?.value || '0') || 0;
+            const sub = qty * price;
+            grandTotal += sub;
+            const subEl = row.querySelector('.item-subtotal-display');
+            if (subEl) subEl.textContent = '$' + sub.toFixed(2);
+        });
+        if (grandTotalEl) grandTotalEl.textContent = '$' + grandTotal.toFixed(2);
+    }
+
+    function bindRowEvents(row) {
+        const selectEl = row.querySelector('.bom-select');
+        const numInput = row.querySelector('.item-number-input');
+        const descInput = row.querySelector('.item-desc-input');
+        const qtyInput = row.querySelector('.item-qty-input');
+        const priceInput = row.querySelector('.item-price-input');
+
+        if (selectEl) {
+            selectEl.addEventListener('change', function() {
+                const opt = selectEl.options[selectEl.selectedIndex];
+                if (opt && opt.value) {
+                    if (numInput) numInput.value = opt.getAttribute('data-number') || '';
+                    if (descInput) descInput.value = opt.getAttribute('data-desc') || '';
+                    if (priceInput) priceInput.value = opt.getAttribute('data-price') || '0.00';
+                    recalcTotals();
+                }
+            });
+        }
+        if (qtyInput) qtyInput.addEventListener('input', recalcTotals);
+        if (priceInput) priceInput.addEventListener('input', recalcTotals);
+    }
+
+    tbody.querySelectorAll('.quote-item-row').forEach(bindRowEvents);
+    recalcTotals();
+
+    const templateRow = tbody.querySelector('.quote-item-row').cloneNode(true);
+
+    if (addBtn) {
+        addBtn.addEventListener('click', function() {
+            const newRow = templateRow.cloneNode(true);
+            newRow.querySelectorAll('select').forEach(s => s.selectedIndex = 0);
+            newRow.querySelectorAll('input').forEach(inp => {
+                if (inp.classList.contains('item-qty-input')) inp.value = '1';
+                else if (inp.classList.contains('item-price-input')) inp.value = '0.00';
+                else inp.value = '';
+            });
+            tbody.appendChild(newRow);
+            bindRowEvents(newRow);
+            recalcTotals();
+        });
+    }
+
+    tbody.addEventListener('click', function(e) {
+        const rmBtn = e.target.closest('.remove-quote-row');
+        if (!rmBtn) return;
+        const rows = tbody.querySelectorAll('.quote-item-row');
+        if (rows.length > 1) {
+            rmBtn.closest('.quote-item-row').remove();
+        } else {
+            const r = rows[0];
+            r.querySelectorAll('select').forEach(s => s.selectedIndex = 0);
+            r.querySelectorAll('input').forEach(inp => {
+                if (inp.classList.contains('item-qty-input')) inp.value = '1';
+                else if (inp.classList.contains('item-price-input')) inp.value = '0.00';
+                else inp.value = '';
+            });
+        }
+        recalcTotals();
+    });
+});
+</script>
+{% endblock %}
+

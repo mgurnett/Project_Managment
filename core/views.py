@@ -19,11 +19,13 @@ from django.db.models.functions import Length
 from .models import (
     Part, Company, Manufacturer, Category, Location, PartDocument,
     InventoryAdjustment,
-    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem
+    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem,
+    Quote, QuoteItem
 )
 from .forms import (
     PartForm, CompanyForm, ManufacturerForm, CategoryForm, LocationForm,
-    PartDocumentForm, BOMForm, BOMItemForm, OrderForm, OrderItemForm, AssemblySaleForm
+    PartDocumentForm, BOMForm, BOMItemForm, OrderForm, OrderItemForm, AssemblySaleForm,
+    QuoteForm
 )
 
 
@@ -47,6 +49,7 @@ def home(request):
     total_committed = Part.objects.aggregate(total=Sum('quantity_committed'))['total'] or 0
     total_assemblies_on_hand = BOM.objects.aggregate(total=Sum('quantity_on_hand'))['total'] or 0
     total_sales = AssemblySale.objects.count()
+    total_quotes = Quote.objects.count()
 
     context = {
         'page_title': 'Dashboard Overview',
@@ -59,6 +62,7 @@ def home(request):
             'total_boms': total_boms,
             'total_assemblies_on_hand': total_assemblies_on_hand,
             'total_sales': total_sales,
+            'total_quotes': total_quotes,
             'total_orders': total_orders,
             'active_orders': active_orders,
             'active_order_parts': active_order_parts,
@@ -68,6 +72,7 @@ def home(request):
         },
         'recent_orders': Order.objects.select_related('supplier').order_by('-order_date', '-created_at')[:5],
         'recent_sales': AssemblySale.objects.prefetch_related('items').order_by('-invoice_date', '-created_at')[:5],
+        'recent_quotes': Quote.objects.prefetch_related('items').order_by('-quote_date', '-created_at')[:5],
         'recent_boms': BOM.objects.annotate(item_count=Count('items')).order_by('-created_at')[:5],
         'recent_parts': Part.objects.select_related('company', 'category', 'location').order_by('-created_at')[:8],
         'recent_companies': Company.objects.annotate(part_count=Count('parts')).order_by('-created_at')[:5],
@@ -2810,7 +2815,7 @@ def bom_close_kit_action(request, pk):
             )
             msg = (
                 f"Closed {kits_count} kit(s) into Assembly {bom.assembly_number} — '{bom.name}'! "
-                f"Consumed {total_consumed} committed part(s) out of inventory and added {kits_count} built assembly unit(s) "
+                f"Picked {total_consumed} committed part(s) out of inventory and added {kits_count} built assembly unit(s) "
                 f"(Assemblies On-Hand: {bom.quantity_on_hand})."
             )
             if shortages:
@@ -3071,7 +3076,7 @@ def part_adjust_committed_action(request, pk):
                 request,
                 f"Cleared committed kit allocation for {part.part_number} ({old_committed} unit(s) returned to available stock)."
             )
-        elif mode in ('consume', 'build'):
+        elif mode in ('consume', 'build', 'pick'):
             consume_qty = max(1, qty if 'quantity' in request.POST else old_committed)
             part.quantity_on_hand = max(0, old_on_hand - consume_qty)
             part.quantity_committed = max(0, old_committed - consume_qty)
@@ -3079,7 +3084,7 @@ def part_adjust_committed_action(request, pk):
             part.save(update_fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible', 'updated_at'])
             messages.success(
                 request,
-                f"Consumed {consume_qty} kitted unit(s) of {part.part_number} from inventory (On-Hand: {old_on_hand} → {part.quantity_on_hand}, Committed: {old_committed} → {part.quantity_committed})."
+                f"Picked {consume_qty} kitted unit(s) of {part.part_number} from inventory (On-Hand: {old_on_hand} → {part.quantity_on_hand}, Committed: {old_committed} → {part.quantity_committed})."
             )
         else:
             # mode == 'set'
@@ -4035,6 +4040,463 @@ def assembly_sale_pdf(request, pk):
     disposition = 'attachment' if request.GET.get('download') == '1' else 'inline'
     response['Content-Disposition'] = f'{disposition}; filename="Invoice_{sale.invoice_number}.pdf"'
     return response
+
+
+# ==============================================================================
+# SALES QUOTES & ESTIMATES (Built from BOMs -> Accepted -> Invoice -> Paid)
+# ==============================================================================
+
+def generate_and_save_quote_pdf(quote, request=None):
+    """
+    Renders and saves the WeasyPrint PDF for a Quote into MEDIA_ROOT/quotes/.
+    Returns (rel_path, pdf_bytes).
+    """
+    import weasyprint
+
+    context = {
+        'quote': quote,
+        'items': list(quote.items.all()),
+        'company_name': Quote.DEFAULT_COMPANY_NAME,
+        'company_address': Quote.DEFAULT_COMPANY_ADDRESS,
+        'company_phone': Quote.DEFAULT_COMPANY_PHONE,
+        'company_email': Quote.DEFAULT_COMPANY_EMAIL,
+        'generated_at': timezone.now(),
+        'request': request,
+    }
+
+    base_url = request.build_absolute_uri('/') if request else f"file://{settings.BASE_DIR}/"
+    html_content = render_to_string('core/quote_pdf.html', context)
+    pdf_bytes = weasyprint.HTML(
+        string=html_content,
+        base_url=base_url
+    ).write_pdf()
+
+    quotes_dir = Path(settings.MEDIA_ROOT) / 'quotes'
+    quotes_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"Quote_{quote.quote_number}.pdf"
+    file_path = quotes_dir / filename
+    with open(file_path, 'wb') as f:
+        f.write(pdf_bytes)
+
+    rel_path = f"quotes/{filename}"
+    if quote.pdf_file.name != rel_path:
+        quote.pdf_file.name = rel_path
+        quote.save(update_fields=['pdf_file', 'updated_at'])
+
+    return rel_path, pdf_bytes
+
+
+class QuoteListView(ListView):
+    """
+    List and dashboard for Quotes / Estimates.
+    Displays all quotes, filter by status and keyword search, summary metrics,
+    and conversion links to invoices.
+    """
+    model = Quote
+    template_name = 'core/quote_list.html'
+    context_object_name = 'quotes'
+    paginate_by = 25
+
+    def get_queryset(self):
+        qs = Quote.objects.prefetch_related('items', 'invoice').order_by('-quote_date', '-id')
+        q = self.request.GET.get('q', '').strip()
+        status_filter = self.request.GET.get('status', '').strip()
+
+        if q:
+            qs = qs.filter(
+                Q(quote_number__icontains=q) |
+                Q(customer_name__icontains=q) |
+                Q(customer_email__icontains=q) |
+                Q(customer_phone__icontains=q) |
+                Q(items__item_number__icontains=q) |
+                Q(items__description__icontains=q)
+            ).distinct()
+
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        all_quotes = list(Quote.objects.prefetch_related('items', 'invoice').all())
+
+        ctx['total_quotes_count'] = len(all_quotes)
+        ctx['draft_quotes_count'] = sum(1 for q in all_quotes if q.status == 'DRAFT')
+        ctx['sent_quotes_count'] = sum(1 for q in all_quotes if q.status == 'SENT')
+        ctx['accepted_quotes_count'] = sum(1 for q in all_quotes if q.status == 'ACCEPTED')
+        ctx['total_quoted_amount'] = sum((q.total_amount for q in all_quotes), Decimal('0.00'))
+        ctx['total_accepted_amount'] = sum((q.total_amount for q in all_quotes if q.status == 'ACCEPTED'), Decimal('0.00'))
+
+        ctx['current_q'] = self.request.GET.get('q', '').strip()
+        ctx['current_status'] = self.request.GET.get('status', '').strip()
+        ctx['status_choices'] = Quote.STATUS_CHOICES
+        ctx['next_quote_number'] = Quote.generate_next_quote_number()
+        return ctx
+
+
+class QuoteCreateView(CreateView):
+    """
+    Page to build a quote. Pulls assembly items and unit prices directly from BOMs,
+    calculates totals live, and produces an invoice-styled quote.
+    """
+    model = Quote
+    form_class = QuoteForm
+    template_name = 'core/quote_form.html'
+
+    def get_initial(self):
+        initial = super().get_initial()
+        initial['quote_number'] = Quote.generate_next_quote_number()
+        initial['quote_date'] = timezone.now().date()
+        initial['status'] = 'DRAFT'
+        initial['customer_name'] = Quote.DEFAULT_COMPANY_NAME
+        initial['customer_address'] = Quote.DEFAULT_COMPANY_ADDRESS
+        initial['customer_phone'] = Quote.DEFAULT_COMPANY_PHONE
+        initial['customer_email'] = Quote.DEFAULT_COMPANY_EMAIL
+        return initial
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        boms = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
+        ctx['assemblies'] = boms
+        ctx['next_quote_number'] = Quote.generate_next_quote_number()
+        preselected_bom_id = self.request.GET.get('bom')
+        if preselected_bom_id and preselected_bom_id.isdigit():
+            ctx['preselected_bom'] = next((b for b in boms if b.pk == int(preselected_bom_id)), None)
+        else:
+            ctx['preselected_bom'] = None
+        return ctx
+
+    def form_valid(self, form):
+        bom_ids = self.request.POST.getlist('item_bom[]') or self.request.POST.getlist('item_bom')
+        item_numbers = self.request.POST.getlist('item_number[]') or self.request.POST.getlist('item_number')
+        descriptions = self.request.POST.getlist('item_description[]') or self.request.POST.getlist('item_description')
+        quantities = self.request.POST.getlist('item_quantity[]') or self.request.POST.getlist('item_quantity')
+        unit_prices = self.request.POST.getlist('item_unit_price[]') or self.request.POST.getlist('item_unit_price')
+
+        row_count = max(len(bom_ids), len(item_numbers), len(descriptions))
+        parsed_rows = []
+        for i in range(row_count):
+            b_id_str = str(bom_ids[i]).strip() if i < len(bom_ids) and bom_ids[i] else ''
+            i_num = str(item_numbers[i]).strip() if i < len(item_numbers) and item_numbers[i] else ''
+            i_desc = str(descriptions[i]).strip() if i < len(descriptions) and descriptions[i] else ''
+
+            bom_obj = None
+            if b_id_str.isdigit():
+                bom_obj = BOM.objects.filter(pk=int(b_id_str)).first()
+
+            if not bom_obj and not i_num and not i_desc:
+                continue
+
+            try:
+                qty = int(quantities[i]) if i < len(quantities) and str(quantities[i]).strip() else 1
+                if qty <= 0:
+                    continue
+            except (ValueError, TypeError):
+                qty = 1
+
+            u_price = None
+            if i < len(unit_prices) and str(unit_prices[i]).strip():
+                try:
+                    u_price = Decimal(str(unit_prices[i]).strip())
+                except (InvalidOperation, ValueError):
+                    u_price = None
+
+            if bom_obj:
+                if not i_num:
+                    i_num = bom_obj.assembly_number or BOM.generate_next_assembly_number(exclude_pk=bom_obj.pk)
+                if not i_desc:
+                    i_desc = f"{bom_obj.name}" + (f" — {bom_obj.description}" if bom_obj.description else "")
+                if u_price is None:
+                    u_price = bom_obj.effective_sale_price
+
+            if u_price is None:
+                u_price = Decimal('0.00')
+
+            parsed_rows.append({
+                'bom': bom_obj,
+                'item_number': i_num or '1000-001',
+                'description': i_desc or 'Custom Item',
+                'quantity': qty,
+                'unit_price': u_price,
+            })
+
+        if not parsed_rows:
+            messages.error(self.request, "Please select at least one Assembly or enter an item for the quote.")
+            return self.form_invalid(form)
+
+        with transaction.atomic():
+            quote = form.save()
+            self.object = quote
+
+            for row in parsed_rows:
+                QuoteItem.objects.create(
+                    quote=quote,
+                    bom=row['bom'],
+                    item_number=row['item_number'],
+                    description=row['description'],
+                    quantity=row['quantity'],
+                    unit_price=row['unit_price'],
+                )
+
+            try:
+                generate_and_save_quote_pdf(quote, request=self.request)
+            except Exception:
+                pass
+
+            messages.success(
+                self.request,
+                f"Quote {quote.quote_number} created successfully! You can send it to {quote.customer_name} or accept it to generate an invoice."
+            )
+
+        return redirect('quote_detail', pk=quote.pk)
+
+
+class QuoteUpdateView(UpdateView):
+    """
+    Page to edit an existing Quote.
+    """
+    model = Quote
+    form_class = QuoteForm
+    template_name = 'core/quote_form.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        boms = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
+        ctx['assemblies'] = boms
+        ctx['existing_items'] = list(self.object.items.all())
+        ctx['next_quote_number'] = self.object.quote_number
+        return ctx
+
+    def form_valid(self, form):
+        bom_ids = self.request.POST.getlist('item_bom[]') or self.request.POST.getlist('item_bom')
+        item_numbers = self.request.POST.getlist('item_number[]') or self.request.POST.getlist('item_number')
+        descriptions = self.request.POST.getlist('item_description[]') or self.request.POST.getlist('item_description')
+        quantities = self.request.POST.getlist('item_quantity[]') or self.request.POST.getlist('item_quantity')
+        unit_prices = self.request.POST.getlist('item_unit_price[]') or self.request.POST.getlist('item_unit_price')
+
+        row_count = max(len(bom_ids), len(item_numbers), len(descriptions))
+        parsed_rows = []
+        for i in range(row_count):
+            b_id_str = str(bom_ids[i]).strip() if i < len(bom_ids) and bom_ids[i] else ''
+            i_num = str(item_numbers[i]).strip() if i < len(item_numbers) and item_numbers[i] else ''
+            i_desc = str(descriptions[i]).strip() if i < len(descriptions) and descriptions[i] else ''
+
+            bom_obj = None
+            if b_id_str.isdigit():
+                bom_obj = BOM.objects.filter(pk=int(b_id_str)).first()
+
+            if not bom_obj and not i_num and not i_desc:
+                continue
+
+            try:
+                qty = int(quantities[i]) if i < len(quantities) and str(quantities[i]).strip() else 1
+                if qty <= 0:
+                    continue
+            except (ValueError, TypeError):
+                qty = 1
+
+            u_price = None
+            if i < len(unit_prices) and str(unit_prices[i]).strip():
+                try:
+                    u_price = Decimal(str(unit_prices[i]).strip())
+                except (InvalidOperation, ValueError):
+                    u_price = None
+
+            if bom_obj:
+                if not i_num:
+                    i_num = bom_obj.assembly_number or BOM.generate_next_assembly_number(exclude_pk=bom_obj.pk)
+                if not i_desc:
+                    i_desc = f"{bom_obj.name}" + (f" — {bom_obj.description}" if bom_obj.description else "")
+                if u_price is None:
+                    u_price = bom_obj.effective_sale_price
+
+            if u_price is None:
+                u_price = Decimal('0.00')
+
+            parsed_rows.append({
+                'bom': bom_obj,
+                'item_number': i_num or '1000-001',
+                'description': i_desc or 'Custom Item',
+                'quantity': qty,
+                'unit_price': u_price,
+            })
+
+        if not parsed_rows:
+            messages.error(self.request, "Please enter at least one item on the quote.")
+            return self.form_invalid(form)
+
+        with transaction.atomic():
+            quote = form.save()
+            quote.items.all().delete()
+            for row in parsed_rows:
+                QuoteItem.objects.create(
+                    quote=quote,
+                    bom=row['bom'],
+                    item_number=row['item_number'],
+                    description=row['description'],
+                    quantity=row['quantity'],
+                    unit_price=row['unit_price'],
+                )
+
+            try:
+                generate_and_save_quote_pdf(quote, request=self.request)
+            except Exception:
+                pass
+
+            messages.success(self.request, f"Quote {quote.quote_number} updated successfully!")
+
+        return redirect('quote_detail', pk=quote.pk)
+
+
+class QuoteDetailView(DetailView):
+    """
+    Displays the printable / PDF-ready Quote reference card styled identically to an Invoice.
+    Shows quote metadata, customer block, line items with BOM pricing, subtotal, grand total,
+    accept action (to convert to invoice), and email sending modal.
+    """
+    model = Quote
+    template_name = 'core/quote_detail.html'
+    context_object_name = 'quote'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['items'] = list(self.object.items.select_related('bom').all())
+        ctx['company_name'] = Quote.DEFAULT_COMPANY_NAME
+        ctx['company_address'] = Quote.DEFAULT_COMPANY_ADDRESS
+        ctx['company_phone'] = Quote.DEFAULT_COMPANY_PHONE
+        ctx['company_email'] = Quote.DEFAULT_COMPANY_EMAIL
+        ctx['invoice'] = self.object.invoice
+        return ctx
+
+
+def quote_accept(request, pk):
+    """
+    Accepts a Quote and converts it into an AssemblySale Invoice:
+    - Generates sequential invoice number
+    - Copies all customer info, terms, and line items
+    - Sets quote status to ACCEPTED and links quote.invoice
+    - Generates invoice PDF
+    - Redirects to the invoice detail page ready to send out and eventually close when paid.
+    """
+    if request.method != 'POST':
+        return redirect('quote_detail', pk=pk)
+
+    quote = get_object_or_404(Quote.objects.prefetch_related('items'), pk=pk)
+
+    if quote.invoice:
+        messages.info(request, f"Quote {quote.quote_number} was already converted to Invoice {quote.invoice.invoice_number}.")
+        return redirect('sale_detail', pk=quote.invoice.pk)
+
+    sale = quote.convert_to_invoice(request=request)
+    try:
+        generate_and_save_invoice_pdf(sale, request=request)
+    except Exception:
+        pass
+    try:
+        generate_and_save_quote_pdf(quote, request=request)
+    except Exception:
+        pass
+
+    messages.success(
+        request,
+        f"Quote {quote.quote_number} ACCEPTED! Invoice {sale.invoice_number} has been created (Status: Unpaid / Open). "
+        f"You can now send this invoice out to {sale.customer_name}. Once payment is received, mark it paid to close the invoice and deduct stock."
+    )
+    return redirect('sale_detail', pk=sale.pk)
+
+
+def quote_send_email(request, pk):
+    """
+    POST action to send the quote PDF via email to the customer.
+    """
+    if request.method != 'POST':
+        return redirect('quote_detail', pk=pk)
+
+    quote = get_object_or_404(Quote.objects.prefetch_related('items'), pk=pk)
+    recipient = (request.POST.get('recipient') or quote.customer_email or Quote.DEFAULT_COMPANY_EMAIL).strip()
+    subject = (request.POST.get('subject') or f"Quote {quote.quote_number} from {Quote.DEFAULT_COMPANY_NAME}").strip()
+    message_body = (request.POST.get('body') or "").strip()
+
+    if not message_body:
+        message_body = (
+            f"Dear {quote.customer_name},\n\n"
+            f"Please find attached your quote {quote.quote_number} for ${quote.total_amount:.2f}.\n\n"
+            f"If you have any questions or would like to proceed, please reach out to us at {Quote.DEFAULT_COMPANY_EMAIL} or {Quote.DEFAULT_COMPANY_PHONE}.\n\n"
+            f"{Quote.DEFAULT_COMPANY_NAME}\n"
+            f"{Quote.DEFAULT_COMPANY_ADDRESS}\n"
+        )
+
+    try:
+        rel_path, pdf_bytes = generate_and_save_quote_pdf(quote, request=request)
+    except Exception:
+        pdf_bytes = None
+
+    try:
+        email = EmailMessage(
+            subject=subject,
+            body=message_body,
+            from_email=settings.DEFAULT_FROM_EMAIL or Quote.DEFAULT_COMPANY_EMAIL,
+            to=[recipient],
+        )
+        if pdf_bytes:
+            pdf_filename = f"Quote_{quote.quote_number}.pdf"
+            email.attach(pdf_filename, pdf_bytes, 'application/pdf')
+        elif quote.pdf_file and os.path.exists(quote.pdf_file.path):
+            email.attach_file(quote.pdf_file.path)
+
+        email.send(fail_silently=False)
+
+        if quote.status == 'DRAFT':
+            quote.status = 'SENT'
+            quote.save(update_fields=['status', 'updated_at'])
+
+        messages.success(
+            request,
+            f"Quote {quote.quote_number} was successfully emailed to {recipient} with the attached PDF!"
+        )
+    except Exception as e:
+        messages.warning(
+            request,
+            f"Quote PDF was generated and saved to media/quotes/, but could not send email via SMTP server: {e}"
+        )
+
+    return redirect('quote_detail', pk=quote.pk)
+
+
+def quote_pdf(request, pk):
+    """
+    Renders and streams a print-ready PDF for `Quote` using WeasyPrint.
+    Supports `?download=1` for attachment download vs inline viewing.
+    """
+    quote = get_object_or_404(Quote.objects.prefetch_related('items'), pk=pk)
+    rel_path, pdf_bytes = generate_and_save_quote_pdf(quote, request=request)
+
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    disposition = 'attachment' if request.GET.get('download') == '1' else 'inline'
+    response['Content-Disposition'] = f'{disposition}; filename="Quote_{quote.quote_number}.pdf"'
+    return response
+
+
+class QuoteDeleteView(DeleteView):
+    """
+    Deletes a Quote.
+    """
+    model = Quote
+    template_name = 'core/confirm_delete.html'
+    success_url = reverse_lazy('quote_list')
+
+    def form_valid(self, form):
+        quote = self.get_object()
+        if quote.pdf_file:
+            try:
+                if os.path.exists(quote.pdf_file.path):
+                    os.remove(quote.pdf_file.path)
+            except Exception:
+                pass
+        messages.success(self.request, f"Quote {quote.quote_number} was deleted.")
+        return super().form_valid(form)
+
 
 
 

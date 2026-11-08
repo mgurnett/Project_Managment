@@ -1,7 +1,8 @@
 from django import forms
 from .models import (
     Part, Company, Manufacturer, Category, Location, PartDocument,
-    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem
+    BOM, BOMItem, Order, OrderItem, AssemblySale, AssemblySaleItem,
+    Quote, QuoteItem
 )
 
 
@@ -413,5 +414,44 @@ class AssemblySaleForm(forms.ModelForm):
 
     def clean_status(self):
         return self.cleaned_data.get('status') or 'UNPAID'
+
+
+class QuoteForm(forms.ModelForm):
+    status = forms.ChoiceField(
+        choices=Quote.STATUS_CHOICES,
+        initial='DRAFT',
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select fw-semibold'})
+    )
+
+    class Meta:
+        model = Quote
+        fields = [
+            'quote_number',
+            'quote_date',
+            'valid_until',
+            'status',
+            'customer_name',
+            'customer_address',
+            'customer_phone',
+            'customer_email',
+            'notes',
+        ]
+        widgets = {
+            'quote_number': forms.TextInput(attrs={
+                'class': 'form-control font-monospace',
+                'placeholder': 'Leave blank to auto-generate (e.g. QTE-0001)'
+            }),
+            'quote_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'valid_until': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'customer_name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Customer or Company Name'}),
+            'customer_address': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Street, City, Province/State, Postal Code'}),
+            'customer_phone': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '780.901.9315'}),
+            'customer_email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'customer@example.com'}),
+        }
+
+    def clean_status(self):
+        return self.cleaned_data.get('status') or 'DRAFT'
+
 
 

@@ -1,0 +1,452 @@
+{% extends "base.html" %}
+
+{% block title %}Quote {{ quote.quote_number }} | {{ quote.customer_name }} | Inventory Manager{% endblock %}
+
+{% block breadcrumb %}
+    <a href="{% url 'quote_list' %}" class="text-decoration-none text-muted">Quotes &amp; Estimates</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>Quote {{ quote.quote_number }}</span>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+    .quote-sheet {
+        position: relative;
+        overflow: hidden;
+        max-width: 900px;
+        margin: 0 auto;
+        background: #ffffff;
+        color: #0f172a;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 36px 42px;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+    }
+    [data-bs-theme="dark"] .quote-sheet {
+        background: #1e293b;
+        color: #f8fafc;
+        border-color: #334155;
+    }
+    .quote-header-banner {
+        border-bottom: 3px solid #0284c7;
+        padding-bottom: 18px;
+        margin-bottom: 24px;
+    }
+    .quote-meta-box {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 14px 18px;
+    }
+    [data-bs-theme="dark"] .quote-meta-box {
+        background: #0f172a;
+        border-color: #334155;
+    }
+    .quote-table th {
+        background: #0f172a !important;
+        color: #ffffff !important;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 10px 14px;
+    }
+    .quote-table td {
+        padding: 12px 14px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    [data-bs-theme="dark"] .quote-table td {
+        border-bottom-color: #334155;
+    }
+
+    /* Accepted stamp watermark */
+    .accepted-stamp-watermark {
+        position: absolute;
+        top: 42%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(-18deg);
+        width: 420px;
+        max-width: 90%;
+        text-align: center;
+        border: 6px solid #16a34a;
+        border-radius: 16px;
+        color: #16a34a;
+        padding: 12px 24px;
+        opacity: 0.38;
+        pointer-events: none;
+        z-index: 100;
+        user-select: none;
+        box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.15);
+    }
+    .accepted-stamp-watermark .stamp-title {
+        font-size: 52pt;
+        font-weight: 900;
+        line-height: 1;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+    }
+    .accepted-stamp-watermark .stamp-subtitle {
+        font-size: 11pt;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border-top: 2.5px solid #16a34a;
+        padding-top: 4px;
+        margin-top: 6px;
+    }
+
+    @media print {
+        @page {
+            size: letter portrait;
+            margin: 10mm;
+        }
+        body {
+            background: #ffffff !important;
+            color: #000000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+        .sidebar,
+        .top-navbar,
+        .footer,
+        .no-print,
+        .alert {
+            display: none !important;
+        }
+        .content-wrapper,
+        .main-content {
+            padding: 0 !important;
+            margin: 0 !important;
+            background: #ffffff !important;
+        }
+        .quote-sheet {
+            max-width: 100% !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+        }
+        .quote-meta-box {
+            background: #f8fafc !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #000000 !important;
+        }
+        .quote-table th {
+            background: #0f172a !important;
+            color: #ffffff !important;
+        }
+        .accepted-stamp-watermark {
+            border: 6px solid #16a34a !important;
+            color: #16a34a !important;
+            opacity: 0.35 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+
+    <!-- Top Action Toolbar (Hidden when printing) -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 no-print" style="max-width: 900px; margin: 0 auto;">
+        <div>
+            <a href="{% url 'quote_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i> Back to Quotes
+            </a>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if not quote.is_accepted %}
+                <form method="post" action="{% url 'quote_accept' quote.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-success btn-sm fw-semibold shadow-sm" onclick="return confirm('Accept Quote {{ quote.quote_number }} and convert directly to an Invoice?');">
+                        <i class="bi bi-check2-circle me-1"></i> Accept Quote &amp; Generate Invoice
+                    </button>
+                </form>
+            {% else %}
+                {% if quote.invoice %}
+                    <a href="{% url 'sale_detail' quote.invoice.pk %}" class="btn btn-primary btn-sm fw-semibold shadow-sm">
+                        <i class="bi bi-receipt me-1"></i> View Converted Invoice ({{ quote.invoice.invoice_number }})
+                    </a>
+                {% endif %}
+            {% endif %}
+
+            <button type="button" class="btn btn-outline-primary btn-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#emailQuoteModal">
+                <i class="bi bi-envelope me-1"></i> Send via Email
+            </button>
+
+            <button type="button" onclick="window.print()" class="btn btn-outline-secondary btn-sm fw-semibold">
+                <i class="bi bi-printer me-1"></i> Print Quote
+            </button>
+
+            <a href="{% url 'quote_pdf' quote.pk %}" target="_blank" class="btn btn-outline-secondary btn-sm fw-semibold">
+                <i class="bi bi-file-earmark-pdf me-1"></i> View PDF
+            </a>
+
+            <a href="{% url 'quote_pdf' quote.pk %}?download=1" class="btn btn-outline-success btn-sm fw-semibold">
+                <i class="bi bi-download me-1"></i> Download PDF
+            </a>
+
+            {% if not quote.is_accepted %}
+                <a href="{% url 'quote_update' quote.pk %}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-pencil me-1"></i> Edit
+                </a>
+            {% endif %}
+
+            <a href="{% url 'quote_delete' quote.pk %}" class="btn btn-outline-danger btn-sm" title="Delete Quote">
+                <i class="bi bi-trash"></i>
+            </a>
+        </div>
+    </div>
+
+    <!-- Accepted / Converted Alert Banner -->
+    {% if quote.is_accepted and quote.invoice %}
+        <div class="alert alert-success border-success shadow-sm mb-4 no-print d-flex justify-content-between align-items-center" style="max-width: 900px; margin: 0 auto 1.5rem auto;">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-check-circle-fill fs-4 text-success"></i>
+                <div>
+                    <strong>Quote Accepted &amp; Converted to Invoice:</strong>
+                    <span>Invoice <strong>{{ quote.invoice.invoice_number }}</strong> has been issued for {{ quote.customer_name }} (${{ quote.invoice.total_amount|floatformat:2 }}).</span>
+                    <div class="small mt-0.5">
+                        Status: <span class="badge {% if quote.invoice.is_paid %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ quote.invoice.get_status_display }}</span>
+                        {% if quote.invoice.is_paid %}&mdash; Paid on {{ quote.invoice.payment_date|date:"M d, Y" }}{% endif %}
+                    </div>
+                </div>
+            </div>
+            <div>
+                <a href="{% url 'sale_detail' quote.invoice.pk %}" class="btn btn-sm btn-success fw-semibold">
+                    <i class="bi bi-arrow-right-circle me-1"></i> Open Invoice
+                </a>
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- ================= THE INVOICE-STYLED QUOTE SHEET ================= -->
+    <div class="quote-sheet mb-5">
+
+        <!-- Watermark stamp overlay if accepted -->
+        {% if quote.is_accepted %}
+            <div class="accepted-stamp-watermark">
+                <div class="stamp-title">ACCEPTED</div>
+                <div class="stamp-subtitle">
+                    Converted to Invoice {{ quote.invoice.invoice_number|default:"INV" }}
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Sheet Header Banner -->
+        <div class="quote-header-banner d-flex justify-content-between align-items-start flex-wrap gap-3">
+            <div>
+                <div class="small text-uppercase fw-bold text-primary" style="letter-spacing: 0.1em; font-size: 0.75rem;">
+                    Official Technical Sales Quote &amp; Estimate
+                </div>
+                <h1 class="h2 fw-bold mb-1 text-dark">{{ company_name }}</h1>
+                <div class="text-muted small">
+                    <div>{{ company_address }}</div>
+                    <div>Phone: {{ company_phone }} &bull; Email: {{ company_email }}</div>
+                </div>
+            </div>
+            <div class="text-end">
+                <div class="badge bg-primary text-white font-monospace px-3 py-2 fs-6 mb-2">
+                    {{ quote.quote_number }}
+                </div>
+                <div class="small text-muted">
+                    <div><strong>Quote Date:</strong> {{ quote.quote_date|date:"F d, Y" }}</div>
+                    {% if quote.valid_until %}
+                        <div><strong>Valid Until:</strong> {{ quote.valid_until|date:"F d, Y" }}</div>
+                    {% endif %}
+                    <div>
+                        <strong>Status:</strong>
+                        {% if quote.status == 'ACCEPTED' %}
+                            <span class="badge bg-success-subtle text-success border border-success-subtle">Accepted</span>
+                        {% elif quote.status == 'SENT' %}
+                            <span class="badge bg-info-subtle text-info border border-info-subtle">Sent</span>
+                        {% elif quote.status == 'DECLINED' %}
+                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Declined</span>
+                        {% else %}
+                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Draft</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Metadata & Customer Grid -->
+        <div class="row g-3 mb-4">
+            <!-- Customer Information -->
+            <div class="col-12 col-md-6">
+                <div class="quote-meta-box h-100">
+                    <div class="small fw-bold text-uppercase text-muted border-bottom pb-1 mb-2" style="font-size: 0.7rem; letter-spacing: 0.05em;">
+                        <i class="bi bi-person-badge me-1"></i> Quoted To / Customer
+                    </div>
+                    <div class="fw-bold fs-6 text-dark">{{ quote.customer_name }}</div>
+                    <div class="small text-muted mt-1">{{ quote.customer_address }}</div>
+                    {% if quote.customer_phone or quote.customer_email %}
+                        <div class="small text-muted mt-2 pt-2 border-top">
+                            {% if quote.customer_phone %}<div><i class="bi bi-telephone me-1"></i>{{ quote.customer_phone }}</div>{% endif %}
+                            {% if quote.customer_email %}<div><i class="bi bi-envelope me-1"></i>{{ quote.customer_email }}</div>{% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Quote Summary Box -->
+            <div class="col-12 col-md-6">
+                <div class="quote-meta-box h-100">
+                    <div class="small fw-bold text-uppercase text-muted border-bottom pb-1 mb-2" style="font-size: 0.7rem; letter-spacing: 0.05em;">
+                        <i class="bi bi-info-circle me-1"></i> Estimate Details
+                    </div>
+                    <div class="d-flex justify-content-between small py-1">
+                        <span class="text-muted">Total Quoted Items:</span>
+                        <span class="fw-semibold">{{ quote.total_quantity }} unit(s) across {{ items|length }} line(s)</span>
+                    </div>
+                    <div class="d-flex justify-content-between small py-1">
+                        <span class="text-muted">Pricing Source:</span>
+                        <span class="fw-semibold">Bills of Materials (BoMs)</span>
+                    </div>
+                    <div class="d-flex justify-content-between small py-1">
+                        <span class="text-muted">Converted Invoice:</span>
+                        <span class="fw-semibold font-monospace">
+                            {% if quote.invoice %}
+                                <a href="{% url 'sale_detail' quote.invoice.pk %}" class="text-decoration-none text-primary">{{ quote.invoice.invoice_number }}</a>
+                            {% else %}
+                                <em>Pending Acceptance</em>
+                            {% endif %}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quoted Items Table -->
+        <div class="table-responsive mb-4">
+            <table class="table quote-table mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 15%;">Item / Asm #</th>
+                        <th style="width: 45%;">Description</th>
+                        <th class="text-center" style="width: 12%;">Qty</th>
+                        <th class="text-end" style="width: 14%;">Unit Price</th>
+                        <th class="text-end" style="width: 14%;">Line Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td class="font-monospace fw-bold align-middle">
+                            {% if item.bom %}
+                                <a href="{% url 'bom_detail' item.bom.pk %}" class="text-decoration-none text-primary" title="View BoM {{ item.bom.name }}">
+                                    {{ item.item_number }}
+                                </a>
+                            {% else %}
+                                {{ item.item_number }}
+                            {% endif %}
+                        </td>
+                        <td class="align-middle">
+                            <div class="fw-semibold">{{ item.description }}</div>
+                            {% if item.bom %}
+                                <div class="text-muted small">BoM: {{ item.bom.name }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="text-center font-monospace align-middle">{{ item.quantity }}</td>
+                        <td class="text-end font-monospace align-middle">${{ item.unit_price|floatformat:2 }}</td>
+                        <td class="text-end font-monospace fw-bold align-middle">${{ item.subtotal|floatformat:2 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center py-4 text-muted">No line items on this quote.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="3" class="border-0"></td>
+                        <td class="text-end text-muted small text-uppercase fw-bold pt-3">Subtotal:</td>
+                        <td class="text-end font-monospace fw-bold pt-3">${{ quote.total_amount|floatformat:2 }}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="3" class="border-0"></td>
+                        <td class="text-end text-muted small text-uppercase fw-bold">Tax / GST:</td>
+                        <td class="text-end font-monospace text-muted">$0.00</td>
+                    </tr>
+                    <tr style="border-top: 2px solid #0284c7;">
+                        <td colspan="3" class="border-0"></td>
+                        <td class="text-end text-uppercase fw-bold fs-6 text-dark py-2">Total Quoted:</td>
+                        <td class="text-end font-monospace fw-bold fs-5 text-custom py-2">${{ quote.total_amount|floatformat:2 }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <!-- Notes / Terms Section -->
+        {% if quote.notes %}
+            <div class="quote-meta-box mb-4">
+                <div class="small fw-bold text-uppercase text-muted border-bottom pb-1 mb-2" style="font-size: 0.7rem; letter-spacing: 0.05em;">
+                    <i class="bi bi-card-text me-1"></i> Quote Terms &amp; Conditions
+                </div>
+                <div class="small text-muted" style="line-height: 1.6;">
+                    {{ quote.notes|safe }}
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Footer Notice -->
+        <div class="text-center text-muted small pt-3 border-top mt-4">
+            <div>Thank you for your business! This estimate is valid until {% if quote.valid_until %}{{ quote.valid_until|date:"F d, Y" }}{% else %}30 days from date of issue{% endif %}.</div>
+            <div class="small mt-1 text-secondary">To accept this quote, contact {{ company_email }} or call {{ company_phone }}.</div>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- ================= SEND VIA EMAIL MODAL ================= -->
+<div class="modal fade" id="emailQuoteModal" tabindex="-1" aria-labelledby="emailQuoteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form method="post" action="{% url 'quote_send_email' quote.pk %}">
+                {% csrf_token %}
+                <div class="modal-header bg-light">
+                    <h5 class="modal-title fs-6 fw-bold text-custom" id="emailQuoteModalLabel">
+                        <i class="bi bi-envelope-paper me-2"></i>Send Quote {{ quote.quote_number }} via Email
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Recipient Email <span class="text-danger">*</span></label>
+                        <input type="email" name="recipient" class="form-control form-control-sm" value="{{ quote.customer_email|default:company_email }}" required>
+                        <div class="form-text small text-muted">A PDF copy of this quote will be automatically attached.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Subject</label>
+                        <input type="text" name="subject" class="form-control form-control-sm" value="Quote {{ quote.quote_number }} from {{ company_name }}">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">Message Body</label>
+                        <textarea name="body" rows="6" class="form-control form-control-sm">Dear {{ quote.customer_name }},
+
+Please find attached your sales quote {{ quote.quote_number }} for ${{ quote.total_amount|floatformat:2 }}.
+
+If you have any questions or would like to proceed with this order, please let us know.
+
+Best regards,
+{{ company_name }}
+{{ company_address }}
+Phone: {{ company_phone }}
+Email: {{ company_email }}</textarea>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-sm btn-primary fw-semibold">
+                        <i class="bi bi-send me-1"></i> Send Quote Email
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

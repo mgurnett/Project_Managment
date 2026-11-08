@@ -2,7 +2,7 @@ import os
 from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 from django_ckeditor_5.fields import CKEditor5Field
 
@@ -1701,5 +1701,238 @@ class AssemblySaleItem(models.Model):
     @property
     def subtotal(self):
         return (Decimal(str(self.unit_price or 0)) * Decimal(str(self.quantity or 0))).quantize(Decimal('0.01'))
+
+
+class Quote(models.Model):
+    """
+    Sales Quote / Estimate for 1000-series assemblies and custom items.
+    Can be built from BOMs, pulling constituent and assembly prices automatically.
+    Produces an invoice-styled quote. Once accepted, converts directly to an AssemblySale invoice.
+    """
+    DEFAULT_COMPANY_NAME = "Granary Watch"
+    DEFAULT_COMPANY_ADDRESS = "11940 52 St NW, Edmonton, AB T5J 3J6"
+    DEFAULT_COMPANY_PHONE = "780.901.9315"
+    DEFAULT_COMPANY_EMAIL = "michael@granarywatch.com"
+
+    STATUS_CHOICES = [
+        ('DRAFT', 'Draft (Open)'),
+        ('SENT', 'Sent to Customer'),
+        ('ACCEPTED', 'Accepted (Converted to Invoice)'),
+        ('DECLINED', 'Declined'),
+    ]
+
+    quote_number = models.CharField(
+        max_length=50,
+        unique=True,
+        blank=True,
+        verbose_name="Quote Number",
+        help_text="Sequential quote number (e.g. QTE-0001). Leave blank to auto-generate."
+    )
+    quote_date = models.DateField(
+        default=timezone.now,
+        verbose_name="Quote Date"
+    )
+    valid_until = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Valid Until",
+        help_text="Quote expiration date."
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='DRAFT',
+        verbose_name="Quote Status",
+        help_text="Draft (being prepared), Sent (delivered to client), Accepted (converted to invoice), Declined."
+    )
+    customer_name = models.CharField(
+        max_length=150,
+        default="Granary Watch",
+        verbose_name="Customer / Company Name"
+    )
+    customer_address = models.CharField(
+        max_length=255,
+        default="11940 52 St NW, Edmonton, AB T5J 3J6",
+        blank=True,
+        verbose_name="Customer Address"
+    )
+    customer_phone = models.CharField(
+        max_length=50,
+        default="780.901.9315",
+        blank=True,
+        verbose_name="Customer Phone"
+    )
+    customer_email = models.EmailField(
+        default="michael@granarywatch.com",
+        blank=True,
+        verbose_name="Customer Email"
+    )
+    notes = CKEditor5Field(
+        'Quote Notes & Terms',
+        config_name='notes',
+        blank=True,
+        null=True
+    )
+    invoice = models.OneToOneField(
+        'AssemblySale',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='originating_quote',
+        verbose_name="Converted Invoice",
+        help_text="Invoice generated when this quote is accepted."
+    )
+    pdf_file = models.FileField(
+        upload_to='quotes/',
+        null=True,
+        blank=True,
+        verbose_name="Saved Quote PDF",
+        help_text="Saved print-ready PDF quote file."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Quote / Estimate"
+        verbose_name_plural = "Quotes / Estimates"
+        ordering = ['-quote_date', '-id']
+
+    def __str__(self):
+        return f"{self.quote_number} - {self.customer_name}"
+
+    @classmethod
+    def generate_next_quote_number(cls):
+        """
+        Generates a strictly sequential quote number (e.g. QTE-0001, QTE-0002).
+        """
+        prefix = "QTE-"
+        existing = cls.objects.filter(quote_number__startswith=prefix).values_list('quote_number', flat=True)
+        highest = 0
+        for q in existing:
+            if not q:
+                continue
+            suffix = q[len(prefix):]
+            if suffix.isdigit():
+                num = int(suffix)
+                if num > highest:
+                    highest = num
+        next_num = highest + 1
+        candidate = f"{prefix}{next_num:04d}"
+        while cls.objects.filter(quote_number=candidate).exists():
+            next_num += 1
+            candidate = f"{prefix}{next_num:04d}"
+        return candidate
+
+    def save(self, *args, **kwargs):
+        if not self.quote_number or not self.quote_number.strip():
+            self.quote_number = self.generate_next_quote_number()
+        else:
+            self.quote_number = self.quote_number.strip()
+        super().save(*args, **kwargs)
+
+    @property
+    def is_accepted(self):
+        return self.status == 'ACCEPTED' or bool(self.invoice_id)
+
+    @property
+    def total_amount(self):
+        total = Decimal('0.00')
+        for item in self.items.all():
+            total += item.subtotal
+        return total
+
+    @property
+    def total_quantity(self):
+        return sum(item.quantity for item in self.items.all())
+
+    def convert_to_invoice(self, request=None):
+        """
+        Converts this accepted quote into an AssemblySale invoice:
+        - Generates next invoice number (INV-xxxx)
+        - Copies customer info, dates, and terms
+        - Copies all line items
+        - Links quote to invoice and sets status to ACCEPTED
+        """
+        if self.invoice:
+            return self.invoice
+
+        with transaction.atomic():
+            sale = AssemblySale.objects.create(
+                invoice_number=AssemblySale.generate_next_invoice_number(),
+                invoice_date=timezone.now().date(),
+                status='UNPAID',
+                customer_name=self.customer_name,
+                customer_address=self.customer_address,
+                customer_phone=self.customer_phone,
+                customer_email=self.customer_email,
+                notes=self.notes or f"Generated from Quote {self.quote_number}.",
+            )
+            for q_item in self.items.all():
+                AssemblySaleItem.objects.create(
+                    sale=sale,
+                    bom=q_item.bom,
+                    item_number=q_item.item_number,
+                    description=q_item.description,
+                    quantity=q_item.quantity,
+                    unit_price=q_item.unit_price,
+                )
+            self.status = 'ACCEPTED'
+            self.invoice = sale
+            self.save(update_fields=['status', 'invoice', 'updated_at'])
+
+        return sale
+
+
+class QuoteItem(models.Model):
+    """
+    Line item on a Quote representing a quoted 1000-series Assembly or custom part.
+    """
+    quote = models.ForeignKey(
+        Quote,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name="Quote"
+    )
+    bom = models.ForeignKey(
+        BOM,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='quote_items',
+        verbose_name="Assembly (BoM)"
+    )
+    item_number = models.CharField(
+        max_length=50,
+        verbose_name="Item / Assembly Number",
+        help_text="e.g. 1000-001"
+    )
+    description = models.CharField(
+        max_length=255,
+        verbose_name="Item Description"
+    )
+    quantity = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Quantity Quoted"
+    )
+    unit_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        verbose_name="Unit Price ($)"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Quote Line Item"
+        verbose_name_plural = "Quote Line Items"
+        ordering = ['id']
+
+    def __str__(self):
+        return f"{self.item_number} - {self.description} x {self.quantity}"
+
+    @property
+    def subtotal(self):
+        return (Decimal(str(self.unit_price or 0)) * Decimal(str(self.quantity or 0))).quantize(Decimal('0.01'))
+
 
 

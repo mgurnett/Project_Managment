@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Quote {{ quote.quote_number }} - {{ quote.customer_name }}</title>
+    <style>
+        @page {
+            size: letter portrait;
+            margin: 12mm;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #0f172a;
+            background: #ffffff;
+            margin: 0;
+            padding: 0;
+            font-size: 10pt;
+            line-height: 1.45;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 3px solid #0284c7;
+            padding-bottom: 14px;
+            margin-bottom: 20px;
+        }
+        .badge-type {
+            font-size: 8pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #0284c7;
+            margin-bottom: 4px;
+        }
+        .company-title {
+            font-size: 20pt;
+            font-weight: 800;
+            color: #0f172a;
+            margin: 0 0 4px 0;
+        }
+        .company-sub {
+            font-size: 8.5pt;
+            color: #475569;
+        }
+        .quote-badge {
+            background: #0284c7;
+            color: #ffffff;
+            font-family: 'Fira Code', 'JetBrains Mono', monospace;
+            font-size: 13pt;
+            font-weight: 800;
+            padding: 6px 14px;
+            border-radius: 6px;
+            display: inline-block;
+            margin-bottom: 6px;
+        }
+        .meta-grid {
+            display: flex;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+        .meta-card {
+            flex: 1;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background: #f8fafc;
+            padding: 12px 14px;
+        }
+        .meta-card-title {
+            font-size: 7.5pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #64748b;
+            margin-bottom: 6px;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 4px;
+        }
+        .customer-name {
+            font-size: 12pt;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 4px;
+        }
+        .kv-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            font-size: 9pt;
+        }
+        .kv-label {
+            color: #64748b;
+        }
+        .kv-val {
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .mono {
+            font-family: 'Fira Code', 'JetBrains Mono', monospace;
+        }
+        table.items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        table.items-table th {
+            background: #0f172a;
+            color: #ffffff;
+            font-size: 8pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 8px 10px;
+            text-align: left;
+            border: 1px solid #0f172a;
+        }
+        table.items-table td {
+            padding: 9px 10px;
+            border: 1px solid #cbd5e1;
+            font-size: 9.5pt;
+        }
+        .text-center { text-align: center !important; }
+        .text-right { text-align: right !important; }
+        .totals-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 14px;
+            align-items: flex-start;
+        }
+        .notes-box {
+            flex: 1.2;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 8.5pt;
+            color: #334155;
+        }
+        .total-box {
+            flex: 0.8;
+            border: 2px solid #0284c7;
+            border-radius: 6px;
+            background: #f0f9ff;
+            padding: 12px 16px;
+        }
+        .grand-total {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13pt;
+            font-weight: 800;
+            color: #0f172a;
+            padding-top: 6px;
+            border-top: 1px solid #bae6fd;
+            margin-top: 6px;
+        }
+        .accepted-stamp-watermark {
+            position: absolute;
+            top: 270px;
+            left: 50%;
+            margin-left: -200px;
+            width: 400px;
+            text-align: center;
+            border: 6px solid #16a34a;
+            border-radius: 12px;
+            color: #16a34a;
+            padding: 10px 18px;
+            transform: rotate(-18deg);
+            opacity: 0.35;
+            z-index: 999;
+        }
+        .accepted-stamp-watermark .stamp-title {
+            font-size: 48pt;
+            font-weight: 900;
+            line-height: 1;
+            letter-spacing: 0.18em;
+            margin: 0;
+            text-transform: uppercase;
+        }
+        .accepted-stamp-watermark .stamp-sub {
+            font-size: 10.5pt;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            border-top: 2.5px solid #16a34a;
+            padding-top: 4px;
+            margin-top: 5px;
+        }
+        .footer {
+            margin-top: 32px;
+            padding-top: 10px;
+            border-top: 1px solid #cbd5e1;
+            font-size: 8pt;
+            color: #64748b;
+            display: flex;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+
+    {% if quote.is_accepted %}
+    <div class="accepted-stamp-watermark">
+        <div class="stamp-title">ACCEPTED</div>
+        <div class="stamp-sub">
+            Converted to Invoice {{ quote.invoice.invoice_number|default:"INV" }}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Header -->
+    <div class="header">
+        <div>
+            <div class="badge-type">Official Sales Quote &amp; Estimate</div>
+            <h1 class="company-title">{{ company_name }}</h1>
+            <div class="company-sub">
+                {{ company_address }}<br>
+                Phone: {{ company_phone }} &bull; Email: {{ company_email }}
+            </div>
+        </div>
+        <div class="text-right">
+            <div class="quote-badge">{{ quote.quote_number }}</div>
+            <div style="font-size: 8.5pt; color: #475569;">
+                <div><strong>Quote Date:</strong> {{ quote.quote_date|date:"F d, Y" }}</div>
+                {% if quote.valid_until %}
+                    <div><strong>Valid Until:</strong> {{ quote.valid_until|date:"F d, Y" }}</div>
+                {% endif %}
+                <div><strong>Status:</strong> {{ quote.get_status_display }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Metadata Grid -->
+    <div class="meta-grid">
+        <div class="meta-card">
+            <div class="meta-card-title">Quoted To / Customer</div>
+            <div class="customer-name">{{ quote.customer_name }}</div>
+            <div style="font-size: 9pt; color: #475569; margin-bottom: 6px;">{{ quote.customer_address }}</div>
+            {% if quote.customer_phone %}<div style="font-size: 8.5pt;"><strong>Phone:</strong> {{ quote.customer_phone }}</div>{% endif %}
+            {% if quote.customer_email %}<div style="font-size: 8.5pt;"><strong>Email:</strong> {{ quote.customer_email }}</div>{% endif %}
+        </div>
+        <div class="meta-card">
+            <div class="meta-card-title">Estimate Summary</div>
+            <div class="kv-row">
+                <span class="kv-label">Quote Number:</span>
+                <span class="kv-val mono">{{ quote.quote_number }}</span>
+            </div>
+            <div class="kv-row">
+                <span class="kv-label">Quoted Date:</span>
+                <span class="kv-val">{{ quote.quote_date|date:"M d, Y" }}</span>
+            </div>
+            <div class="kv-row">
+                <span class="kv-label">Valid Until:</span>
+                <span class="kv-val">{% if quote.valid_until %}{{ quote.valid_until|date:"M d, Y" }}{% else %}30 Days from Issue{% endif %}</span>
+            </div>
+            <div class="kv-row">
+                <span class="kv-label">Pricing Base:</span>
+                <span class="kv-val">BoMs Component Pricing</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Items Table -->
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width: 16%;">Item / Asm #</th>
+                <th style="width: 48%;">Description</th>
+                <th class="text-center" style="width: 10%;">Qty</th>
+                <th class="text-right" style="width: 13%;">Unit Price</th>
+                <th class="text-right" style="width: 13%;">Line Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td class="mono" style="font-weight: 700;">{{ item.item_number }}</td>
+                <td>
+                    <div style="font-weight: 600;">{{ item.description }}</div>
+                    {% if item.bom %}<div style="font-size: 8pt; color: #64748b;">BoM: {{ item.bom.name }}</div>{% endif %}
+                </td>
+                <td class="text-center mono">{{ item.quantity }}</td>
+                <td class="text-right mono">${{ item.unit_price|floatformat:2 }}</td>
+                <td class="text-right mono" style="font-weight: 700;">${{ item.subtotal|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Totals and Terms -->
+    <div class="totals-row">
+        <div class="notes-box">
+            <div style="font-weight: 700; text-transform: uppercase; font-size: 7.5pt; color: #64748b; margin-bottom: 4px;">Terms &amp; Instructions:</div>
+            {% if quote.notes %}
+                {{ quote.notes|safe }}
+            {% else %}
+                <p style="margin: 0 0 4px 0;">This quote is valid for 30 days. To accept this quote and initiate production/shipment, please reply confirming acceptance.</p>
+                <p style="margin: 0;">An official invoice will be issued upon quote acceptance.</p>
+            {% endif %}
+        </div>
+        <div class="total-box">
+            <div class="kv-row">
+                <span class="kv-label">Subtotal:</span>
+                <span class="kv-val mono">${{ quote.total_amount|floatformat:2 }}</span>
+            </div>
+            <div class="kv-row">
+                <span class="kv-label">Tax / GST:</span>
+                <span class="kv-val mono">$0.00</span>
+            </div>
+            <div class="grand-total">
+                <span>Total Quoted:</span>
+                <span class="mono" style="color: #0284c7;">${{ quote.total_amount|floatformat:2 }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <div>{{ company_name }} &bull; {{ company_address }}</div>
+        <div>Generated {{ generated_at|date:"Y-m-d H:i" }} &bull; Page 1 of 1</div>
+    </div>
+
+</body>
+</html>
+
