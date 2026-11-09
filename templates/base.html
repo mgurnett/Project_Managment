@@ -272,6 +272,8 @@
                     <span>Assemblies</span>
                 </a>
 
+                <div class="sidebar-heading">Sales</div>
+
                 <a href="{% url 'quote_list' %}" class="nav-link-custom {% if 'quotes' in request.path %}active{% endif %}" title="Quotes &amp; Estimates (Built from BoMs)">
                     <i class="bi bi-file-earmark-text"></i>
                     <span>Quotes</span>
@@ -279,7 +281,7 @@
 
                 <a href="{% url 'sale_list' %}" class="nav-link-custom {% if 'sales' in request.path %}active{% endif %}" title="Sales, Customer Invoices &amp; Revenue">
                     <i class="bi bi-receipt"></i>
-                    <span>Sales</span>
+                    <span>Invoicing</span>
                 </a>
 
                 <div class="sidebar-heading">System &amp; Admin</div>
@@ -367,6 +369,7 @@
                     
                     <!-- Search input -->
                     <form action="{% url 'part_list' %}" method="get" class="input-group input-group-sm d-none d-md-flex m-0" style="width: 220px;">
+                        <input type="hidden" name="clear_filters" value="1">
                         <span class="input-group-text bg-body border-end-0"><i class="bi bi-search text-muted"></i></span>
                         <input type="text" name="q" class="form-control bg-body border-start-0" placeholder="Search parts, SKU..." aria-label="Search">
                     </form>

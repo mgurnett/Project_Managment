@@ -1,5 +1,4 @@
 agent dialog.txt
 
 
-In BOMS, kits and assemblies, we need to be able to add documents.  Both ones that are uploaded as well as links to documents.  These are schematics, youtube videos and other things.
-
+We have parts and movements.  Can we add sales as the third one and move quotes and invoicing in there.

@@ -88,9 +88,15 @@ def resolve_persistent_filters(request, session_key, filter_keys):
     """
     Persists filter parameters in `request.session[session_key]` until explicitly
     cleared via `?clear=1` (or `?reset=1`).
+    If `?clear_filters=1` is provided (e.g. from the top navbar search), existing filters
+    in the session are cleared before applying any filter parameter in GET (such as q).
     Returns a dict of `{key: str_value}` for all `filter_keys`.
     """
-    saved = dict(request.session.get(session_key, {}))
+    if request.GET.get('clear_filters'):
+        request.session.pop(session_key, None)
+        saved = {}
+    else:
+        saved = dict(request.session.get(session_key, {}))
 
     if request.GET.get('clear') or request.GET.get('reset'):
         request.session.pop(session_key, None)

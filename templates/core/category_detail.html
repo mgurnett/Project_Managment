@@ -52,30 +52,36 @@
                     <thead class="table-light border-top border-bottom small text-uppercase text-muted">
                         <tr>
                             <th scope="col" class="ps-4 py-3">Part Number</th>
-                            <th scope="col" class="py-3">Description</th>
+                            <th scope="col" class="py-3">Name / Description</th>
                             <th scope="col" class="py-3">Supplier</th>
                             <th scope="col" class="py-3">Location</th>
-                            <th scope="col" class="text-center py-3">On Hand</th>
+                            <th scope="col" class="text-center py-3">On Hand / Available</th>
                             <th scope="col" class="text-end pe-4 py-3">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for part in parts %}
-                        <tr>
+                        <tr role="button" class="clickable-row" data-href="{% url 'part_detail' part.pk %}" style="cursor: pointer;">
                             <td class="ps-4 py-3">
                                 <a href="{% url 'part_detail' part.pk %}" class="fw-bold text-decoration-none text-custom">
                                     {{ part.part_number|default:"(No Part #)" }}
                                 </a>
                             </td>
-                            <td class="py-3 text-body">{{ part.description }}</td>
+                            <td class="py-3">
+                                <div class="fw-bold text-body">{{ part.name|default:part.description }}</div>
+                                {% if part.name and part.description and part.name != part.description %}
+                                    <div class="text-muted small mt-0.5">{{ part.description }}</div>
+                                {% endif %}
+                            </td>
                             <td class="py-3 small text-muted">{{ part.company.name|default:"&mdash;" }}</td>
                             <td class="py-3 small text-muted">{{ part.location.name|default:"&mdash;" }}</td>
-                            <td class="text-center py-3">
-                                <span class="badge bg-success-subtle text-success rounded-pill px-2.5">{{ part.quantity_on_hand }}</span>
+                            <td class="text-center py-3 text-nowrap">
+                                <span class="badge {% if part.quantity_on_hand > 0 %}bg-success-subtle text-success{% else %}bg-secondary-subtle text-secondary{% endif %} rounded-pill px-2.5" title="On Hand: {{ part.quantity_on_hand }}">{{ part.quantity_on_hand }}</span>
+                                <span class="text-muted small mx-1">/</span>
+                                <span class="badge {% if part.quantity_availible > 0 %}bg-primary-subtle text-primary{% else %}bg-secondary-subtle text-secondary{% endif %} rounded-pill px-2.5" title="Available: {{ part.quantity_availible }}">{{ part.quantity_availible }}</span>
                             </td>
                             <td class="text-end pe-4 py-3">
-                                <a href="{% url 'part_detail' part.pk %}" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.75rem;">View</a>
-                                <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 ms-1" style="font-size: 0.75rem;" data-bs-toggle="modal" data-bs-target="#movePartModal{{ part.pk }}">Move</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.75rem;" data-bs-toggle="modal" data-bs-target="#movePartModal{{ part.pk }}">Move</button>
 
                                 <!-- Modal: Move Part from Category Detail -->
                                 <div class="modal fade" id="movePartModal{{ part.pk }}" tabindex="-1" aria-labelledby="movePartModalLabel{{ part.pk }}" aria-hidden="true">
@@ -143,6 +149,17 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Make entire table row (bar) clickable to view part detail
+    document.querySelectorAll('.clickable-row').forEach(row => {
+        row.addEventListener('click', function(e) {
+            if (e.target.closest('a, button, input, select, textarea, .modal, [data-bs-toggle]')) return;
+            const href = this.dataset.href;
+            if (href) {
+                window.location.href = href;
+            }
+        });
+    });
+
     document.querySelectorAll('.cat-move-select').forEach(sel => {
         sel.addEventListener('change', function() {
             const catId = this.value;

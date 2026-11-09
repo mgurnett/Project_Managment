@@ -2065,13 +2065,88 @@ class CategoryHierarchyAndCountSheetFilterTestCase(TestCase):
         self.assertNotIn("200-001", content)
         self.assertNotIn("500-001", content)
 
+    def test_category_detail_shows_part_name_with_description_below(self):
+        """Verifies category detail displays part name and description below in small text."""
+        part_with_both = Part.objects.create(
+            part_number="230-009",
+            name="STM32F401",
+            description="ARM Cortex-M4 Microcontroller 84MHz",
+            category=self.cat_micro,
+            quantity_on_hand=15
+        )
+        res = self.client.get(reverse('category_detail', kwargs={'pk': self.cat_micro.pk}))
+        self.assertEqual(res.status_code, 200)
+        html = res.content.decode('utf-8')
+        self.assertIn("STM32F401", html)
+        self.assertIn("ARM Cortex-M4 Microcontroller 84MHz", html)
+        self.assertIn("Name / Description", html)
+
+    def test_category_detail_shows_on_hand_and_available_and_clickable_row(self):
+        """Verifies category detail displays 'On Hand / Available', renders both quantities, provides clickable row, and removes View button."""
+        self.part_micro.quantity_on_hand = 25
+        self.part_micro.quantity_availible = 18
+        self.part_micro.save()
+
+        res = self.client.get(reverse('category_detail', kwargs={'pk': self.cat_micro.pk}))
+        self.assertEqual(res.status_code, 200)
+        html = res.content.decode('utf-8')
+
+        # Header check
+        self.assertIn("On Hand / Available", html)
+
+        # Quantity badges check
+        self.assertIn(">25</span>", html)
+        self.assertIn(">18</span>", html)
+
+        # Row clickable with data-href
+        expected_href = reverse('part_detail', kwargs={'pk': self.part_micro.pk})
+        self.assertIn(f'data-href="{expected_href}"', html)
+        self.assertIn('clickable-row', html)
+
+        # 'View' button link removed from actions column
+        self.assertNotIn(f'href="{expected_href}" class="btn btn-sm btn-outline-secondary', html)
+        self.assertNotIn('>View</a>', html)
+
+    def test_top_right_search_clears_existing_filters(self):
+        """Top right search with clear_filters=1 clears previous filters before searching."""
+        # 1. Filter by category
+        res1 = self.client.get(reverse('part_list') + f'?category={self.cat_micro.pk}')
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(res1.context['current_category'], str(self.cat_micro.pk))
+
+        # 2. Search from top navbar for a part in a different category (Generic Resistor Pack in Electronics)
+        res2 = self.client.get(reverse('part_list') + '?clear_filters=1&q=Resistor')
+        self.assertEqual(res2.status_code, 200)
+
+        # Category filter must be wiped
+        self.assertEqual(res2.context['current_category'], '')
+        self.assertEqual(res2.context['current_q'], 'Resistor')
+
+        parts = list(res2.context['parts'])
+        part_pks = [p.pk for p in parts]
+        self.assertIn(self.part_elec.pk, part_pks)
+        self.assertNotIn(self.part_micro.pk, part_pks)
+
+    def test_filter_bar_search_keeps_existing_filters(self):
+        """Searching from the in-page filter bar keeps existing category/location/company filters active."""
+        # Search from filter bar with both category and q
+        res = self.client.get(reverse('part_list') + f'?category={self.cat_micro.pk}&q=ATmega')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.context['current_category'], str(self.cat_micro.pk))
+        self.assertEqual(res.context['current_q'], 'ATmega')
+
+        parts = list(res.context['parts'])
+        part_pks = [p.pk for p in parts]
+        self.assertIn(self.part_micro.pk, part_pks)
+        self.assertNotIn(self.part_elec.pk, part_pks)
+
 
 class SidebarNavigationLayoutTestCase(TestCase):
     def setUp(self):
         self.client = Client()
 
     def test_sidebar_headings_and_routes(self):
-        """Verifies the new sidebar headings (Parts, Movement) and all primary navigation routes."""
+        """Verifies the sidebar headings (Parts, Movement, Sales) and all primary navigation routes."""
         res = self.client.get(reverse('home'))
         self.assertEqual(res.status_code, 200)
         html = res.content.decode('utf-8')
@@ -2079,6 +2154,7 @@ class SidebarNavigationLayoutTestCase(TestCase):
         # Check Headings
         self.assertIn("Parts", html)
         self.assertIn("Movement", html)
+        self.assertIn("Sales", html)
 
         # Check 'Parts' section links
         self.assertIn(reverse('category_list'), html)
@@ -2091,7 +2167,12 @@ class SidebarNavigationLayoutTestCase(TestCase):
         self.assertIn(reverse('bom_list'), html)
         self.assertIn(reverse('kit_action'), html)
         self.assertIn(reverse('assemblies'), html)
+
+        # Check 'Sales' section links
+        self.assertIn(reverse('quote_list'), html)
         self.assertIn(reverse('sale_list'), html)
+        self.assertIn("Quotes", html)
+        self.assertIn("Invoicing", html)
 
     def test_assemblies_alias_route(self):
         """Verifies /assemblies/ route loads BuildActionView successfully."""
