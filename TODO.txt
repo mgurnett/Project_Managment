@@ -1,8 +1,9 @@
 =============  Bug fixes =================
-TODO: 
+TODO: when making a quote, the assemblies that are on the list are catagory 1000 but they should now be 900.
 
 ==============  Priority HIGH
 TODO: 
+
 
 ==============  Priority Medium
 TODO: 
@@ -13,6 +14,7 @@ TODO:
 
 
 ==============  COMPLETED =============
+[COMPLETED] We need to add two sheets to kits. When a BoM is moved to a kit there needs to be an optional link to 2 documents. One is a build sheet and one is a inspection. (Added build_sheet_url and inspection_sheet_url URLFields to BOM with migration 0023 applied to MySQL, plus build_sheet and inspection choices in BOMDocument; added optional Build Sheet and Inspection Sheet link inputs to the Move BoM to Kit modal in templates/core/bom_detail.html, the Pick Kit form in templates/core/kit_action.html, and BOMForm; updated bom_kit_action and KitActionView in core/views.py to save/update sheet links and fixed selected_bom query param lookup; displayed Build Sheet and Inspection Sheet quick-open badges and inline editor on Kits and BoM Detail; covered with KitBuildAndInspectionSheetsTestCase in core/tests.py, all 68 tests passing)
 [COMPLETED] On the catagories page, there seems to be a pagination so that I can not see any catagories above 700. (Removed paginate_by = 25 cutoff from CategoryListView in core/views.py so all categories are displayed on one page, and updated prefix ordering with Length('prefix') so 100-series through 700+ and 1000-series categories appear in numeric order; covered with unit test in CategoryHierarchyAndCountSheetFilterTestCase, all 67 tests passing)
 [COMPLETED] For orders, quotes and invoices there needs to be a revision number. If something changes then the rev number needs to increase. If the order is cancelled or completed then the revision number should stay the same. But if a job is deleted then the revision number should reset to 1 to go up. (Added revision PositiveIntegerField defaulting to 1 on Order, Quote, and AssemblySale with migration 0022 applied to MySQL; automatically increments revision on edits/item changes while open, keeps revision unchanged when completed/received/paid/accepted/declined/cancelled, and starts fresh at Rev 1 when a job is deleted and recreated; displayed Rev badges across list, detail, and PDF templates; covered with RevisionNumberWorkflowTestCase in core/tests.py, all 66 tests passing)
 [COMPLETED] When choosing what status of order to show, make a catagoy that is everything but completed and cancilled. (Added 'Active / Open (Everything but Completed & Cancelled)' [ACTIVE] category to the order status dropdown and linked KPI cards in templates/core/order_list.html; updated OrderListView in core/views.py to exclude RECEIVED and CANCELLED statuses when active status filter is applied; linked Dashboard 'Active Orders' KPI card to ?status=ACTIVE; covered with automated unit test in OrderWorkflowTestCase, all 64 tests passing)

@@ -142,6 +142,20 @@
                             {% if b.description %}
                                 <div class="text-muted small">{{ b.description }}</div>
                             {% endif %}
+                            {% if b.build_sheet_url or b.inspection_sheet_url %}
+                                <div class="d-flex flex-wrap gap-1 mt-1">
+                                    {% if b.build_sheet_url %}
+                                        <a href="{{ b.build_sheet_url }}" target="_blank" rel="noopener" class="badge bg-primary-subtle text-primary border border-primary-subtle text-decoration-none small" title="Open Build Sheet">
+                                            <i class="bi bi-tools me-1"></i>Build Sheet <i class="bi bi-box-arrow-up-right ms-1"></i>
+                                        </a>
+                                    {% endif %}
+                                    {% if b.inspection_sheet_url %}
+                                        <a href="{{ b.inspection_sheet_url }}" target="_blank" rel="noopener" class="badge bg-success-subtle text-success border border-success-subtle text-decoration-none small" title="Open Inspection Sheet">
+                                            <i class="bi bi-check2-square me-1"></i>Inspection Sheet <i class="bi bi-box-arrow-up-right ms-1"></i>
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
                         </td>
                         <td class="text-center py-3 small">
                             <span class="badge bg-body-tertiary text-body border">
@@ -469,6 +483,16 @@
                             <div class="form-text small">Moves required parts for each kit into Committed status.</div>
                         </div>
 
+                        <div class="mb-2">
+                            <label class="form-label small fw-semibold">Build Sheet Link <span class="text-muted fw-normal">(Optional)</span></label>
+                            <input type="url" name="build_sheet_url" class="form-control form-control-sm" value="{{ selected_bom.build_sheet_url|default:'' }}" placeholder="https://... (Build Sheet URL)">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Inspection Sheet Link <span class="text-muted fw-normal">(Optional)</span></label>
+                            <input type="url" name="inspection_sheet_url" class="form-control form-control-sm" value="{{ selected_bom.inspection_sheet_url|default:'' }}" placeholder="https://... (Inspection Sheet URL)">
+                        </div>
+
                         <button type="submit" class="btn btn-primary w-100 fw-semibold">
                             <i class="bi bi-box-seam me-1"></i> Pick Kit (Commit BoM Parts)
                         </button>
@@ -602,11 +626,55 @@
                         <span class="text-muted small">Reference schematics, watch YouTube assembly videos, and review instructions while picking this kit.</span>
                     </div>
                     {% if selected_bom %}
-                        <a href="{% url 'bom_document_create' selected_bom.pk %}?next={% url 'kit_action' %}?bom={{ selected_bom.pk }}%23pullSheetSection" class="btn btn-sm btn-outline-custom">
-                            <i class="bi bi-plus-circle me-1"></i> Add Document / Video
-                        </a>
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#editKitSheetsCollapse">
+                                <i class="bi bi-pencil-square me-1"></i> Edit Kit Sheets
+                            </button>
+                            <a href="{% url 'bom_document_create' selected_bom.pk %}?next={% url 'kit_action' %}?bom={{ selected_bom.pk }}%23pullSheetSection" class="btn btn-sm btn-outline-custom">
+                                <i class="bi bi-plus-circle me-1"></i> Add Document / Video
+                            </a>
+                        </div>
                     {% endif %}
                 </div>
+                {% if selected_bom %}
+                <div class="px-4 py-2 bg-body-tertiary border-bottom d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="small fw-semibold text-muted me-1"><i class="bi bi-clipboard-check me-1"></i>Kit Sheets:</span>
+                        {% if selected_bom.build_sheet_url %}
+                            <a href="{{ selected_bom.build_sheet_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary py-0 px-2">
+                                <i class="bi bi-tools me-1"></i> Build Sheet <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                            </a>
+                        {% else %}
+                            <span class="badge bg-secondary-subtle text-secondary border small">Build Sheet: Not linked</span>
+                        {% endif %}
+                        {% if selected_bom.inspection_sheet_url %}
+                            <a href="{{ selected_bom.inspection_sheet_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-success py-0 px-2">
+                                <i class="bi bi-check2-square me-1"></i> Inspection Sheet <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                            </a>
+                        {% else %}
+                            <span class="badge bg-secondary-subtle text-secondary border small">Inspection Sheet: Not linked</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="collapse border-bottom bg-body-tertiary" id="editKitSheetsCollapse">
+                    <form method="post" action="{% url 'kit_action' %}" class="p-3 px-4 row g-2 align-items-end">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="update_sheets">
+                        <input type="hidden" name="bom" value="{{ selected_bom.pk }}">
+                        <div class="col-12 col-md-5">
+                            <label class="form-label small fw-semibold mb-1">Build Sheet Link (Optional)</label>
+                            <input type="url" name="build_sheet_url" class="form-control form-control-sm" value="{{ selected_bom.build_sheet_url|default:'' }}" placeholder="https://...">
+                        </div>
+                        <div class="col-12 col-md-5">
+                            <label class="form-label small fw-semibold mb-1">Inspection Sheet Link (Optional)</label>
+                            <input type="url" name="inspection_sheet_url" class="form-control form-control-sm" value="{{ selected_bom.inspection_sheet_url|default:'' }}" placeholder="https://...">
+                        </div>
+                        <div class="col-12 col-md-2">
+                            <button type="submit" class="btn btn-sm btn-primary w-100 fw-semibold">Save Sheets</button>
+                        </div>
+                    </form>
+                </div>
+                {% endif %}
                 <div class="card-body p-0">
                     {% if selected_bom_documents %}
                         <div class="list-group list-group-flush">

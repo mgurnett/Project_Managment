@@ -881,6 +881,18 @@ class BOM(models.Model):
         help_text="The 1000-series Part representing this finished assembly in the parts catalog and inventory."
     )
     notes = CKEditor5Field('Assembly Instructions & Notes', config_name='notes', blank=True, null=True)
+    build_sheet_url = models.URLField(
+        max_length=500,
+        blank=True,
+        verbose_name="Build Sheet Link",
+        help_text="Optional link to the Build Sheet document for this kit"
+    )
+    inspection_sheet_url = models.URLField(
+        max_length=500,
+        blank=True,
+        verbose_name="Inspection Sheet Link",
+        help_text="Optional link to the Inspection Sheet document for this kit"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1280,6 +1292,8 @@ class BOMDocument(models.Model):
         ('schematic', 'Schematic / Circuit Diagram'),
         ('video', 'Video / YouTube Tutorial'),
         ('instructions', 'Assembly Instructions / Manual'),
+        ('build_sheet', 'Build Sheet'),
+        ('inspection', 'Inspection Sheet'),
         ('datasheet', 'Datasheet / Specification'),
         ('drawing', 'CAD / Mechanical Drawing / 3D Model'),
         ('firmware', 'Firmware / Code / Configuration'),

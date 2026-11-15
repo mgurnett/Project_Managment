@@ -2756,6 +2756,21 @@ def bom_kit_action(request, pk):
         return redirect('bom_detail', pk=bom.pk)
 
     with transaction.atomic():
+        sheet_fields = []
+        if 'build_sheet_url' in request.POST:
+            new_build_sheet = (request.POST.get('build_sheet_url') or '').strip()
+            if new_build_sheet != (bom.build_sheet_url or ''):
+                bom.build_sheet_url = new_build_sheet
+                sheet_fields.append('build_sheet_url')
+        if 'inspection_sheet_url' in request.POST:
+            new_inspection_sheet = (request.POST.get('inspection_sheet_url') or '').strip()
+            if new_inspection_sheet != (bom.inspection_sheet_url or ''):
+                bom.inspection_sheet_url = new_inspection_sheet
+                sheet_fields.append('inspection_sheet_url')
+        if sheet_fields:
+            sheet_fields.append('updated_at')
+            bom.save(update_fields=sheet_fields)
+
         comp_count, total_kitted, shortages = _execute_bom_kit(bom, kits_count=kits_count)
 
     msg = (
@@ -3272,12 +3287,12 @@ class KitActionView(TemplateView):
         ctx['all_parts'] = Part.objects.select_related('category', 'location').order_by('part_number')
 
         selected_id = self.request.GET.get('bom')
-        if selected_id and selected_id.isdigit():
-            ctx['selected_bom'] = next((b for b in boms if b.pk == int(selected_id)), None)
-        if boms:
-            ctx['selected_bom'] = boms[0]
-        else:
-            ctx['selected_bom'] = None
+        selected_bom = None
+        if selected_id and str(selected_id).isdigit():
+            selected_bom = next((b for b in boms if b.pk == int(selected_id)), None)
+        if not selected_bom and boms:
+            selected_bom = boms[0]
+        ctx['selected_bom'] = selected_bom
         if ctx['selected_bom']:
             ctx['selected_bom_documents'] = list(ctx['selected_bom'].documents.all())
         else:
@@ -3287,6 +3302,18 @@ class KitActionView(TemplateView):
 
     def post(self, request, *args, **kwargs):
         action = (request.POST.get('action') or '').strip()
+        if action == 'update_sheets':
+            bom_id = request.POST.get('bom')
+            if bom_id and str(bom_id).isdigit():
+                bom = get_object_or_404(BOM, pk=int(bom_id))
+                bom.build_sheet_url = (request.POST.get('build_sheet_url') or '').strip()
+                bom.inspection_sheet_url = (request.POST.get('inspection_sheet_url') or '').strip()
+                bom.save(update_fields=['build_sheet_url', 'inspection_sheet_url', 'updated_at'])
+                messages.success(request, f"Updated Build Sheet & Inspection Sheet links for '{bom.name}'.")
+                return redirect(f"{reverse('kit_action')}?bom={bom.pk}#pullSheetSection")
+            messages.error(request, "Please select a valid BoM to update sheets.")
+            return redirect('kit_action')
+
         if action == 'adjust_part':
             part_id = request.POST.get('part_id')
             if part_id and str(part_id).isdigit():

@@ -2821,6 +2821,82 @@ class RevisionNumberWorkflowTestCase(TestCase):
         self.assertEqual(new_inv.revision, 1)
 
 
+class KitBuildAndInspectionSheetsTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.cat = Category.objects.create(name="Electronics", prefix="200")
+        self.part = Part.objects.create(
+            part_number="200-001",
+            name="Sensor Module",
+            category=self.cat,
+            quantity_on_hand=20
+        )
+        self.bom1 = BOM.objects.create(name="Alpha Assembly", assembly_number="1000-001")
+        BOMItem.objects.create(bom=self.bom1, part=self.part, quantity=2)
+        self.bom2 = BOM.objects.create(name="Beta Assembly", assembly_number="1000-002")
+        BOMItem.objects.create(bom=self.bom2, part=self.part, quantity=3)
+
+    def test_move_bom_to_kit_with_optional_sheets(self):
+        # 1. Move BoM to kit WITHOUT sheet links (optional)
+        res_no_sheets = self.client.post(
+            reverse('bom_kit_action', kwargs={'pk': self.bom1.pk}),
+            {'quantity': 1}
+        )
+        self.assertEqual(res_no_sheets.status_code, 302)
+        self.bom1.refresh_from_db()
+        self.assertEqual(self.bom1.build_sheet_url, '')
+        self.assertEqual(self.bom1.inspection_sheet_url, '')
+
+        # 2. Move BoM to kit WITH build_sheet_url and inspection_sheet_url
+        build_url = "https://docs.example.com/alpha-build-sheet.pdf"
+        insp_url = "https://docs.example.com/alpha-inspection-sheet.pdf"
+        res_with_sheets = self.client.post(
+            reverse('bom_kit_action', kwargs={'pk': self.bom2.pk}),
+            {
+                'quantity': 1,
+                'build_sheet_url': build_url,
+                'inspection_sheet_url': insp_url,
+            }
+        )
+        self.assertEqual(res_with_sheets.status_code, 302)
+        self.bom2.refresh_from_db()
+        self.assertEqual(self.bom2.build_sheet_url, build_url)
+        self.assertEqual(self.bom2.inspection_sheet_url, insp_url)
+
+        # 3. Verify KitActionView (?bom=<bom2.pk>) selects bom2 and displays both sheets
+        res_kit = self.client.get(f"{reverse('kit_action')}?bom={self.bom2.pk}")
+        self.assertEqual(res_kit.status_code, 200)
+        self.assertEqual(res_kit.context['selected_bom'].pk, self.bom2.pk)
+        html_kit = res_kit.content.decode('utf-8')
+        self.assertIn(build_url, html_kit)
+        self.assertIn(insp_url, html_kit)
+        self.assertIn("Build Sheet", html_kit)
+        self.assertIn("Inspection Sheet", html_kit)
+
+        # 4. Verify BOMDetailView displays both sheets & modal fields
+        res_bom = self.client.get(reverse('bom_detail', kwargs={'pk': self.bom2.pk}))
+        self.assertEqual(res_bom.status_code, 200)
+        html_bom = res_bom.content.decode('utf-8')
+        self.assertIn(build_url, html_bom)
+        self.assertIn(insp_url, html_bom)
+
+        # 5. Update sheets directly via KitActionView action='update_sheets'
+        new_build = "https://docs.example.com/alpha-build-v2.pdf"
+        res_update = self.client.post(
+            reverse('kit_action'),
+            {
+                'action': 'update_sheets',
+                'bom': self.bom2.pk,
+                'build_sheet_url': new_build,
+                'inspection_sheet_url': insp_url,
+            }
+        )
+        self.assertEqual(res_update.status_code, 302)
+        self.bom2.refresh_from_db()
+        self.assertEqual(self.bom2.build_sheet_url, new_build)
+
+
+
 
 
 

@@ -300,6 +300,21 @@
                 <i class="bi bi-plus-circle me-1"></i> Add Document / Video
             </a>
         </div>
+        {% if bom.build_sheet_url or bom.inspection_sheet_url %}
+        <div class="px-4 py-2 bg-body-tertiary border-bottom d-flex flex-wrap align-items-center gap-2">
+            <span class="small fw-semibold text-muted me-1"><i class="bi bi-clipboard-check me-1"></i>Kit Sheets:</span>
+            {% if bom.build_sheet_url %}
+                <a href="{{ bom.build_sheet_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary py-0 px-2">
+                    <i class="bi bi-tools me-1"></i> Build Sheet <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                </a>
+            {% endif %}
+            {% if bom.inspection_sheet_url %}
+                <a href="{{ bom.inspection_sheet_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-success py-0 px-2">
+                    <i class="bi bi-check2-square me-1"></i> Inspection Sheet <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                </a>
+            {% endif %}
+        </div>
+        {% endif %}
         <div class="card-body p-0">
             {% if documents %}
                 <div class="list-group list-group-flush">
@@ -456,6 +471,14 @@
                         <div class="form-text small">
                             Each kit commits <strong>{{ bom.total_parts_quantity }} total parts</strong> across {{ bom.items.count }} unique components.
                         </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Build Sheet Link <span class="text-muted fw-normal">(Optional)</span></label>
+                        <input type="url" name="build_sheet_url" class="form-control form-control-sm" value="{{ bom.build_sheet_url|default:'' }}" placeholder="https://... (link to Build Sheet document)">
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label small fw-semibold">Inspection Sheet Link <span class="text-muted fw-normal">(Optional)</span></label>
+                        <input type="url" name="inspection_sheet_url" class="form-control form-control-sm" value="{{ bom.inspection_sheet_url|default:'' }}" placeholder="https://... (link to Inspection Sheet document)">
                     </div>
                 </div>
                 <div class="modal-footer border-top bg-light">

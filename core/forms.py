@@ -227,7 +227,7 @@ class PartDocumentForm(forms.ModelForm):
 class BOMForm(forms.ModelForm):
     class Meta:
         model = BOM
-        fields = ['assembly_number', 'name', 'description', 'quantity_on_hand', 'sale_price', 'notes']
+        fields = ['assembly_number', 'name', 'description', 'quantity_on_hand', 'sale_price', 'build_sheet_url', 'inspection_sheet_url', 'notes']
         widgets = {
             'assembly_number': forms.TextInput(attrs={
                 'class': 'form-control font-monospace',
@@ -237,6 +237,8 @@ class BOMForm(forms.ModelForm):
             'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Brief description of the assembly or device'}),
             'quantity_on_hand': forms.NumberInput(attrs={'class': 'form-control', 'min': 0}),
             'sale_price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '0.00'}),
+            'build_sheet_url': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://... (Optional link to Build Sheet)'}),
+            'inspection_sheet_url': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://... (Optional link to Inspection Sheet)'}),
         }
 
     def clean_quantity_on_hand(self):

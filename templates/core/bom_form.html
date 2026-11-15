@@ -80,6 +80,16 @@
                         {{ form.sale_price }}
                         <div class="form-text small">Invoice price (defaults to cost if blank).</div>
                     </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Build Sheet Link <span class="text-muted fw-normal">(Optional)</span></label>
+                        {{ form.build_sheet_url }}
+                        <div class="form-text small">Link to the Kit Build Sheet document.</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Inspection Sheet Link <span class="text-muted fw-normal">(Optional)</span></label>
+                        {{ form.inspection_sheet_url }}
+                        <div class="form-text small">Link to the Kit Inspection Sheet document.</div>
+                    </div>
                     <div class="col-12">
                         <label class="form-label small fw-semibold">Assembly Instructions &amp; Engineering Notes</label>
                         {{ form.notes }}
