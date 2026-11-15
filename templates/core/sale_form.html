@@ -20,7 +20,7 @@
                 <i class="bi bi-receipt me-2"></i>{% if form.instance.pk %}Edit Invoice {{ form.instance.invoice_number }}{% else %}Create Assembly Invoice{% endif %}
             </h1>
             <p class="text-muted small mb-0">
-                Invoice 1000-series assemblies (built or not built yet). Mark as <strong>Unpaid</strong> to issue an open invoice, or <strong>Paid</strong> to deduct finished goods and apply the PAID stamp.
+                Invoice 900-series assemblies (built or not built yet). Mark as <strong>Unpaid</strong> to issue an open invoice, or <strong>Paid</strong> to deduct finished goods and apply the PAID stamp.
             </p>
         </div>
         <a href="{% url 'sale_list' %}" class="btn btn-outline-secondary btn-sm">
@@ -124,14 +124,14 @@
             </div>
         </div>
 
-        <!-- 3. Item Information (1000-Series Assemblies Sold) -->
+        <!-- 3. Item Information (900-Series Assemblies Sold) -->
         <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
             <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
-                        <i class="bi bi-boxes me-2 text-custom"></i>3. Item Information (1000-Series Assemblies Invoiced)
+                        <i class="bi bi-boxes me-2 text-custom"></i>3. Item Information (900-Series Assemblies Invoiced)
                     </h2>
-                    <span class="text-muted small">Select any 1000-series assembly (built or not built yet) to auto-fill its Item Number, Description, and Price, or customize any field.</span>
+                    <span class="text-muted small">Select any 900-series assembly (built or not built yet) to auto-fill its Item Number, Description, and Price, or customize any field.</span>
                 </div>
                 <button type="button" class="btn btn-sm btn-outline-custom fw-semibold" id="addSaleItemRowBtn">
                     <i class="bi bi-plus-circle me-1"></i> Add Line Item
@@ -142,7 +142,7 @@
                     <table class="table align-middle mb-0" id="saleItemsTable">
                         <thead class="table-light border-bottom small text-uppercase text-muted">
                             <tr>
-                                <th class="ps-4 py-2" style="width: 26%;">Select Assembly (1000-Series)</th>
+                                <th class="ps-4 py-2" style="width: 26%;">Select Assembly (900-Series)</th>
                                 <th class="py-2" style="width: 14%;">Item Number</th>
                                 <th class="py-2" style="width: 26%;">Item Description</th>
                                 <th class="py-2 text-center" style="width: 10%;">Quantity</th>
@@ -170,7 +170,7 @@
                                         </select>
                                     </td>
                                     <td class="py-2">
-                                        <input type="text" name="item_number[]" class="form-control form-control-sm font-monospace item-number-input" value="{{ item.item_number }}" placeholder="1000-001" required>
+                                        <input type="text" name="item_number[]" class="form-control form-control-sm font-monospace item-number-input" value="{{ item.item_number }}" placeholder="900-001" required>
                                     </td>
                                     <td class="py-2">
                                         <input type="text" name="item_description[]" class="form-control form-control-sm item-desc-input" value="{{ item.description }}" placeholder="Assembly description..." required>
@@ -195,7 +195,7 @@
                                 <tr class="sale-item-row">
                                     <td class="ps-4 py-2">
                                         <select name="item_bom[]" class="form-select form-select-sm bom-select">
-                                            <option value="">-- Select 1000-Series Assembly --</option>
+                                            <option value="">-- Select 900-Series Assembly --</option>
                                             {% for asm in assemblies %}
                                                 <option value="{{ asm.pk }}"
                                                         data-number="{{ asm.assembly_number }}"
@@ -209,7 +209,7 @@
                                     </td>
                                     <td class="py-2">
                                         <input type="text" name="item_number[]" class="form-control form-control-sm font-monospace item-number-input"
-                                               value="{% if preselected_bom %}{{ preselected_bom.assembly_number }}{% endif %}" placeholder="1000-001" required>
+                                               value="{% if preselected_bom %}{{ preselected_bom.assembly_number }}{% endif %}" placeholder="900-001" required>
                                     </td>
                                     <td class="py-2">
                                         <input type="text" name="item_description[]" class="form-control form-control-sm item-desc-input"

@@ -231,7 +231,7 @@ class BOMForm(forms.ModelForm):
         widgets = {
             'assembly_number': forms.TextInput(attrs={
                 'class': 'form-control font-monospace',
-                'placeholder': 'e.g. 1000-001 (leave blank to auto-assign next 1000-series #)'
+                'placeholder': 'e.g. 900-001 (leave blank to auto-assign next 900-series #)'
             }),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. String Assembly, Sensor Node, Base Station'}),
             'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Brief description of the assembly or device'}),
@@ -280,7 +280,7 @@ class BOMItemForm(forms.ModelForm):
             )
             self.fields['part'].queryset = parts
             self.fields['part'].label_from_instance = lambda obj: (
-                f"{obj.part_number} - {obj.name or obj.description or 'Part'} (On-Hand: {obj.quantity_on_hand}{' — Sub-Assembly' if obj.category and obj.category.get_prefix() == '1000' else ''})"
+                f"{obj.part_number} - {obj.name or obj.description or 'Part'} (On-Hand: {obj.quantity_on_hand}{' — Sub-Assembly' if obj.category and obj.category.get_prefix() in ('900', '910', '920', '930', '940', '950') else ''})"
                 + (f" [Superseded by {obj.superseded_by.part_number}]" if obj.superseded_by_id else "")
             )
 

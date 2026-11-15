@@ -161,7 +161,7 @@
                                         </select>
                                     </td>
                                     <td class="py-2">
-                                        <input type="text" name="item_number[]" class="form-control form-control-sm font-monospace item-number-input" value="{{ item.item_number }}" placeholder="1000-001" required>
+                                        <input type="text" name="item_number[]" class="form-control form-control-sm font-monospace item-number-input" value="{{ item.item_number }}" placeholder="900-001" required>
                                     </td>
                                     <td class="py-2">
                                         <input type="text" name="item_description[]" class="form-control form-control-sm item-desc-input" value="{{ item.description }}" placeholder="Item / assembly description..." required>
@@ -200,7 +200,7 @@
                                     </td>
                                     <td class="py-2">
                                         <input type="text" name="item_number[]" class="form-control form-control-sm font-monospace item-number-input"
-                                               value="{% if preselected_bom %}{{ preselected_bom.assembly_number }}{% endif %}" placeholder="1000-001" required>
+                                               value="{% if preselected_bom %}{{ preselected_bom.assembly_number }}{% endif %}" placeholder="900-001" required>
                                     </td>
                                     <td class="py-2">
                                         <input type="text" name="item_description[]" class="form-control form-control-sm item-desc-input"

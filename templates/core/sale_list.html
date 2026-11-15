@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Sales &amp; Invoices (1000-Series Assemblies) | Inventory Manager{% endblock %}
+{% block title %}Sales &amp; Invoices (900-Series Assemblies) | Inventory Manager{% endblock %}
 {% block breadcrumb %}Sales &amp; Invoices{% endblock %}
 
 {% block content %}
@@ -10,10 +10,10 @@
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
         <div>
             <h1 class="h3 fw-bold mb-1 text-custom">
-                <i class="bi bi-receipt me-2"></i>1000-Series Assemblies &amp; Sales Invoices
+                <i class="bi bi-receipt me-2"></i>900-Series Assemblies &amp; Sales Invoices
             </h1>
             <p class="text-muted small mb-0">
-                Manage finished 1000-series assemblies built from kits, sell assemblies, and generate sequential customer invoices.
+                Manage finished 900-series assemblies built from kits, sell assemblies, and generate sequential customer invoices.
             </p>
         </div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -35,7 +35,7 @@
                     <div>
                         <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Built Assemblies On-Hand</span>
                         <h3 class="fw-bold mb-0 mt-1 text-success">{{ total_built_units|default:0 }}</h3>
-                        <div class="small text-muted mt-1">Across {{ built_assemblies_count }} of {{ assemblies|length }} 1000-series models</div>
+                        <div class="small text-muted mt-1">Across {{ built_assemblies_count }} of {{ assemblies|length }} 900-series models</div>
                     </div>
                     <div class="rounded-circle p-3 bg-success-subtle text-success">
                         <i class="bi bi-boxes fs-4"></i>
@@ -66,7 +66,7 @@
                     <div>
                         <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Total Assemblies Sold</span>
                         <h3 class="fw-bold mb-0 mt-1 text-info">{{ total_units_sold|default:0 }}</h3>
-                        <div class="small text-muted mt-1">1000-series units invoiced</div>
+                        <div class="small text-muted mt-1">900-series units invoiced</div>
                     </div>
                     <div class="rounded-circle p-3 bg-info-subtle text-info">
                         <i class="bi bi-bag-check fs-4"></i>
@@ -90,14 +90,14 @@
         </div>
     </div>
 
-    <!-- ================= SECTION 1: 1000-SERIES BUILT ASSEMBLIES INVENTORY ================= -->
+    <!-- ================= SECTION 1: 900-SERIES BUILT ASSEMBLIES INVENTORY ================= -->
     <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
         <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2">
             <div>
                 <h5 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
-                    <i class="bi bi-diagram-3 me-2 text-custom"></i>1. 1000-Series Built Assemblies Inventory
+                    <i class="bi bi-diagram-3 me-2 text-custom"></i>1. 900-Series Built Assemblies Inventory
                 </h5>
-                <span class="text-muted small">Once a kit is closed/built, its parts are deducted from inventory and the 1000-series assembly is added here ready to be sold.</span>
+                <span class="text-muted small">Once a kit is closed/built, its parts are deducted from inventory and the 900-series assembly is added here ready to be sold.</span>
             </div>
             <a href="{% url 'kit_action' %}" class="btn btn-sm btn-outline-primary">
                 <i class="bi bi-tools me-1"></i> Build / Close Kit into Assembly
@@ -108,7 +108,7 @@
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light border-bottom small text-uppercase text-muted">
                     <tr>
-                        <th class="ps-4 py-2" style="width: 12%;">1000-Series #</th>
+                        <th class="ps-4 py-2" style="width: 12%;">900-Series #</th>
                         <th class="py-2" style="width: 24%;">Assembly Name &amp; Description</th>
                         <th class="text-center py-2" style="width: 10%;">Active Kits</th>
                         <th class="text-center py-2" style="width: 12%;">Built On-Hand</th>
@@ -123,7 +123,7 @@
                     <tr class="{% if asm.quantity_on_hand > 0 %}table-success bg-opacity-10{% endif %}">
                         <td class="ps-4 py-2 font-monospace fw-bold">
                             <a href="{% url 'bom_detail' asm.pk %}" class="badge bg-primary text-white text-decoration-none px-2.5 py-1">
-                                {{ asm.assembly_number|default:"1000-001" }}
+                                {{ asm.assembly_number|default:"900-001" }}
                             </a>
                         </td>
                         <td class="py-2">
@@ -227,7 +227,7 @@
                         <th class="py-3">Status</th>
                         <th class="py-3">Invoice Date</th>
                         <th class="py-3">Customer Information</th>
-                        <th class="py-3">Items Invoiced (1000-Series)</th>
+                        <th class="py-3">Items Invoiced (900-Series)</th>
                         <th class="py-3">Payment Info</th>
                         <th class="text-end py-3">Total Amount</th>
                         <th class="text-end pe-4 py-3">Actions</th>

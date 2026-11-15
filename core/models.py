@@ -844,16 +844,16 @@ class InventoryAdjustment(models.Model):
 class BOM(models.Model):
     """
     Bill of Materials (BOM) / Product Assembly.
-    Represents an assembled device or sub-assembly (e.g. String, Node, Base Station, Tipups).
-    Assemblies use the 1000 series numbering (e.g. 1000-001, 1000-002).
+    Represents an assembled device, kit, or sub-assembly (e.g. String, Node, Base Station, Tipups).
+    Assemblies, kits, and BoMs use the 900 series numbering (e.g. 900-001, 900-002).
     """
     assembly_number = models.CharField(
         max_length=50,
         unique=True,
         blank=True,
         null=True,
-        verbose_name="Assembly Number (1000 Series)",
-        help_text="1000-series assembly number (e.g. 1000-001). Leave blank to auto-assign."
+        verbose_name="Assembly Number (900 Series)",
+        help_text="900-series assembly number (e.g. 900-001). Leave blank to auto-assign."
     )
     name = models.CharField(max_length=150, unique=True, verbose_name="BOM / Assembly Name")
     description = models.CharField(max_length=255, blank=True, verbose_name="Description")
@@ -877,8 +877,8 @@ class BOM(models.Model):
         null=True,
         blank=True,
         related_name='assembly_bom',
-        verbose_name="Associated Part (1000 Series)",
-        help_text="The 1000-series Part representing this finished assembly in the parts catalog and inventory."
+        verbose_name="Associated Part (900 Series)",
+        help_text="The 900-series Part representing this finished assembly in the parts catalog and inventory."
     )
     notes = CKEditor5Field('Assembly Instructions & Notes', config_name='notes', blank=True, null=True)
     build_sheet_url = models.URLField(
@@ -907,12 +907,14 @@ class BOM(models.Model):
         return self.name
 
     @classmethod
-    def generate_next_assembly_number(cls):
+    def generate_next_assembly_number(cls, exclude_pk=None, prefix="900-"):
         """
-        Generates the next sequential 1000-series assembly number (e.g. 1000-001, 1000-002).
+        Generates the next sequential 900-series assembly number (e.g. 900-001, 900-002).
         """
-        prefix = "1000-"
-        existing = cls.objects.filter(assembly_number__startswith=prefix).values_list('assembly_number', flat=True)
+        qs = cls.objects.filter(assembly_number__startswith=prefix)
+        if exclude_pk is not None:
+            qs = qs.exclude(pk=exclude_pk)
+        existing = qs.values_list('assembly_number', flat=True)
         highest = 0
         for an in existing:
             if not an:
@@ -931,18 +933,19 @@ class BOM(models.Model):
 
     def sync_part(self):
         """
-        Ensures a corresponding 1000-series Part exists in the Parts Catalog under
-        the 'Assemblies' category (prefix 1000), kept in sync with this BOM.
+        Ensures a corresponding 900-series Part exists in the Parts Catalog under
+        the 'Assemblies, Kits & BoMs' category (prefix 900 or its 910-950 subcategories),
+        kept in sync with this BOM.
         """
         category, _ = Category.objects.get_or_create(
-            prefix='1000',
+            prefix='900',
             defaults={
-                'name': 'Assemblies',
-                'description': 'Completed / built 1000-series product assemblies',
+                'name': 'Assemblies, Kits & BoMs',
+                'description': '900-series assemblies, kits, and BoMs',
             }
         )
         if not self.assembly_number:
-            self.assembly_number = self.generate_next_assembly_number()
+            self.assembly_number = self.generate_next_assembly_number(exclude_pk=self.pk)
 
         part = self.part
         if not part and self.assembly_number:
@@ -955,7 +958,7 @@ class BOM(models.Model):
             part = Part.objects.create(
                 part_number=self.assembly_number,
                 name=self.name,
-                description=self.description or f"Built 1000-series assembly for {self.name}",
+                description=self.description or f"Built 900-series assembly for {self.name}",
                 category=category,
                 quantity_on_hand=target_on_hand,
                 quantity_availible=target_on_hand,
@@ -966,17 +969,20 @@ class BOM(models.Model):
                 self.part = part
                 BOM.objects.filter(pk=self.pk).update(part=part)
         else:
+            nine_hundred_prefixes = {'900', '910', '920', '930', '940', '950'}
+            part_cat_prefix = part.category.get_prefix() if part.category else None
             update_fields = []
             if part.part_number != self.assembly_number:
-                part.part_number = self.assembly_number
-                update_fields.append('part_number')
+                if not (part_cat_prefix in {'910', '920', '930', '940', '950'} and part.part_number.startswith(f"{part_cat_prefix}-")):
+                    part.part_number = self.assembly_number
+                    update_fields.append('part_number')
             if part.name != self.name:
                 part.name = self.name
                 update_fields.append('name')
             if self.description and part.description != self.description:
                 part.description = self.description
                 update_fields.append('description')
-            if part.category_id != category.pk:
+            if part_cat_prefix not in nine_hundred_prefixes and part.category_id != category.pk:
                 part.category = category
                 update_fields.append('category')
             if part.quantity_on_hand != target_on_hand:
@@ -1000,14 +1006,14 @@ class BOM(models.Model):
             cleaned = self.assembly_number.strip()
             if cleaned.isdigit():
                 num = int(cleaned)
-                if num >= 1000:
-                    self.assembly_number = f"1000-{num - 1000 if num > 1000 else 1:03d}" if num > 1000 else "1000-001"
+                if num >= 900:
+                    self.assembly_number = f"900-{num - 900:03d}" if num > 900 else "900-001"
                 else:
-                    self.assembly_number = f"1000-{num:03d}"
+                    self.assembly_number = f"900-{num:03d}"
             else:
                 self.assembly_number = cleaned
         else:
-            self.assembly_number = self.generate_next_assembly_number()
+            self.assembly_number = self.generate_next_assembly_number(exclude_pk=self.pk)
         super().save(*args, **kwargs)
         try:
             self.sync_part()
@@ -1818,7 +1824,7 @@ class AssemblySaleItem(models.Model):
     item_number = models.CharField(
         max_length=50,
         verbose_name="Item / Assembly Number",
-        help_text="e.g. 1000-001"
+        help_text="e.g. 900-001"
     )
     description = models.CharField(
         max_length=255,
@@ -2055,7 +2061,7 @@ class QuoteItem(models.Model):
     item_number = models.CharField(
         max_length=50,
         verbose_name="Item / Assembly Number",
-        help_text="e.g. 1000-001"
+        help_text="e.g. 900-001"
     )
     description = models.CharField(
         max_length=255,

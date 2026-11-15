@@ -12,7 +12,7 @@
             <h1 class="h3 fw-bold mb-1 text-custom">
                 <i class="bi bi-tools me-2"></i>Assemblies (Build from Kits)
             </h1>
-            <p class="text-muted small mb-0">Select a Bill of Materials (BoM) assembly to build finished 1000-series units, close active kits, and deduct component parts from inventory.</p>
+            <p class="text-muted small mb-0">Select a Bill of Materials (BoM) assembly to build finished 900-series units, close active kits, and deduct component parts from inventory.</p>
         </div>
         <div class="d-flex align-items-center gap-2">
             <a href="{% url 'bom_list' %}" class="btn btn-outline-secondary btn-sm">
@@ -57,7 +57,7 @@
 
                         <div class="p-3 rounded-3 bg-body-tertiary border mb-3 small">
                             <div class="d-flex justify-content-between mb-1">
-                                <span class="text-muted">1000-Series Assembly #:</span>
+                                <span class="text-muted">900-Series Assembly #:</span>
                                 <strong class="font-monospace text-primary">{{ selected_bom.assembly_number|default:next_assembly_number }}</strong>
                             </div>
                             <div class="d-flex justify-content-between mb-1">
@@ -88,7 +88,7 @@
 
                         <div class="row g-2 mb-3">
                             <div class="col-6">
-                                <label class="form-label small fw-semibold">1000-Series Assembly #</label>
+                                <label class="form-label small fw-semibold">900-Series Assembly #</label>
                                 <input type="text" name="assembly_number" class="form-control font-monospace" value="{{ selected_bom.assembly_number|default:next_assembly_number }}">
                             </div>
                             <div class="col-6">

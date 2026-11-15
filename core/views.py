@@ -3532,7 +3532,7 @@ class TakeInventoryView(TemplateView):
 
 
 # ==============================================================================
-# 1000-SERIES ASSEMBLY STOCK ADJUSTMENT & SALES / INVOICES VIEWS
+# 900-SERIES ASSEMBLY STOCK ADJUSTMENT & SALES / INVOICES VIEWS
 # ==============================================================================
 
 def bom_adjust_assembly_stock(request, pk):
@@ -3826,7 +3826,7 @@ class AssemblySaleCreateView(CreateView):
 
             parsed_rows.append({
                 'bom': bom_obj,
-                'item_number': i_num or '1000-001',
+                'item_number': i_num or '900-001',
                 'description': i_desc or 'Built Assembly',
                 'quantity': qty,
                 'unit_price': u_price,
@@ -3993,7 +3993,7 @@ class AssemblySaleUpdateView(UpdateView):
                         u_price = Decimal('0.00')
                     new_rows.append({
                         'bom': bom_obj,
-                        'item_number': i_num or (bom_obj.assembly_number if bom_obj else '1000-001'),
+                        'item_number': i_num or (bom_obj.assembly_number if bom_obj else '900-001'),
                         'description': i_desc or (bom_obj.name if bom_obj else 'Assembly'),
                         'quantity': qty,
                         'unit_price': u_price,
@@ -4051,7 +4051,7 @@ class AssemblySaleUpdateView(UpdateView):
 
             sale.save(update_fields=['status', 'stock_deducted', 'payment_date', 'revision', 'updated_at'])
 
-            # Synchronize 1000-series inventory parts
+            # Synchronize 900-series inventory parts
             for item in sale.items.select_related('bom').all():
                 if item.bom:
                     try:
@@ -4400,7 +4400,7 @@ class QuoteCreateView(CreateView):
 
             parsed_rows.append({
                 'bom': bom_obj,
-                'item_number': i_num or '1000-001',
+                'item_number': i_num or '900-001',
                 'description': i_desc or 'Custom Item',
                 'quantity': qty,
                 'unit_price': u_price,
@@ -4501,7 +4501,7 @@ class QuoteUpdateView(UpdateView):
 
             parsed_rows.append({
                 'bom': bom_obj,
-                'item_number': i_num or '1000-001',
+                'item_number': i_num or '900-001',
                 'description': i_desc or 'Custom Item',
                 'quantity': qty,
                 'unit_price': u_price,

@@ -107,7 +107,7 @@
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light border-bottom small text-uppercase text-muted">
                     <tr>
-                        <th class="ps-4 py-3">1000-Series #</th>
+                        <th class="ps-4 py-3">900-Series #</th>
                         <th class="py-3">Kit / BoM Assembly</th>
                         <th class="text-center py-3">Components</th>
                         <th class="text-center py-3">Ready to Kit</th>
@@ -122,7 +122,7 @@
                     <tr class="{% if b.kitted_sets > 0 %}table-info bg-opacity-10{% endif %}">
                         <td class="ps-4 py-3 font-monospace fw-bold">
                             <a href="?bom={{ b.pk }}#pullSheetSection" class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 text-decoration-none" title="View Pull Sheet for {{ b.name }}">
-                                {{ b.assembly_number|default:"1000-001" }}
+                                {{ b.assembly_number|default:"900-001" }}
                             </a>
                         </td>
                         <td class="py-3">
@@ -503,7 +503,7 @@
                     <form method="post" action="{% url 'bom_close_kit_action' selected_bom.pk %}">
                         {% csrf_token %}
                         <input type="hidden" name="next" value="{% url 'kit_action' %}?bom={{ selected_bom.pk }}">
-                        <label class="form-label small fw-semibold text-body">Close / Build Kitted Sets into 1000-Series Assembly ({{ selected_bom.kitted_sets }} kitted)</label>
+                        <label class="form-label small fw-semibold text-body">Close / Build Kitted Sets into 900-Series Assembly ({{ selected_bom.kitted_sets }} kitted)</label>
                         <div class="input-group input-group-sm mb-2">
                             <span class="input-group-text">Assembly #</span>
                             <input type="text" name="assembly_number" class="form-control font-monospace" value="{{ selected_bom.assembly_number|default:next_assembly_number }}">
@@ -511,7 +511,7 @@
                         <div class="input-group input-group-sm mb-2">
                             <span class="input-group-text">Kits</span>
                             <input type="number" name="quantity" class="form-control" value="1" min="1">
-                            <button type="submit" name="action_type" value="build" class="btn btn-success fw-semibold" title="Pick kitted parts from on-hand inventory and add built 1000-series assembly">
+                            <button type="submit" name="action_type" value="build" class="btn btn-success fw-semibold" title="Pick kitted parts from on-hand inventory and add built 900-series assembly">
                                 <i class="bi bi-check2-circle me-1"></i> Build Assembly
                             </button>
                             <button type="submit" name="action_type" value="return" class="btn btn-outline-secondary fw-semibold" title="Return kitted parts back to uncommitted stock">

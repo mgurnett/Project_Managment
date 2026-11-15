@@ -963,18 +963,18 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertEqual(box_part.quantity_committed, 2)
         self.assertEqual(box_part.quantity_availible, 3)
 
-    def test_kit_to_1000_series_assembly_and_sale_invoice_generation(self):
+    def test_kit_to_900_series_assembly_and_sale_invoice_generation(self):
         """
         Tests the full lifecycle requested by the user:
-        1. Once a kit is built/closed, it is assigned a 1000-series assembly number (e.g. 1000-001),
+        1. Once a kit is built/closed, it is assigned a 900-series assembly number (e.g. 900-001),
            component parts are removed from inventory, and the built assembly is added to assembly stock.
-        2. The built 1000-series assembly can then be sold in the Sales & Invoices section.
+        2. The built 900-series assembly can then be sold in the Sales & Invoices section.
         3. Selling the assembly decrements the built assembly inventory and produces a sequential
            Invoice (INV-0001, INV-0002) with:
            - Invoice number (sequential)
            - Invoice date (date of sale)
            - Customer information (Granary Watch, 11940 52 St NW, Edmonton, AB T5J 3J6, 780.901.9315, michael@granarywatch.com)
-           - Item information (1000-series item number, item description, quantity, price)
+           - Item information (900-series item number, item description, quantity, price)
            - Total amount
            - Payment information (payment method, payment date)
         """
@@ -986,13 +986,13 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.part.price_per = Decimal("15.00")
         self.part.save()
 
-        # Create a BoM Assembly -> should auto-assign 1000-series number (e.g. 1000-001)
+        # Create a BoM Assembly -> should auto-assign 900-series number (e.g. 900-001)
         bom = BOM.objects.create(
             name="LiPo Battery Checker Assembly",
             description="Complete LiPo Battery Checker with Blue Project Box",
             sale_price=Decimal("75.00"),
         )
-        self.assertTrue(bom.assembly_number.startswith("1000-"))
+        self.assertTrue(bom.assembly_number.startswith("900-"))
         self.assertEqual(bom.quantity_on_hand, 0)
 
         BOMItem.objects.create(bom=bom, part=self.part, quantity=2)
@@ -1004,17 +1004,17 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertEqual(self.part.quantity_on_hand, 20)
 
         # Close/Build 2 kits -> removes 4 parts from inventory (on_hand: 20 -> 16, committed: 6 -> 2)
-        # AND adds 2 built assemblies to bom.quantity_on_hand (0 -> 2) with 1000-series assembly_number
+        # AND adds 2 built assemblies to bom.quantity_on_hand (0 -> 2) with 900-series assembly_number
         self.client.post(reverse('bom_close_kit_action', kwargs={'pk': bom.pk}), {
             'quantity': 2,
             'action_type': 'build',
-            'assembly_number': '1000-001',
+            'assembly_number': '900-001',
         })
         self.part.refresh_from_db()
         bom.refresh_from_db()
         self.assertEqual(self.part.quantity_on_hand, 16)
         self.assertEqual(self.part.quantity_committed, 2)
-        self.assertEqual(bom.assembly_number, '1000-001')
+        self.assertEqual(bom.assembly_number, '900-001')
         self.assertEqual(bom.quantity_on_hand, 2)
 
         # Sell 1 built assembly to Granary Watch and generate sequential invoice INV-0001
@@ -1065,7 +1065,7 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertContains(res_detail, '11940 52 St NW, Edmonton, AB T5J 3J6')
         self.assertContains(res_detail, '780.901.9315')
         self.assertContains(res_detail, 'michael@granarywatch.com')
-        self.assertContains(res_detail, '1000-001')
+        self.assertContains(res_detail, '900-001')
         self.assertContains(res_detail, 'LiPo Battery Checker Assembly')
         self.assertContains(res_detail, '$75.00')
         self.assertContains(res_detail, 'Interac e-Transfer')
@@ -1091,12 +1091,12 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         from django.core import mail
         from .models import AssemblySale
 
-        # 1000-series assembly that is not built yet
+        # 900-series assembly that is not built yet
         bom = BOM.objects.create(
             name="Field Gateway Telemetry Unit",
             description="Cellular telemetry node with solar charger",
             sale_price=Decimal("450.00"),
-            assembly_number="1000-042",
+            assembly_number="900-042",
             quantity_on_hand=0,
         )
         self.assertEqual(bom.quantity_on_hand, 0)
@@ -1184,58 +1184,58 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertEqual(len(sent_email.attachments), 1)
         self.assertEqual(sent_email.attachments[0][0], 'Invoice_INV-9001.pdf')
 
-    def test_assemblies_visible_as_1000_prefix_parts_in_catalog_and_inventory(self):
+    def test_assemblies_visible_as_900_prefix_parts_in_catalog_and_inventory(self):
         """
         Tests that:
-        1. Built/Product Assemblies are represented as Part objects with prefix '1000'
+        1. Built/Product Assemblies are represented as Part objects with prefix '900'
            under Category 'Assemblies'.
-        2. They are visible in the Parts Catalog (/parts/) and can be filtered by Category or searched by '1000'.
+        2. They are visible in the Parts Catalog (/parts/) and can be filtered by Category or searched by '900'.
         3. They appear in the Take Inventory Sheet (/inventory/take-inventory/) under Category '[1000] Assemblies'.
         4. Building or adjusting stock increases both bom.quantity_on_hand and part.quantity_on_hand.
         5. Adjusting on-hand in Take Inventory syncs both Part and BOM.
         """
         from .models import BOM, Part, Category
 
-        # Create BOM with assembly number 1000-010
+        # Create BOM with assembly number 900-010
         bom = BOM.objects.create(
             name="Smart Soil Moisture Probe",
             description="RS485 Modbus Soil Probe Assembly",
             sale_price=Decimal("120.00"),
-            assembly_number="1000-010",
+            assembly_number="900-010",
             quantity_on_hand=0,
         )
 
         # BOM.sync_part() should automatically create the Part in Category [1000] Assemblies
         self.assertIsNotNone(bom.part)
         part = bom.part
-        self.assertEqual(part.part_number, "1000-010")
+        self.assertEqual(part.part_number, "900-010")
         self.assertEqual(part.name, "Smart Soil Moisture Probe")
-        self.assertEqual(part.category.prefix, "1000")
-        self.assertEqual(part.category.name, "Assemblies")
+        self.assertEqual(part.category.prefix, "900")
+        self.assertEqual(part.category.name, "Assemblies, Kits & BoMs")
         self.assertEqual(part.quantity_on_hand, 0)
 
         # Verify visible in Parts Catalog (/parts/)
         res_catalog = self.client.get(reverse('part_list'))
         self.assertEqual(res_catalog.status_code, 200)
-        self.assertContains(res_catalog, '1000-010')
+        self.assertContains(res_catalog, '900-010')
         self.assertContains(res_catalog, 'Smart Soil Moisture Probe')
         self.assertContains(res_catalog, 'Assemblies')
 
-        # Verify search by '1000'
-        res_search = self.client.get(reverse('part_list') + '?q=1000')
+        # Verify search by '900'
+        res_search = self.client.get(reverse('part_list') + '?q=900')
         self.assertEqual(res_search.status_code, 200)
-        self.assertContains(res_search, '1000-010')
+        self.assertContains(res_search, '900-010')
 
         # Verify in Take Inventory sheet (/inventory/take-inventory/)
         res_take_inv = self.client.get(reverse('take_inventory'))
         self.assertEqual(res_take_inv.status_code, 200)
-        self.assertContains(res_take_inv, '1000-010')
+        self.assertContains(res_take_inv, '900-010')
         self.assertContains(res_take_inv, 'Assemblies')
 
         # Verify in Count Sheet (/inventory/count-sheet/)
         res_sheet = self.client.get(reverse('inventory_count_sheet'))
         self.assertEqual(res_sheet.status_code, 200)
-        self.assertContains(res_sheet, '1000-010')
+        self.assertContains(res_sheet, '900-010')
 
         # Build assembly (+3 units) via bom_adjust_assembly_stock
         res_adjust = self.client.post(reverse('bom_adjust_assembly_stock', kwargs={'pk': bom.pk}), {
@@ -2155,18 +2155,18 @@ class CategoryHierarchyAndCountSheetFilterTestCase(TestCase):
             Category.objects.create(name=f"Extra Cat {i}", prefix=str(600 + i * 10))
         Category.objects.create(name="Seven Hundred", prefix="700")
         Category.objects.create(name="Eight Hundred", prefix="800")
-        Category.objects.get_or_create(name="Assemblies", defaults={'prefix': "1000"})
+        cat_900, _ = Category.objects.get_or_create(prefix="900", defaults={'name': "Assemblies, Kits & BoMs"})
 
         res = self.client.get(reverse('category_list'))
         self.assertEqual(res.status_code, 200)
         html = res.content.decode('utf-8')
         self.assertIn("Seven Hundred", html)
         self.assertIn("Eight Hundred", html)
-        self.assertIn("Assemblies", html)
+        self.assertIn("Assemblies, Kits &amp; BoMs", html)
         self.assertEqual(len(res.context['categories']), Category.objects.count())
-        # Verify numeric prefix ordering: 700 before 1000
+        # Verify numeric prefix ordering: 700 before 900
         cat_names = [c.name for c in res.context['categories']]
-        self.assertLess(cat_names.index("Seven Hundred"), cat_names.index("Assemblies"))
+        self.assertLess(cat_names.index("Seven Hundred"), cat_names.index(cat_900.name))
 
     def test_top_right_search_clears_existing_filters(self):
         """Top right search with clear_filters=1 clears previous filters before searching."""
@@ -2246,7 +2246,7 @@ class KitPullSheetStockStatusTestCase(TestCase):
     def setUp(self):
         self.client = Client()
         self.category = Category.objects.create(name="Electronic components", prefix="200")
-        self.bom = BOM.objects.create(name="LiPo battery checker", assembly_number="1000-005")
+        self.bom = BOM.objects.create(name="LiPo battery checker", assembly_number="900-005")
 
         # 1. Sufficient on hand: req=1, on_hand=10, on_order=0 (Green)
         self.part_green = Part.objects.create(
@@ -2377,7 +2377,7 @@ class QuoteWorkflowTestCase(TestCase):
         # Explicit sale_price = $15.00
         self.bom = BOM.objects.create(
             name="Sensor Board Assembly",
-            assembly_number="1000-010",
+            assembly_number="900-010",
             sale_price=Decimal("15.00"),
             quantity_on_hand=5,
         )
@@ -2416,7 +2416,7 @@ class QuoteWorkflowTestCase(TestCase):
 
         item = quote.items.first()
         self.assertEqual(item.bom, self.bom)
-        self.assertEqual(item.item_number, '1000-010')
+        self.assertEqual(item.item_number, '900-010')
         self.assertEqual(item.quantity, 3)
         self.assertEqual(item.unit_price, Decimal('15.00'))
         self.assertEqual(item.subtotal, Decimal('45.00'))
@@ -2462,7 +2462,7 @@ class QuoteWorkflowTestCase(TestCase):
         # Verify sale items were created
         self.assertEqual(sale.items.count(), 1)
         sale_item = sale.items.first()
-        self.assertEqual(sale_item.item_number, '1000-010')
+        self.assertEqual(sale_item.item_number, '900-010')
         self.assertEqual(sale_item.quantity, 2)
         self.assertEqual(sale_item.unit_price, Decimal('15.00'))
 
@@ -2475,7 +2475,7 @@ class QuoteWorkflowTestCase(TestCase):
         QuoteItem.objects.create(
             quote=quote,
             bom=self.bom,
-            item_number='1000-010',
+            item_number='900-010',
             description='Sensor Board Assembly',
             quantity=2,
             unit_price=Decimal('15.00')
@@ -2534,7 +2534,7 @@ class BOMDocumentsTestCase(TestCase):
         )
         self.bom = BOM.objects.create(
             name="LiPo Battery Checker",
-            assembly_number="1000-001",
+            assembly_number="900-001",
             quantity_on_hand=2,
             sale_price=Decimal("25.00")
         )
@@ -2633,7 +2633,7 @@ class RevisionNumberWorkflowTestCase(TestCase):
         )
         self.bom = BOM.objects.create(
             name="Widget Assembly",
-            assembly_number="1000-001",
+            assembly_number="900-001",
             sale_price=Decimal("45.00"),
             quantity_on_hand=10
         )
@@ -2749,7 +2749,7 @@ class RevisionNumberWorkflowTestCase(TestCase):
             customer_name="Acme Corp",
             status="DRAFT"
         )
-        QuoteItem.objects.create(quote=quote, bom=self.bom, item_number="1000-001", description="Widget", quantity=2, unit_price=Decimal("45.00"))
+        QuoteItem.objects.create(quote=quote, bom=self.bom, item_number="900-001", description="Widget", quantity=2, unit_price=Decimal("45.00"))
         self.assertEqual(quote.revision, 1)
 
         res_q_detail = self.client.get(reverse('quote_detail', kwargs={'pk': quote.pk}))
@@ -2764,7 +2764,7 @@ class RevisionNumberWorkflowTestCase(TestCase):
                 'status': 'SENT',
                 'customer_name': 'Acme Corp',
                 'item_bom[]': [str(self.bom.pk)],
-                'item_number[]': ['1000-001'],
+                'item_number[]': ['900-001'],
                 'item_description[]': ['Widget'],
                 'item_quantity[]': ['3'],
                 'item_unit_price[]': ['45.00'],
@@ -2798,7 +2798,7 @@ class RevisionNumberWorkflowTestCase(TestCase):
                 'customer_name': 'Acme Corp Updated',
                 'payment_method': 'E-Transfer',
                 'item_bom[]': [str(self.bom.pk)],
-                'item_number[]': ['1000-001'],
+                'item_number[]': ['900-001'],
                 'item_description[]': ['Widget'],
                 'item_quantity[]': ['4'],
                 'item_unit_price[]': ['45.00'],
@@ -2831,9 +2831,9 @@ class KitBuildAndInspectionSheetsTestCase(TestCase):
             category=self.cat,
             quantity_on_hand=20
         )
-        self.bom1 = BOM.objects.create(name="Alpha Assembly", assembly_number="1000-001")
+        self.bom1 = BOM.objects.create(name="Alpha Assembly", assembly_number="900-001")
         BOMItem.objects.create(bom=self.bom1, part=self.part, quantity=2)
-        self.bom2 = BOM.objects.create(name="Beta Assembly", assembly_number="1000-002")
+        self.bom2 = BOM.objects.create(name="Beta Assembly", assembly_number="900-002")
         BOMItem.objects.create(bom=self.bom2, part=self.part, quantity=3)
 
     def test_move_bom_to_kit_with_optional_sheets(self):
@@ -2894,6 +2894,42 @@ class KitBuildAndInspectionSheetsTestCase(TestCase):
         self.assertEqual(res_update.status_code, 302)
         self.bom2.refresh_from_db()
         self.assertEqual(self.bom2.build_sheet_url, new_build)
+
+    def test_900_series_categories_and_quote_assembly_dropdown(self):
+        """
+        Verifies 900-series parent/subcategories exist from migration 0024,
+        BOM.sync_part preserves 910-950 subcategories, and QuoteCreateView shows 900-xxx assemblies.
+        """
+        cat_900 = Category.objects.get(prefix="900")
+        self.assertEqual(cat_900.name, "Assemblies, Kits & BoMs")
+        for sub_prefix, sub_name in [
+            ("910", "BoMs"),
+            ("920", "Kits"),
+            ("930", "Sub-Assemblies"),
+            ("940", "Assemblies"),
+            ("950", "Full Systems"),
+        ]:
+            sub = Category.objects.get(prefix=sub_prefix)
+            self.assertEqual(sub.name, sub_name)
+            self.assertEqual(sub.parent_id, cat_900.pk)
+
+        cat_940 = Category.objects.get(prefix="940")
+        bom = BOM.objects.create(name="Gamma Sensor", assembly_number="900-099", sale_price=Decimal("120.00"))
+        part = bom.part
+        part.category = cat_940
+        part.part_number = "940-001"
+        part.save(update_fields=["category", "part_number"])
+
+        bom.description = "Updated description"
+        bom.save()
+        part.refresh_from_db()
+        self.assertEqual(part.category_id, cat_940.pk)
+        self.assertEqual(part.part_number, "940-001")
+
+        res_quote = self.client.get(reverse('quote_create'))
+        self.assertEqual(res_quote.status_code, 200)
+        self.assertContains(res_quote, "900-099")
+        self.assertNotContains(res_quote, "1000-001")
 
 
 
