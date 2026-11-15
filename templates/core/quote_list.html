@@ -147,6 +147,7 @@
                                 <a href="{% url 'quote_detail' q.pk %}" class="fw-bold font-monospace text-decoration-none text-custom">
                                     {{ q.quote_number }}
                                 </a>
+                                <span class="badge bg-secondary-subtle text-secondary border font-monospace ms-1" style="font-size: 0.7rem;">Rev {{ q.revision }}</span>
                             </td>
                             <td class="py-3 small text-muted">
                                 {{ q.quote_date|date:"M d, Y" }}

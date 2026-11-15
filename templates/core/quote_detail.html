@@ -249,7 +249,7 @@
             </div>
             <div class="text-end">
                 <div class="badge bg-primary text-white font-monospace px-3 py-2 fs-6 mb-2">
-                    {{ quote.quote_number }}
+                    {{ quote.quote_number }} <span class="opacity-75 ms-1">Rev {{ quote.revision }}</span>
                 </div>
                 <div class="small text-muted">
                     <div><strong>Quote Date:</strong> {{ quote.quote_date|date:"F d, Y" }}</div>

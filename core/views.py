@@ -777,7 +777,6 @@ class CategoryListView(ListView):
     model = Category
     template_name = 'core/category_list.html'
     context_object_name = 'categories'
-    paginate_by = 25
 
     def get(self, request, *args, **kwargs):
         if request.GET.get('clear') or request.GET.get('reset'):
@@ -799,7 +798,7 @@ class CategoryListView(ListView):
         q = filters['q']
         if q:
             qs = qs.filter(Q(name__icontains=q) | Q(prefix__icontains=q) | Q(description__icontains=q))
-        return qs.order_by('empty_prefix', 'prefix', 'name')
+        return qs.order_by('empty_prefix', Length('prefix'), 'prefix', 'name')
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1872,9 +1871,12 @@ class OrderListView(ListView):
                 Q(items__part__name__icontains=q)
             ).distinct()
 
-        status_filter = filters['status']
+        status_filter = (filters['status'] or '').strip()
         if status_filter:
-            qs = qs.filter(status=status_filter)
+            if status_filter.upper() in ['ACTIVE', 'OPEN', 'IN_PROGRESS', 'EXCLUDE_CLOSED', 'ACTIVE_OPEN']:
+                qs = qs.exclude(status__in=['RECEIVED', 'CANCELLED'])
+            else:
+                qs = qs.filter(status=status_filter)
 
         supplier_filter = filters['supplier']
         if supplier_filter.isdigit():
@@ -2213,9 +2215,18 @@ class OrderUpdateView(UpdateView):
         return super().dispatch(request, *args, **kwargs)
 
     def form_valid(self, form):
-        response = super().form_valid(form)
-        messages.success(self.request, f"Order '{self.object.order_number}' was updated.")
-        return response
+        old_order = Order.objects.get(pk=self.object.pk)
+        order = form.save(commit=False)
+        if (
+            not old_order.is_closed
+            and order.status not in ['RECEIVED', 'CANCELLED']
+            and form.has_changed()
+        ):
+            order.revision = (old_order.revision or 1) + 1
+        order.save()
+        self.object = order
+        messages.success(self.request, f"Order '{self.object.order_number}' (Rev {self.object.revision}) was updated.")
+        return redirect(self.get_success_url())
 
     def get_success_url(self):
         return reverse('order_detail', kwargs={'pk': self.object.pk})
@@ -2376,9 +2387,12 @@ class OrderItemCreateView(CreateView):
             )
             part.quantity_on_order = (part.quantity_on_order or 0) + item.quantity
             part.save(update_fields=['quantity_on_order', 'updated_at'])
+            if not order.is_closed:
+                order.revision = (order.revision or 1) + 1
+                order.save(update_fields=['revision', 'updated_at'])
             messages.success(
                 request,
-                f"Added {item.part.part_number} (Qty: {item.quantity}) to Order {order.order_number}. On-order quantity increased."
+                f"Added {item.part.part_number} (Qty: {item.quantity}) to Order {order.order_number} (Rev {order.revision}). On-order quantity increased."
             )
             return redirect('order_detail', pk=order.pk)
 
@@ -2402,16 +2416,19 @@ class OrderItemDeleteView(DeleteView):
 
     def form_valid(self, form):
         item = self.get_object()
-        order_pk = item.order.pk
+        order = item.order
         with transaction.atomic():
             remaining = max(0, item.quantity - item.quantity_received)
-            if remaining > 0 and item.order.status not in ['CANCELLED', 'RECEIVED']:
+            if remaining > 0 and order.status not in ['CANCELLED', 'RECEIVED']:
                 part = item.part
                 part.quantity_on_order = max(0, (part.quantity_on_order or 0) - remaining)
                 part.save(update_fields=['quantity_on_order', 'updated_at'])
+            if not order.is_closed:
+                order.revision = (order.revision or 1) + 1
+                order.save(update_fields=['revision', 'updated_at'])
             messages.success(
                 self.request,
-                f"Removed {item.part.part_number} from order. On-order quantity adjusted."
+                f"Removed {item.part.part_number} from order (Rev {order.revision}). On-order quantity adjusted."
             )
             return super().form_valid(form)
 
@@ -3908,7 +3925,15 @@ class AssemblySaleUpdateView(UpdateView):
     def form_valid(self, form):
         with transaction.atomic():
             old_sale = AssemblySale.objects.get(pk=self.object.pk)
+            old_status = old_sale.status
+            old_revision = old_sale.revision or 1
             old_stock_deducted = old_sale.stock_deducted
+            old_items_snapshot = [
+                (item.bom_id, item.item_number, item.description, item.quantity, item.unit_price)
+                for item in old_sale.items.all()
+            ]
+            items_changed = False
+
             sale = form.save()
             self.object = sale
             new_status = sale.status
@@ -3948,6 +3973,12 @@ class AssemblySaleUpdateView(UpdateView):
                     })
 
                 if new_rows:
+                    new_items_snapshot = [
+                        (row['bom'].pk if row['bom'] else None, row['item_number'], row['description'], row['quantity'], row['unit_price'])
+                        for row in new_rows
+                    ]
+                    items_changed = (old_items_snapshot != new_items_snapshot)
+
                     # If stock was previously deducted, restore old quantities first
                     if old_stock_deducted:
                         for old_item in sale.items.select_related('bom').all():
@@ -3987,7 +4018,11 @@ class AssemblySaleUpdateView(UpdateView):
 
             if should_deduct and not sale.payment_date:
                 sale.payment_date = timezone.now().date()
-            sale.save(update_fields=['status', 'stock_deducted', 'payment_date', 'updated_at'])
+
+            if old_status != 'PAID' and new_status != 'PAID' and (form.has_changed() or items_changed):
+                sale.revision = old_revision + 1
+
+            sale.save(update_fields=['status', 'stock_deducted', 'payment_date', 'revision', 'updated_at'])
 
             # Synchronize 1000-series inventory parts
             for item in sale.items.select_related('bom').all():
@@ -4000,7 +4035,7 @@ class AssemblySaleUpdateView(UpdateView):
             # Regenerate saved PDF
             generate_and_save_invoice_pdf(sale, request=self.request)
 
-            messages.success(self.request, f"Invoice {sale.invoice_number} updated successfully and PDF refreshed!")
+            messages.success(self.request, f"Invoice {sale.invoice_number} (Rev {sale.revision}) updated successfully and PDF refreshed!")
             return redirect('sale_detail', pk=sale.pk)
 
 
@@ -4450,6 +4485,19 @@ class QuoteUpdateView(UpdateView):
             return self.form_invalid(form)
 
         with transaction.atomic():
+            old_quote = Quote.objects.get(pk=self.object.pk)
+            old_status = old_quote.status
+            old_revision = old_quote.revision or 1
+            old_items_snapshot = [
+                (item.bom_id, item.item_number, item.description, item.quantity, item.unit_price)
+                for item in old_quote.items.all()
+            ]
+            new_items_snapshot = [
+                (row['bom'].pk if row['bom'] else None, row['item_number'], row['description'], row['quantity'], row['unit_price'])
+                for row in parsed_rows
+            ]
+            items_changed = (old_items_snapshot != new_items_snapshot)
+
             quote = form.save()
             quote.items.all().delete()
             for row in parsed_rows:
@@ -4462,12 +4510,16 @@ class QuoteUpdateView(UpdateView):
                     unit_price=row['unit_price'],
                 )
 
+            if old_status not in ['ACCEPTED', 'DECLINED'] and quote.status not in ['ACCEPTED', 'DECLINED'] and (form.has_changed() or items_changed):
+                quote.revision = old_revision + 1
+                quote.save(update_fields=['revision', 'updated_at'])
+
             try:
                 generate_and_save_quote_pdf(quote, request=self.request)
             except Exception:
                 pass
 
-            messages.success(self.request, f"Quote {quote.quote_number} updated successfully!")
+            messages.success(self.request, f"Quote {quote.quote_number} (Rev {quote.revision}) updated successfully!")
 
         return redirect('quote_detail', pk=quote.pk)
 

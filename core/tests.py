@@ -196,6 +196,48 @@ class OrderActionTestCase(TestCase):
         self.assertContains(res, 'PO-VIEW-001')
         self.assertContains(res, '100-001')
 
+    def test_order_list_status_filter_everything_except_completed_and_cancelled(self):
+        """
+        Verifies that choosing status 'ACTIVE' in order list shows everything except
+        completed (RECEIVED) and cancelled (CANCELLED) orders.
+        """
+        # Clear existing orders
+        Order.objects.all().delete()
+
+        po_pending = Order.objects.create(supplier=self.supplier, order_number='PO-PEND-01', status='PENDING')
+        po_ordered = Order.objects.create(supplier=self.supplier, order_number='PO-ORD-01', status='ORDERED')
+        po_partial = Order.objects.create(supplier=self.supplier, order_number='PO-PART-01', status='PARTIALLY_RECEIVED')
+        po_received = Order.objects.create(supplier=self.supplier, order_number='PO-REC-01', status='RECEIVED')
+        po_cancelled = Order.objects.create(supplier=self.supplier, order_number='PO-CANC-01', status='CANCELLED')
+
+        # 1. Filter by status 'ACTIVE' (everything but completed and cancelled)
+        res_active = self.client.get(reverse('order_list') + '?status=ACTIVE')
+        self.assertEqual(res_active.status_code, 200)
+        orders_active = list(res_active.context['orders'])
+        active_numbers = [o.order_number for o in orders_active]
+
+        self.assertIn('PO-PEND-01', active_numbers)
+        self.assertIn('PO-ORD-01', active_numbers)
+        self.assertIn('PO-PART-01', active_numbers)
+        self.assertNotIn('PO-REC-01', active_numbers)
+        self.assertNotIn('PO-CANC-01', active_numbers)
+
+        html_active = res_active.content.decode('utf-8')
+        self.assertIn('Active / Open (Everything but Completed &amp; Cancelled)', html_active)
+        self.assertIn('selected', html_active)
+
+        # 2. Filter by status 'RECEIVED' specifically
+        res_rec = self.client.get(reverse('order_list') + '?status=RECEIVED')
+        self.assertEqual(res_rec.status_code, 200)
+        orders_rec = list(res_rec.context['orders'])
+        rec_numbers = [o.order_number for o in orders_rec]
+
+        self.assertIn('PO-REC-01', rec_numbers)
+        self.assertNotIn('PO-PEND-01', rec_numbers)
+        self.assertNotIn('PO-ORD-01', rec_numbers)
+        self.assertNotIn('PO-PART-01', rec_numbers)
+        self.assertNotIn('PO-CANC-01', rec_numbers)
+
     def test_order_receive_updates_part_price_model(self):
         """
         Tests that when a part is ordered at a new price and received,
@@ -2107,6 +2149,25 @@ class CategoryHierarchyAndCountSheetFilterTestCase(TestCase):
         self.assertNotIn(f'href="{expected_href}" class="btn btn-sm btn-outline-secondary', html)
         self.assertNotIn('>View</a>', html)
 
+    def test_category_list_shows_all_categories_without_pagination_cutoff(self):
+        """Verifies CategoryListView shows all categories (including >25 items and prefixes >=700) in numeric order."""
+        for i in range(1, 30):
+            Category.objects.create(name=f"Extra Cat {i}", prefix=str(600 + i * 10))
+        Category.objects.create(name="Seven Hundred", prefix="700")
+        Category.objects.create(name="Eight Hundred", prefix="800")
+        Category.objects.get_or_create(name="Assemblies", defaults={'prefix': "1000"})
+
+        res = self.client.get(reverse('category_list'))
+        self.assertEqual(res.status_code, 200)
+        html = res.content.decode('utf-8')
+        self.assertIn("Seven Hundred", html)
+        self.assertIn("Eight Hundred", html)
+        self.assertIn("Assemblies", html)
+        self.assertEqual(len(res.context['categories']), Category.objects.count())
+        # Verify numeric prefix ordering: 700 before 1000
+        cat_names = [c.name for c in res.context['categories']]
+        self.assertLess(cat_names.index("Seven Hundred"), cat_names.index("Assemblies"))
+
     def test_top_right_search_clears_existing_filters(self):
         """Top right search with clear_filters=1 clears previous filters before searching."""
         # 1. Filter by category
@@ -2556,6 +2617,209 @@ class BOMDocumentsTestCase(TestCase):
         res_assemblies = self.client.get(f"{reverse('assemblies')}?bom={self.bom.pk}")
         self.assertEqual(res_assemblies.status_code, 200)
         self.assertIn('Wiring Pinout Diagram', res_assemblies.content.decode('utf-8'))
+
+
+class RevisionNumberWorkflowTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.supplier = Company.objects.create(name="DigiKey")
+        self.cat = Category.objects.create(name="Resistors", prefix="100")
+        self.part = Part.objects.create(
+            part_number="100-001",
+            name="10k Resistor",
+            category=self.cat,
+            company=self.supplier,
+            quantity_on_hand=50
+        )
+        self.bom = BOM.objects.create(
+            name="Widget Assembly",
+            assembly_number="1000-001",
+            sale_price=Decimal("45.00"),
+            quantity_on_hand=10
+        )
+        BOMItem.objects.create(bom=self.bom, part=self.part, quantity=2)
+
+    def test_order_revision_lifecycle(self):
+        # 1. Create order -> starts at Rev 1
+        order = Order.objects.create(
+            supplier=self.supplier,
+            order_number="PO-REV-001",
+            status="ORDERED",
+            order_date=timezone.now().date()
+        )
+        item = OrderItem.objects.create(order=order, part=self.part, quantity=10, unit_price=Decimal("1.00"))
+        self.assertEqual(order.revision, 1)
+
+        # Verify Rev 1 shown in list & detail
+        res_list = self.client.get(reverse('order_list'))
+        self.assertContains(res_list, "Rev 1")
+        res_detail = self.client.get(reverse('order_detail', kwargs={'pk': order.pk}))
+        self.assertContains(res_detail, "Rev 1")
+
+        # 2. Edit order header -> increments to Rev 2
+        res_edit = self.client.post(
+            reverse('order_update', kwargs={'pk': order.pk}),
+            {
+                'supplier': self.supplier.pk,
+                'order_number': order.order_number,
+                'order_date': order.order_date.strftime('%Y-%m-%d'),
+                'status': 'ORDERED',
+                'tracking_number': 'UPS-REV-999',
+                'payment_method': 'CREDIT_CARD',
+            }
+        )
+        self.assertEqual(res_edit.status_code, 302)
+        order.refresh_from_db()
+        self.assertEqual(order.revision, 2)
+
+        # 3. Add item -> increments to Rev 3
+        part2 = Part.objects.create(part_number="100-002", name="20k Resistor", category=self.cat)
+        res_add = self.client.post(
+            reverse('order_item_create', kwargs={'order_pk': order.pk}),
+            {'part': part2.pk, 'quantity': 5, 'unit_price': '2.00'}
+        )
+        self.assertEqual(res_add.status_code, 302)
+        order.refresh_from_db()
+        self.assertEqual(order.revision, 3)
+
+        # 4. Delete item -> increments to Rev 4
+        added_item = order.items.get(part=part2)
+        res_del_item = self.client.post(reverse('order_item_delete', kwargs={'pk': added_item.pk}))
+        self.assertEqual(res_del_item.status_code, 302)
+        order.refresh_from_db()
+        self.assertEqual(order.revision, 4)
+
+        # 5. Cancel order -> revision stays at 4
+        res_cancel = self.client.post(
+            reverse('order_update', kwargs={'pk': order.pk}),
+            {
+                'supplier': self.supplier.pk,
+                'order_number': order.order_number,
+                'order_date': order.order_date.strftime('%Y-%m-%d'),
+                'status': 'CANCELLED',
+                'tracking_number': 'UPS-REV-999',
+                'payment_method': 'CREDIT_CARD',
+            }
+        )
+        self.assertEqual(res_cancel.status_code, 302)
+        order.refresh_from_db()
+        self.assertEqual(order.status, 'CANCELLED')
+        self.assertEqual(order.revision, 4)
+
+        # 6. Test completed order stays same rev
+        order2 = Order.objects.create(
+            supplier=self.supplier,
+            order_number="PO-REV-002",
+            status="ORDERED",
+            order_date=timezone.now().date(),
+            revision=2
+        )
+        res_complete = self.client.post(
+            reverse('order_update', kwargs={'pk': order2.pk}),
+            {
+                'supplier': self.supplier.pk,
+                'order_number': order2.order_number,
+                'order_date': order2.order_date.strftime('%Y-%m-%d'),
+                'status': 'RECEIVED',
+                'payment_method': 'CREDIT_CARD',
+            }
+        )
+        self.assertEqual(res_complete.status_code, 302)
+        order2.refresh_from_db()
+        self.assertEqual(order2.status, 'RECEIVED')
+        self.assertEqual(order2.revision, 2)
+
+        # 7. Delete open order -> new order starts at Rev 1 and goes up
+        order3 = Order.objects.create(
+            supplier=self.supplier,
+            order_number="PO-REV-003",
+            status="ORDERED",
+            order_date=timezone.now().date(),
+            revision=5
+        )
+        self.client.post(reverse('order_delete', kwargs={'pk': order3.pk}))
+        self.assertFalse(Order.objects.filter(order_number="PO-REV-003").exists())
+        new_order = Order.objects.create(supplier=self.supplier, order_number="PO-REV-004", status="ORDERED")
+        self.assertEqual(new_order.revision, 1)
+
+    def test_quote_and_invoice_revision_lifecycle(self):
+        # 1. Create quote -> Rev 1
+        quote = Quote.objects.create(
+            quote_number="QTE-9001",
+            customer_name="Acme Corp",
+            status="DRAFT"
+        )
+        QuoteItem.objects.create(quote=quote, bom=self.bom, item_number="1000-001", description="Widget", quantity=2, unit_price=Decimal("45.00"))
+        self.assertEqual(quote.revision, 1)
+
+        res_q_detail = self.client.get(reverse('quote_detail', kwargs={'pk': quote.pk}))
+        self.assertContains(res_q_detail, "Rev 1")
+
+        # 2. Edit quote -> Rev 2
+        res_q_edit = self.client.post(
+            reverse('quote_update', kwargs={'pk': quote.pk}),
+            {
+                'quote_number': quote.quote_number,
+                'quote_date': quote.quote_date.strftime('%Y-%m-%d'),
+                'status': 'SENT',
+                'customer_name': 'Acme Corp',
+                'item_bom[]': [str(self.bom.pk)],
+                'item_number[]': ['1000-001'],
+                'item_description[]': ['Widget'],
+                'item_quantity[]': ['3'],
+                'item_unit_price[]': ['45.00'],
+            }
+        )
+        self.assertEqual(res_q_edit.status_code, 302)
+        quote.refresh_from_db()
+        self.assertEqual(quote.revision, 2)
+
+        # 3. Accept quote -> quote rev stays 2, generated invoice starts at Rev 1
+        res_accept = self.client.post(reverse('quote_accept', kwargs={'pk': quote.pk}))
+        self.assertEqual(res_accept.status_code, 302)
+        quote.refresh_from_db()
+        self.assertEqual(quote.status, 'ACCEPTED')
+        self.assertEqual(quote.revision, 2)
+
+        invoice = quote.invoice
+        self.assertIsNotNone(invoice)
+        self.assertEqual(invoice.revision, 1)
+
+        res_s_detail = self.client.get(reverse('sale_detail', kwargs={'pk': invoice.pk}))
+        self.assertContains(res_s_detail, "Rev 1")
+
+        # 4. Edit unpaid invoice -> Rev 2
+        res_s_edit = self.client.post(
+            reverse('sale_update', kwargs={'pk': invoice.pk}),
+            {
+                'invoice_number': invoice.invoice_number,
+                'invoice_date': invoice.invoice_date.strftime('%Y-%m-%d'),
+                'status': 'UNPAID',
+                'customer_name': 'Acme Corp Updated',
+                'payment_method': 'E-Transfer',
+                'item_bom[]': [str(self.bom.pk)],
+                'item_number[]': ['1000-001'],
+                'item_description[]': ['Widget'],
+                'item_quantity[]': ['4'],
+                'item_unit_price[]': ['45.00'],
+            }
+        )
+        self.assertEqual(res_s_edit.status_code, 302)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.revision, 2)
+
+        # 5. Mark invoice paid -> rev stays at 2
+        res_paid = self.client.post(reverse('sale_mark_paid', kwargs={'pk': invoice.pk}))
+        self.assertEqual(res_paid.status_code, 302)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, 'PAID')
+        self.assertEqual(invoice.revision, 2)
+
+        # 6. Delete job and recreate -> starts at Rev 1
+        self.client.post(reverse('sale_delete', kwargs={'pk': invoice.pk}))
+        new_inv = AssemblySale.objects.create(customer_name="Acme Corp")
+        self.assertEqual(new_inv.revision, 1)
+
 
 
 

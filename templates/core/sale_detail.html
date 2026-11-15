@@ -256,7 +256,7 @@
             </div>
             <div class="text-sm-end">
                 <div class="badge bg-primary text-white fs-5 font-monospace px-3 py-2 mb-2">
-                    {{ sale.invoice_number }}
+                    {{ sale.invoice_number }} <span class="opacity-75 ms-1">Rev {{ sale.revision }}</span>
                 </div>
                 <div class="small">
                     <div><strong>Invoice Date:</strong> {{ sale.invoice_date|date:"F j, Y" }}</div>

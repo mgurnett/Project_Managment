@@ -1,4 +1,7 @@
 agent dialog.txt
 
 
-We have parts and movements.  Can we add sales as the third one and move quotes and invoicing in there.
+For orders. quotes and invoices there needs to be a revision number.  If something changes then the rev number needs to increase.  If the order is cancelled or completed then the revision number should stay the same.  But if a job is deleted then the revision number should reset to 1. to go up.
+
+
+

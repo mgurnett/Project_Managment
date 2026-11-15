@@ -240,6 +240,7 @@
                             <a href="{% url 'sale_detail' sale.pk %}" class="text-decoration-none text-custom">
                                 {{ sale.invoice_number }}
                             </a>
+                            <span class="badge bg-secondary-subtle text-secondary border font-monospace ms-1" style="font-size: 0.7rem;">Rev {{ sale.revision }}</span>
                         </td>
                         <td class="py-3">
                             {% if sale.status == 'PAID' %}

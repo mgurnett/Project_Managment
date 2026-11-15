@@ -1486,6 +1486,11 @@ class Order(models.Model):
         null=True,
         help_text="Special instructions, delivery terms, or supplier contact notes"
     )
+    revision = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Revision #",
+        help_text="Document revision number. Starts at 1 and increments when modified while open."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1716,6 +1721,11 @@ class AssemblySale(models.Model):
         blank=True,
         null=True
     )
+    revision = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Revision #",
+        help_text="Document revision number. Starts at 1 and increments when modified while open."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1910,6 +1920,11 @@ class Quote(models.Model):
         blank=True,
         verbose_name="Saved Quote PDF",
         help_text="Saved print-ready PDF quote file."
+    )
+    revision = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Revision #",
+        help_text="Document revision number. Starts at 1 and increments when modified while open."
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
