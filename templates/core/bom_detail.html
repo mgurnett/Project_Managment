@@ -16,51 +16,81 @@
         <div>
             <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
                 <span class="badge bg-primary text-white font-monospace fs-6 px-2.5 py-1">
-                    {{ bom.assembly_number|default:"900-001" }}
+                    {{ bom.assembly_number|default:"910-001" }}
                 </span>
                 <h1 class="h3 fw-bold mb-0 text-custom">{{ bom.name }}</h1>
-                <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1">
-                    {{ bom.quantity_on_hand|default:0 }} Built Assembly On-Hand
+                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle font-monospace px-2.5 py-1">
+                    Rev {{ bom.revision }}
                 </span>
+                {% if bom.is_frozen %}
+                    <span class="badge bg-info-subtle text-info border border-info-subtle px-2.5 py-1">
+                        <i class="bi bi-snow me-1"></i>Frozen
+                    </span>
+                {% else %}
+                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2.5 py-1">
+                        <i class="bi bi-pencil me-1"></i>Draft
+                    </span>
+                {% endif %}
                 <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2.5 py-1">
                     {{ bom.items.count }} Line Item{{ bom.items.count|pluralize }} &bull; {{ bom.total_parts_quantity }} Total Pcs
                 </span>
             </div>
-            <p class="text-muted small mb-0">{{ bom.description|default:"Product Assembly Specification" }}</p>
+            <p class="text-muted small mb-0">{{ bom.description|default:"Bill of Materials Pick Recipe" }}</p>
         </div>
 
         <div class="d-flex align-items-center gap-2 flex-wrap">
             <a href="{% url 'bom_list' %}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-arrow-left me-1"></i> Back to BoMs
             </a>
-            <button type="button" class="btn btn-sm btn-custom" data-bs-toggle="modal" data-bs-target="#addItemModal">
-                <i class="bi bi-plus-circle me-1"></i> Add Component
-            </button>
-            <button type="button" class="btn btn-sm btn-outline-custom fw-semibold" data-bs-toggle="modal" data-bs-target="#addBomModal">
-                <i class="bi bi-diagram-3 me-1"></i> Add / Explode BoM
-            </button>
-            <button type="button" class="btn btn-sm btn-primary fw-semibold" data-bs-toggle="modal" data-bs-target="#kitBomModal">
-                <i class="bi bi-box-seam me-1"></i> Move to Kit
-            </button>
-            <a href="{% url 'quote_create' %}?bom={{ bom.pk }}" class="btn btn-sm btn-outline-success fw-semibold" title="Build a quote using this BoM's price">
-                <i class="bi bi-file-earmark-text me-1"></i> Create Quote
+            <a href="{% url 'bom_pick_list' bom.pk %}" class="btn btn-outline-primary btn-sm fw-semibold">
+                <i class="bi bi-printer me-1"></i> Pick List
             </a>
-            <a href="{% url 'bom_document_create' bom.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-outline-secondary fw-semibold" title="Attach Schematic, Video, or Document">
-                <i class="bi bi-file-earmark-medical me-1"></i> Add Document
+            <a href="{% url 'kit_list' %}?bom={{ bom.pk }}" class="btn btn-primary btn-sm fw-semibold">
+                <i class="bi bi-box-seam me-1"></i> Pick Kit
             </a>
+            {% if bom.is_frozen %}
+                <form method="post" action="{% url 'bom_new_revision' bom.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-warning fw-semibold">
+                        <i class="bi bi-unlock me-1"></i> New Revision (Rev {{ bom.revision|add:1 }})
+                    </button>
+                </form>
+            {% else %}
+                <button type="button" class="btn btn-sm btn-custom" data-bs-toggle="modal" data-bs-target="#addItemModal">
+                    <i class="bi bi-plus-circle me-1"></i> Add Component
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-custom fw-semibold" data-bs-toggle="modal" data-bs-target="#addBomModal">
+                    <i class="bi bi-diagram-3 me-1"></i> Add / Explode BoM
+                </button>
+                <form method="post" action="{% url 'bom_freeze' bom.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-info text-white fw-semibold">
+                        <i class="bi bi-snow me-1"></i> Freeze Rev {{ bom.revision }}
+                    </button>
+                </form>
+                <a href="{% url 'bom_update' bom.pk %}" class="btn btn-outline-custom btn-sm">
+                    <i class="bi bi-pencil me-1"></i> Edit BoM
+                </a>
+            {% endif %}
             {% if bom.part %}
                 <a href="{% url 'part_detail' bom.part.pk %}" class="btn btn-outline-secondary btn-sm" title="View in Parts Catalog ({{ bom.part.part_number }})">
                     <i class="bi bi-cpu me-1"></i> Parts Catalog
                 </a>
             {% endif %}
-            <a href="{% url 'bom_update' bom.pk %}" class="btn btn-outline-custom btn-sm">
-                <i class="bi bi-pencil me-1"></i> Edit BoM
-            </a>
             <a href="{% url 'bom_delete' bom.pk %}" class="btn btn-outline-danger btn-sm">
                 <i class="bi bi-trash me-1"></i> Delete
             </a>
         </div>
     </div>
+
+    {% if bom.is_frozen %}
+    <div class="alert alert-info border-info-subtle d-flex align-items-center justify-content-between gap-2 mb-4">
+        <div>
+            <i class="bi bi-snow me-2"></i>
+            <strong>Frozen at Rev {{ bom.revision }}:</strong> This BoM recipe is locked for kit picking. To modify parts or details, start a new revision.
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Summary KPI Cards -->
     <div class="row g-3 mb-4">
@@ -68,25 +98,12 @@
             <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
                 <div class="d-flex align-items-center justify-content-between">
                     <div>
-                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Built Assemblies On-Hand</span>
-                        <h3 class="fw-bold mb-0 mt-1 text-success">{{ bom.quantity_on_hand|default:0 }} <span class="fs-6 text-muted fw-normal">({{ bom.assembly_number }})</span></h3>
-                        <div class="d-flex align-items-center gap-1 mt-2">
-                            <form method="post" action="{% url 'bom_adjust_assembly_stock' bom.pk %}" class="d-inline">
-                                {% csrf_token %}
-                                <input type="hidden" name="mode" value="subtract">
-                                <input type="hidden" name="quantity" value="1">
-                                <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Subtract 1 Built Assembly">&minus;1</button>
-                            </form>
-                            <form method="post" action="{% url 'bom_adjust_assembly_stock' bom.pk %}" class="d-inline">
-                                {% csrf_token %}
-                                <input type="hidden" name="mode" value="add">
-                                <input type="hidden" name="quantity" value="1">
-                                <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2" title="Add 1 Built Assembly">+1</button>
-                            </form>
-                        </div>
+                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">BoM Number &amp; Rev</span>
+                        <h3 class="fw-bold mb-0 mt-1 text-primary font-monospace">{{ bom.assembly_number }}</h3>
+                        <div class="small text-muted mt-1">Rev {{ bom.revision }} &bull; {% if bom.is_frozen %}Frozen{% else %}Draft{% endif %}</div>
                     </div>
-                    <div class="rounded-circle p-3 bg-success-subtle text-success">
-                        <i class="bi bi-box2-heart fs-4"></i>
+                    <div class="rounded-circle p-3 bg-primary-subtle text-primary">
+                        <i class="bi bi-diagram-3 fs-4"></i>
                     </div>
                 </div>
             </div>
@@ -95,11 +112,11 @@
             <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
                 <div class="d-flex align-items-center justify-content-between">
                     <div>
-                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Build Cost / Sale Price</span>
+                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Est. Component Cost</span>
                         <h3 class="fw-bold mb-0 mt-1 text-custom">${{ bom.total_cost|floatformat:2 }}</h3>
-                        <div class="small text-muted mt-1">Sale Price: <strong class="text-success">${{ bom.effective_sale_price|floatformat:2 }}</strong></div>
+                        <div class="small text-muted mt-1">Per kit recipe</div>
                     </div>
-                    <div class="rounded-circle p-3 bg-primary-subtle text-primary">
+                    <div class="rounded-circle p-3 bg-success-subtle text-success">
                         <i class="bi bi-currency-dollar fs-4"></i>
                     </div>
                 </div>
@@ -287,6 +304,9 @@
     </div>
     {% endif %}
 
+    <!-- Unified Inline Drop-Zone & Linked Articles / Documents (via hidden system tags) -->
+    {% include "core/_articles_and_tags_card.html" %}
+
     <!-- Documents, Schematics & YouTube Videos -->
     <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
         <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -443,49 +463,6 @@
                 <div class="modal-footer border-top bg-light">
                     <button type="button" class="btn btn-outline-secondary btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-custom btn-sm px-3 fw-semibold">Add Component</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Modal: Move BoM to Kit -->
-<div class="modal fade" id="kitBomModal" tabindex="-1" aria-labelledby="kitBomModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header border-bottom">
-                <h5 class="modal-title fw-bold" id="kitBomModalLabel">
-                    <i class="bi bi-box-seam me-2 text-primary"></i>Move BoM to Kit: {{ bom.name }}
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <form action="{% url 'bom_kit_action' bom.pk %}" method="post">
-                {% csrf_token %}
-                <div class="modal-body p-4">
-                    <p class="small text-muted mb-3">
-                        Moving a BoM to a kit allocates all required components from uncommitted stock into <strong>Committed (Kit)</strong> inventory.
-                    </p>
-                    <div class="mb-3">
-                        <label class="form-label small fw-semibold">Number of Kits to Prepare <span class="text-danger">*</span></label>
-                        <input type="number" name="quantity" class="form-control" value="1" min="1" required>
-                        <div class="form-text small">
-                            Each kit commits <strong>{{ bom.total_parts_quantity }} total parts</strong> across {{ bom.items.count }} unique components.
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label small fw-semibold">Build Sheet Link <span class="text-muted fw-normal">(Optional)</span></label>
-                        <input type="url" name="build_sheet_url" class="form-control form-control-sm" value="{{ bom.build_sheet_url|default:'' }}" placeholder="https://... (link to Build Sheet document)">
-                    </div>
-                    <div class="mb-0">
-                        <label class="form-label small fw-semibold">Inspection Sheet Link <span class="text-muted fw-normal">(Optional)</span></label>
-                        <input type="url" name="inspection_sheet_url" class="form-control form-control-sm" value="{{ bom.inspection_sheet_url|default:'' }}" placeholder="https://... (link to Inspection Sheet document)">
-                    </div>
-                </div>
-                <div class="modal-footer border-top bg-light">
-                    <button type="button" class="btn btn-outline-secondary btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary btn-sm px-3 fw-semibold">
-                        <i class="bi bi-box-seam me-1"></i> Commit Parts to Kit
-                    </button>
                 </div>
             </form>
         </div>

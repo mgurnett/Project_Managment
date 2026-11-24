@@ -1,0 +1,226 @@
+<!-- Unified Inline Drop-Zone & Linked Articles / Invoices / Receipts / Documents Card -->
+<div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
+    <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                {% if entity_model_key == 'order' %}
+                    <i class="bi bi-receipt-cutoff me-2 text-custom"></i>Invoices, Receipts &amp; Documents ({{ linked_articles|length }})
+                {% else %}
+                    <i class="bi bi-journal-richtext me-2 text-custom"></i>Articles, Datasheets &amp; Documents ({{ linked_articles|length }})
+                {% endif %}
+            </h3>
+        </div>
+        <div class="d-flex gap-2">
+            {% if all_existing_articles and attach_article_url %}
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#linkExistingBox_{{ entity_model_key }}_{{ entity_pk }}">
+                    <i class="bi bi-link-45deg me-1"></i>Link Existing
+                </button>
+            {% endif %}
+            {% if add_article_url %}
+                <a href="{{ add_article_url }}" class="btn btn-sm btn-outline-custom">
+                    <i class="bi bi-pencil-square me-1"></i>Full Article Editor
+                </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card-body px-4 pb-4 pt-2">
+        {% if attach_article_url %}
+        <!-- Inline Drop-Zone & Quick Attach -->
+        <form method="post" action="{{ attach_article_url }}" enctype="multipart/form-data" class="mb-4 p-3 border rounded-3 bg-body-tertiary">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.path }}">
+
+            <div class="drop-zone-area border border-2 border-dashed rounded-3 p-3 text-center mb-3 bg-body"
+                 style="cursor: pointer; transition: border-color .15s, background-color .15s;"
+                 onclick="this.querySelector('input[type=file]').click();"
+                 ondragover="event.preventDefault(); this.classList.add('border-primary', 'bg-primary-subtle');"
+                 ondragleave="this.classList.remove('border-primary', 'bg-primary-subtle');"
+                 ondrop="event.preventDefault(); this.classList.remove('border-primary', 'bg-primary-subtle'); const inp = this.querySelector('input[type=file]'); inp.files = event.dataTransfer.files; inp.dispatchEvent(new Event('change'));">
+                <input type="file" name="file" class="d-none" onchange="const lbl = this.closest('.drop-zone-area').querySelector('.drop-zone-label'); lbl.textContent = this.files.length ? ('Selected: ' + this.files[0].name) : 'Drop invoice, receipt, or PDF/image here — or click to browse';">
+                <i class="bi bi-cloud-arrow-up fs-4 text-custom d-block mb-1"></i>
+                <span class="drop-zone-label small fw-semibold text-body">
+                    {% if entity_model_key == 'order' %}
+                        Drop invoice or receipt PDF/image here — or click to browse
+                    {% else %}
+                        Drop datasheet, scan, or document here — or click to browse
+                    {% endif %}
+                </span>
+            </div>
+
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-4">
+                    <label class="form-label small fw-semibold mb-1">Type</label>
+                    <select name="article_type" class="form-select form-select-sm">
+                        {% for val, label in article_type_choices %}
+                            <option value="{{ val }}" {% if val == default_article_type %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12 col-md-4">
+                    <label class="form-label small fw-semibold mb-1">Title (optional if file dropped)</label>
+                    <input type="text" name="title" class="form-control form-control-sm" placeholder="{% if entity_model_key == 'order' %}e.g. Mouser Invoice #12345{% else %}e.g. Datasheet / Pinout{% endif %}">
+                </div>
+                <div class="col-12 col-md-4">
+                    <label class="form-label small fw-semibold mb-1">Or Link URL</label>
+                    <div class="input-group input-group-sm">
+                        <input type="url" name="external_url" class="form-control" placeholder="https://...">
+                        <button type="submit" class="btn btn-custom fw-semibold">
+                            <i class="bi bi-paperclip me-1"></i>Attach
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        {% if all_existing_articles %}
+        <div class="collapse mb-3" id="linkExistingBox_{{ entity_model_key }}_{{ entity_pk }}">
+            <form method="post" action="{{ attach_article_url }}" class="p-3 border rounded-3 bg-body-tertiary d-flex flex-wrap gap-2 align-items-center">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.path }}">
+                <select name="existing_article_id" class="form-select form-select-sm flex-grow-1" style="min-width: 240px;" required>
+                    <option value="">-- Select existing article / invoice / document --</option>
+                    {% for ex in all_existing_articles %}
+                        <option value="{{ ex.pk }}">{{ ex.title }} ({{ ex.get_article_type_display }})</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-sm btn-outline-custom">Link Selected</button>
+            </form>
+        </div>
+        {% endif %}
+        {% endif %}
+
+        {% if part and part.document %}
+            <!-- Primary Part Datasheet File (if uploaded directly on Part) -->
+            <div class="p-3 mb-3 border rounded-3 bg-primary-subtle border-primary-subtle d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="rounded-3 p-2 bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0" style="width: 44px; height: 44px;">
+                        <i class="bi {% if part.is_document_pdf %}bi-file-earmark-pdf{% elif part.is_document_image %}bi-file-earmark-image{% else %}bi-file-earmark-text{% endif %} fs-4"></i>
+                    </div>
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                            <span class="fw-bold text-body">{{ part.document_filename }}</span>
+                            <span class="badge bg-primary text-white px-2 py-0.5 text-uppercase" style="font-size: 0.65rem;">
+                                Primary File ({{ part.document_extension|upper }})
+                            </span>
+                        </div>
+                        {% if part.document_size_display %}
+                            <div class="text-muted small"><i class="bi bi-hdd me-1"></i>{{ part.document_size_display }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-shrink-0 ms-auto ms-md-0">
+                    <a href="{{ part.document.url }}" target="_blank" class="btn btn-sm btn-primary">
+                        <i class="bi bi-eye me-1"></i> Open
+                    </a>
+                    <a href="{{ part.document.url }}" target="_blank" download class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-download me-1"></i> Download
+                    </a>
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Linked Articles / Invoices / Receipts / Documents -->
+        {% if linked_articles %}
+            <div class="row g-2 mb-2">
+                {% for art in linked_articles %}
+                <div class="col-12">
+                    <div class="p-3 border rounded-3 bg-body-tertiary d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+                        <div class="d-flex align-items-start gap-3">
+                            {% if art.is_image and art.file %}
+                                <a href="{% url 'article_detail' art.pk %}" class="d-block flex-shrink-0">
+                                    <img src="{{ art.file.url }}" alt="{{ art.title }}" class="rounded border shadow-sm" style="width: 64px; height: 48px; object-fit: cover; background: #fff;">
+                                </a>
+                            {% elif art.is_pdf %}
+                                <div class="rounded-3 p-2 bg-danger-subtle text-danger d-flex align-items-center justify-content-center flex-shrink-0" style="width: 48px; height: 48px;">
+                                    <i class="bi bi-file-earmark-pdf fs-4"></i>
+                                </div>
+                            {% elif art.article_type == 'invoice' or art.article_type == 'receipt' %}
+                                <div class="rounded-3 p-2 bg-warning-subtle text-warning-emphasis d-flex align-items-center justify-content-center flex-shrink-0" style="width: 48px; height: 48px;">
+                                    <i class="bi bi-receipt fs-4"></i>
+                                </div>
+                            {% else %}
+                                <div class="rounded-3 p-2 bg-success-subtle text-success d-flex align-items-center justify-content-center flex-shrink-0" style="width: 48px; height: 48px;">
+                                    <i class="bi bi-journal-text fs-4"></i>
+                                </div>
+                            {% endif %}
+
+                            <div>
+                                <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                                    <a href="{% url 'article_detail' art.pk %}" class="fw-bold text-decoration-none text-body">{{ art.title }}</a>
+                                    <span class="badge bg-secondary-subtle text-secondary border px-2 py-0.5 text-uppercase" style="font-size: 0.65rem;">
+                                        {{ art.get_article_type_display }}
+                                    </span>
+                                </div>
+                                {% if art.summary %}<div class="text-muted small mb-1">{{ art.summary }}</div>{% endif %}
+                                <div class="d-flex flex-wrap align-items-center gap-1 small text-muted">
+                                    {% if art.file %}
+                                        <span class="me-2"><i class="bi bi-paperclip me-1"></i>{{ art.file_extension|upper }}{% if art.file_size_display %} ({{ art.file_size_display }}){% endif %}</span>
+                                    {% endif %}
+                                    {% if art.external_url %}
+                                        <a href="{{ art.external_url }}" target="_blank" rel="noopener" class="text-custom text-decoration-none me-2">
+                                            <i class="bi bi-box-arrow-up-right me-1"></i>Web Link
+                                        </a>
+                                    {% endif %}
+                                    <span><i class="bi bi-clock me-1"></i>{{ art.updated_at|date:"M d, Y" }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex align-items-center gap-1 flex-shrink-0 ms-auto ms-md-0">
+                            {% if art.file %}
+                                <a href="{{ art.file.url }}" target="_blank" class="btn btn-sm btn-outline-primary" title="Open Attachment">
+                                    <i class="bi bi-box-arrow-up-right"></i> Open
+                                </a>
+                                <a href="{{ art.file.url }}" target="_blank" download class="btn btn-sm btn-outline-secondary" title="Download Attachment">
+                                    <i class="bi bi-download"></i>
+                                </a>
+                            {% endif %}
+                            <a href="{% url 'article_detail' art.pk %}" class="btn btn-sm btn-outline-secondary" title="View Article">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            <a href="{% url 'article_update' art.pk %}?next={{ request.path }}" class="btn btn-sm btn-outline-secondary" title="Edit">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            {% if entity_model_key and entity_pk %}
+                            <form method="post" action="{% url 'detach_article_from_entity' entity_model_key entity_pk art.pk %}" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ request.path }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Unlink from this record">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% elif not part.document %}
+            <div class="text-muted small text-center py-2">
+                {% if entity_model_key == 'order' %}
+                    No invoices or receipts attached to this order yet.
+                {% else %}
+                    No documents or articles attached yet.
+                {% endif %}
+            </div>
+        {% endif %}
+
+        {% if tag_related_articles %}
+            <div class="small fw-bold text-uppercase text-muted mt-3 mb-2" style="font-size: 0.7rem; letter-spacing: 0.05em;">
+                Related Articles ({{ tag_related_articles|length }})
+            </div>
+            <div class="list-group list-group-flush">
+                {% for art in tag_related_articles %}
+                <a href="{% url 'article_detail' art.pk %}" class="list-group-item list-group-item-action px-0 py-2 d-flex justify-content-between align-items-start gap-2">
+                    <div>
+                        <div class="fw-semibold text-body">{{ art.title }}</div>
+                        {% if art.summary %}<div class="text-muted small">{{ art.summary }}</div>{% endif %}
+                    </div>
+                    <span class="text-muted small text-nowrap">{{ art.updated_at|date:"M d, Y" }}</span>
+                </a>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+</div>

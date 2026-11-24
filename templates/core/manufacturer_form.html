@@ -55,6 +55,11 @@
                         <label class="form-label small fw-semibold">Website URL</label>
                         {{ form.website }}
                     </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Tags (comma-separated)</label>
+                        {{ form.tags_input }}
+                        <div class="form-text small">{{ form.tags_input.help_text }}</div>
+                    </div>
                     <div class="col-12 mt-3">
                         <label class="form-label small fw-semibold">Notes</label>
                         {{ form.notes }}

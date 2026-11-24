@@ -43,29 +43,29 @@
         <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
             <div class="card-body p-4">
                 <div class="row g-3">
-                    <div class="col-12 col-md-8">
-                        <label class="form-label small fw-semibold">Category Name <span class="text-danger">*</span></label>
-                        {{ form.name }}
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Parent Category (Optional)</label>
+                        {{ form.parent }}
+                        <div class="form-text small">Leave blank if this is a top-level category.</div>
                     </div>
                     <div class="col-12 col-md-4">
                         <label class="form-label small fw-semibold">Part Prefix</label>
                         {{ form.prefix }}
                         <div class="form-text small">e.g. 100 for Passives</div>
                     </div>
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small fw-semibold">Category Name <span class="text-danger">*</span></label>
+                        {{ form.name }}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Description</label>
+                        {{ form.description }}
+                    </div>
                     <div class="col-12">
                         <div class="alert alert-light border small text-muted mb-0 py-2">
                             <i class="bi bi-info-circle text-custom me-1"></i>
                             <strong>Part Numbering:</strong> When assigned to this category, parts will auto-generate numbers formatted as <code>&lt;prefix&gt;-001</code> (e.g. <code>230-001</code>). Subcategories auto-generate the next sequential prefix (e.g. <code>231</code> under <code>230</code>) if left blank.
                         </div>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label small fw-semibold">Parent Category (Optional)</label>
-                        {{ form.parent }}
-                        <div class="form-text small">Leave blank if this is a top-level category.</div>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label small fw-semibold">Description</label>
-                        {{ form.description }}
                     </div>
                 </div>
             </div>

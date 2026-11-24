@@ -456,6 +456,14 @@
                                 <span class="fw-bold fs-6 font-monospace system-on-hand">
                                     {{ part.quantity_on_hand }}
                                 </span>
+                                {% if part.kit_allocations %}
+                                    <div class="mt-1 small" style="font-size: 0.7rem; line-height: 1.25;">
+                                        <div class="text-success fw-semibold">{{ part.bin_quantity }} in {{ part.location.name|default:"Bin" }}</div>
+                                        {% for alloc in part.kit_allocations %}
+                                            <div class="text-warning-emphasis">{{ alloc.qty }} in <a href="{% url 'kit_detail' alloc.kit.pk %}" class="text-decoration-none fw-semibold">{{ alloc.kit.kit_number }}</a></div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
                             </td>
 
                             <!-- Physical Count (Interactive on Screen / Empty box on Print) -->

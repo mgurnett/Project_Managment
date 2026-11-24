@@ -17,15 +17,15 @@ from django.db import transaction
 from django.db.models import Q, Count, Sum, Case, When, Value, IntegerField, F
 from django.db.models.functions import Length
 from .models import (
-    Part, Company, Manufacturer, Category, Location, PartDocument,
+    Part, Company, Manufacturer, Customer, Category, Location, PartDocument,
     InventoryAdjustment,
-    BOM, BOMItem, BOMDocument, Order, OrderItem, AssemblySale, AssemblySaleItem,
-    Quote, QuoteItem
+    BOM, BOMItem, BOMDocument, Kit, Assembly, Order, OrderItem, AssemblySale, AssemblySaleItem,
+    Quote, QuoteItem, Tag, Article
 )
 from .forms import (
-    PartForm, CompanyForm, ManufacturerForm, CategoryForm, LocationForm,
+    PartForm, CompanyForm, ManufacturerForm, CustomerForm, CategoryForm, LocationForm,
     PartDocumentForm, BOMForm, BOMItemForm, BOMDocumentForm, OrderForm, OrderItemForm, AssemblySaleForm,
-    QuoteForm
+    QuoteForm, TagForm, ArticleForm
 )
 
 
@@ -36,6 +36,7 @@ def home(request):
     total_parts = Part.objects.count()
     total_companies = Company.objects.count()
     total_manufacturers = Manufacturer.objects.count()
+    total_customers = Customer.objects.count()
     total_categories = Category.objects.count()
     total_locations = Location.objects.count()
     total_boms = BOM.objects.count()
@@ -57,6 +58,7 @@ def home(request):
             'total_parts': total_parts,
             'total_companies': total_companies,
             'total_manufacturers': total_manufacturers,
+            'total_customers': total_customers,
             'total_categories': total_categories,
             'total_locations': total_locations,
             'total_boms': total_boms,
@@ -277,13 +279,78 @@ class PartListView(ListView):
         return ctx
 
 
-class PartDetailView(DetailView):
-    model = Part
-    template_name = 'core/part_detail.html'
-    context_object_name = 'part'
+class ArticleContextMixin:
+    """
+    Injects `object_tags`, `linked_articles`, `tag_related_articles`,
+    `add_article_url`, and inline attach/dropzone context into any taggable
+    entity's DetailView context.
+    """
+    article_link_param = None
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        linked, tag_related = Article.split_for_object(self.object)
+        ctx['linked_articles'] = linked
+        ctx['tag_related_articles'] = tag_related
+        ctx['object_tags'] = self.object.tags.filter(is_system=False).order_by('name')
+        model_key = self.object._meta.model_name
+        ctx['entity_model_key'] = model_key
+        ctx['entity_pk'] = self.object.pk
+        ctx['attach_article_url'] = reverse('attach_article_to_entity', args=[model_key, self.object.pk])
+        ctx['all_existing_articles'] = Article.objects.exclude(
+            pk__in=linked.values_list('pk', flat=True)
+        ).order_by('-updated_at', 'title')[:100]
+        ctx['article_type_choices'] = Article.ARTICLE_TYPES
+        ctx['default_article_type'] = 'invoice' if model_key == 'order' else 'datasheet'
+        if self.article_link_param:
+            ctx['add_article_url'] = (
+                f"{reverse('article_create')}?{self.article_link_param}={self.object.pk}"
+                f"&next={self.request.path}"
+            )
+        return ctx
+
+
+def _attach_kit_allocations(parts):
+    """
+    Attaches `.kit_allocations` ([{'kit': Kit, 'qty': int}, ...]), `.kitted_total`,
+    and `.bin_quantity` (unkitted on-hand count in storage bin) to each Part in `parts`.
+    """
+    part_list = list(parts)
+    if not part_list:
+        return part_list
+    part_ids = {p.pk for p in part_list}
+    active_kits = list(Kit.objects.filter(status='PICKED').select_related('bom').order_by('kit_number'))
+    bom_ids = {k.bom_id for k in active_kits}
+    bom_part_qty = {}
+    if bom_ids:
+        for bi in BOMItem.objects.filter(bom_id__in=bom_ids, part_id__in=part_ids):
+            bom_part_qty[(bi.bom_id, bi.part_id)] = bom_part_qty.get((bi.bom_id, bi.part_id), 0) + (bi.quantity or 0)
+
+    alloc_by_part = {pid: [] for pid in part_ids}
+    for kit in active_kits:
+        for pid in part_ids:
+            qty = bom_part_qty.get((kit.bom_id, pid), 0)
+            if qty > 0:
+                alloc_by_part[pid].append({'kit': kit, 'qty': qty})
+
+    for p in part_list:
+        allocs = alloc_by_part.get(p.pk, [])
+        p.kit_allocations = allocs
+        kitted_total = sum(a['qty'] for a in allocs)
+        p.kitted_total = kitted_total
+        p.bin_quantity = max(0, (p.quantity_on_hand or 0) - kitted_total)
+    return part_list
+
+
+class PartDetailView(ArticleContextMixin, DetailView):
+    model = Part
+    template_name = 'core/part_detail.html'
+    context_object_name = 'part'
+    article_link_param = 'part'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        _attach_kit_allocations([self.object])
         ctx['documents'] = self.object.documents.all()
         ctx['document_form'] = PartDocumentForm()
         if hasattr(self.object, 'assembly_bom') and self.object.assembly_bom:
@@ -569,6 +636,8 @@ class PartDeleteView(DeleteView):
         return super().delete(request, *args, **kwargs)
 
 
+
+
 def part_move_category_action(request, pk):
     """
     POST action to move a part to a new category, automatically finding and assigning
@@ -646,10 +715,11 @@ class CompanyListView(ListView):
         return ctx
 
 
-class CompanyDetailView(DetailView):
+class CompanyDetailView(ArticleContextMixin, DetailView):
     model = Company
     template_name = 'core/company_detail.html'
     context_object_name = 'company'
+    article_link_param = 'company'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -693,6 +763,113 @@ class CompanyDeleteView(DeleteView):
 
 
 # ==============================================================================
+# SETUP & DIRECTORY HUB + CUSTOMER CRUD VIEWS
+# ==============================================================================
+
+def setup_directory(request):
+    """
+    Central Setup & Directory hub for foundational reference data outside the
+    daily workflow: Categories, Suppliers (Companies), Manufacturers, Customers,
+    and Storage Locations.
+    """
+    context = {
+        'page_title': 'Setup & Directory',
+        'counts': {
+            'categories': Category.objects.count(),
+            'companies': Company.objects.count(),
+            'manufacturers': Manufacturer.objects.count(),
+            'customers': Customer.objects.count(),
+            'locations': Location.objects.count(),
+            'articles': Article.objects.count(),
+            'tags': Tag.objects.filter(is_system=False).count(),
+        },
+        'recent_categories': Category.objects.select_related('parent').order_by(Length('prefix'), 'prefix', 'name')[:6],
+        'recent_companies': Company.objects.order_by('name')[:6],
+        'recent_manufacturers': Manufacturer.objects.order_by('name')[:6],
+        'recent_customers': Customer.objects.order_by('name')[:6],
+        'recent_locations': Location.objects.order_by('name')[:6],
+        'recent_articles': Article.objects.prefetch_related('tags').order_by('-updated_at')[:6],
+        'recent_tags': Tag.objects.filter(is_system=False).order_by('name')[:12],
+    }
+    return render(request, 'core/setup_directory.html', context)
+
+
+class CustomerListView(ListView):
+    model = Customer
+    template_name = 'core/customer_list.html'
+    context_object_name = 'customers'
+    paginate_by = 20
+
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('customer_list_filters', None)
+            return redirect('customer_list')
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        filters = resolve_persistent_filters(self.request, 'customer_list_filters', ['q'])
+        qs = Customer.objects.all()
+        q = filters['q']
+        if q:
+            qs = qs.filter(
+                Q(name__icontains=q) |
+                Q(contact_name__icontains=q) |
+                Q(email__icontains=q) |
+                Q(phone__icontains=q)
+            )
+        return qs.order_by('name')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        filters = resolve_persistent_filters(self.request, 'customer_list_filters', ['q'])
+        ctx['current_q'] = filters['q']
+        ctx['total_count'] = self.get_queryset().count()
+        return ctx
+
+
+class CustomerDetailView(ArticleContextMixin, DetailView):
+    model = Customer
+    template_name = 'core/customer_detail.html'
+    context_object_name = 'customer'
+    article_link_param = 'customer'
+
+
+class CustomerCreateView(CreateView):
+    model = Customer
+    form_class = CustomerForm
+    template_name = 'core/customer_form.html'
+    success_url = reverse_lazy('customer_list')
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, f"Customer '{self.object.name}' was created successfully!")
+        return response
+
+
+class CustomerUpdateView(UpdateView):
+    model = Customer
+    form_class = CustomerForm
+    template_name = 'core/customer_form.html'
+    success_url = reverse_lazy('customer_list')
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, f"Customer '{self.object.name}' was updated successfully!")
+        return response
+
+
+class CustomerDeleteView(DeleteView):
+    model = Customer
+    template_name = 'core/confirm_delete.html'
+    success_url = reverse_lazy('customer_list')
+
+    def delete(self, request, *args, **kwargs):
+        customer = self.get_object()
+        messages.success(request, f"Customer '{customer.name}' was deleted successfully.")
+        return super().delete(request, *args, **kwargs)
+
+
+# ==============================================================================
 # MANUFACTURER CRUD VIEWS
 # ==============================================================================
 
@@ -723,10 +900,11 @@ class ManufacturerListView(ListView):
         return ctx
 
 
-class ManufacturerDetailView(DetailView):
+class ManufacturerDetailView(ArticleContextMixin, DetailView):
     model = Manufacturer
     template_name = 'core/manufacturer_detail.html'
     context_object_name = 'manufacturer'
+    article_link_param = 'manufacturer'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -769,6 +947,8 @@ class ManufacturerDeleteView(DeleteView):
         return super().delete(request, *args, **kwargs)
 
 
+
+
 # ==============================================================================
 # CATEGORY CRUD VIEWS
 # ==============================================================================
@@ -807,10 +987,11 @@ class CategoryListView(ListView):
         return ctx
 
 
-class CategoryDetailView(DetailView):
+class CategoryDetailView(ArticleContextMixin, DetailView):
     model = Category
     template_name = 'core/category_detail.html'
     context_object_name = 'category'
+    article_link_param = 'category'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -852,6 +1033,8 @@ class CategoryDeleteView(DeleteView):
         cat = self.get_object()
         messages.success(request, f"Category '{cat.name}' was deleted successfully.")
         return super().delete(request, *args, **kwargs)
+
+
 
 
 def category_next_part_number_json(request, pk):
@@ -917,10 +1100,11 @@ class LocationListView(ListView):
         return ctx
 
 
-class LocationDetailView(DetailView):
+class LocationDetailView(ArticleContextMixin, DetailView):
     model = Location
     template_name = 'core/location_detail.html'
     context_object_name = 'location'
+    article_link_param = 'location'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -961,6 +1145,8 @@ class LocationDeleteView(DeleteView):
         loc = self.get_object()
         messages.success(request, f"Location '{loc.name}' was deleted successfully.")
         return super().delete(request, *args, **kwargs)
+
+
 
 
 # ==============================================================================
@@ -1050,6 +1236,9 @@ class BOMDocumentCreateView(CreateView):
 
     def form_valid(self, form):
         bom = self.get_bom()
+        blocked = _reject_if_bom_frozen(self.request, bom)
+        if blocked:
+            return blocked
         form.instance.bom = bom
         self.object = form.save()
         messages.success(
@@ -1166,10 +1355,11 @@ class BOMListView(ListView):
         return ctx
 
 
-class BOMDetailView(DetailView):
+class BOMDetailView(ArticleContextMixin, DetailView):
     model = BOM
     template_name = 'core/bom_detail.html'
     context_object_name = 'bom'
+    article_link_param = 'bom'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1208,8 +1398,10 @@ class BOMCreateView(CreateView):
 
     def get_initial(self):
         initial = super().get_initial()
+        cat_910 = Category.objects.filter(prefix='910').first()
+        if cat_910:
+            initial['category'] = cat_910.pk
         initial['assembly_number'] = BOM.generate_next_assembly_number()
-        initial['quantity_on_hand'] = 0
         return initial
 
     def get_context_data(self, **kwargs):
@@ -1271,6 +1463,8 @@ class BOMCreateView(CreateView):
                     )
                     added_count += 1
 
+            _attach_entity_form_document(self.request, bom, 'boms', default_type='sop')
+
             if added_count > 0:
                 messages.success(
                     self.request,
@@ -1281,10 +1475,58 @@ class BOMCreateView(CreateView):
             return redirect('bom_detail', pk=bom.pk)
 
 
+def _reject_if_bom_frozen(request, bom):
+    """Returns a redirect response if `bom` is frozen, otherwise None."""
+    if bom.is_frozen:
+        messages.error(
+            request,
+            f"BoM '{bom.name}' (Rev {bom.revision}) is frozen. Start a new revision to make changes."
+        )
+        return redirect('bom_detail', pk=bom.pk)
+    return None
+
+
+def bom_freeze_action(request, pk):
+    """POST action to freeze a BoM at its current revision."""
+    bom = get_object_or_404(BOM, pk=pk)
+    if request.method == 'POST':
+        if not bom.is_frozen:
+            bom.is_frozen = True
+            bom.save(update_fields=['is_frozen', 'updated_at'])
+            messages.success(request, f"BoM '{bom.name}' frozen at Rev {bom.revision}.")
+    return redirect('bom_detail', pk=bom.pk)
+
+
+def bom_new_revision_action(request, pk):
+    """POST action to unfreeze a frozen BoM and increment its revision number."""
+    bom = get_object_or_404(BOM, pk=pk)
+    if request.method == 'POST':
+        if bom.is_frozen:
+            bom.is_frozen = False
+            bom.revision = (bom.revision or 1) + 1
+            bom.save(update_fields=['is_frozen', 'revision', 'updated_at'])
+            messages.success(request, f"BoM '{bom.name}' unfrozen for Rev {bom.revision}.")
+    return redirect('bom_detail', pk=bom.pk)
+
+
+def bom_pick_list(request, pk):
+    """Printable pick list for pulling a kit from a BoM."""
+    bom = get_object_or_404(BOM, pk=pk)
+    items = bom.items.select_related('part', 'part__location', 'part__company').all()
+    return render(request, 'core/bom_pick_list.html', {'bom': bom, 'items': items})
+
+
 class BOMUpdateView(UpdateView):
     model = BOM
     form_class = BOMForm
     template_name = 'core/bom_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        bom = self.get_object()
+        blocked = _reject_if_bom_frozen(request, bom)
+        if blocked:
+            return blocked
+        return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1293,7 +1535,8 @@ class BOMUpdateView(UpdateView):
 
     def form_valid(self, form):
         response = super().form_valid(form)
-        messages.success(self.request, f"BOM Assembly '{self.object.name}' was updated successfully!")
+        _attach_entity_form_document(self.request, self.object, 'boms', default_type='sop')
+        messages.success(self.request, f"BOM '{self.object.name}' was updated successfully!")
         return response
 
     def get_success_url(self):
@@ -1324,6 +1567,9 @@ class BOMItemCreateView(CreateView):
 
     def form_valid(self, form):
         bom = self.get_bom()
+        blocked = _reject_if_bom_frozen(self.request, bom)
+        if blocked:
+            return blocked
         form.instance.bom = bom
         if form.instance.part and form.instance.part.superseded_by_id:
             replacement = form.instance.part.get_effective_replacement()
@@ -1406,6 +1652,9 @@ def bom_item_update_action(request, pk):
 
     item = get_object_or_404(BOMItem.objects.select_related('bom', 'part'), pk=pk)
     bom = item.bom
+    blocked = _reject_if_bom_frozen(request, bom)
+    if blocked:
+        return blocked
     part = item.part
     bom_pk = bom.pk
     next_url = request.POST.get('next') or reverse('bom_detail', kwargs={'pk': bom_pk})
@@ -1482,6 +1731,13 @@ class BOMItemDeleteView(DeleteView):
     model = BOMItem
     template_name = 'core/confirm_delete.html'
 
+    def dispatch(self, request, *args, **kwargs):
+        item = self.get_object()
+        blocked = _reject_if_bom_frozen(request, item.bom)
+        if blocked:
+            return blocked
+        return super().dispatch(request, *args, **kwargs)
+
     def form_valid(self, form):
         item = self.get_object()
         bom = item.bom
@@ -1510,6 +1766,9 @@ def bom_add_from_bom_action(request, pk):
         return redirect('bom_detail', pk=pk)
 
     dest_bom = get_object_or_404(BOM, pk=pk)
+    blocked = _reject_if_bom_frozen(request, dest_bom)
+    if blocked:
+        return blocked
     source_bom_id = (request.POST.get('source_bom') or '').strip()
     if not source_bom_id or not source_bom_id.isdigit():
         messages.error(request, "Please select a valid BoM to add.")
@@ -1555,6 +1814,9 @@ def bom_item_explode_action(request, pk):
 
     item = get_object_or_404(BOMItem.objects.select_related('bom', 'part', 'part__assembly_bom'), pk=pk)
     bom = item.bom
+    blocked = _reject_if_bom_frozen(request, bom)
+    if blocked:
+        return blocked
     sub_bom = getattr(item.part, 'assembly_bom', None)
     if not sub_bom:
         messages.error(request, f"Part '{item.part.part_number}' is not an assembly and cannot be exploded.")
@@ -1698,8 +1960,9 @@ class InventoryCountSheetView(TemplateView):
         qs = get_count_sheet_queryset(self.request, session_key='count_sheet_filters')
 
         # Group parts by category while maintaining sort order
+        parts_list = _attach_kit_allocations(qs)
         category_map = {}
-        for part in qs:
+        for part in parts_list:
             cat = part.category
             cat_id = cat.pk if cat else 'none'
             if cat_id not in category_map:
@@ -1795,9 +2058,10 @@ def inventory_count_sheet_pdf(request):
     import weasyprint
 
     qs = get_count_sheet_queryset(request)
+    parts_list = _attach_kit_allocations(qs)
 
     category_map = {}
-    for part in qs:
+    for part in parts_list:
         cat = part.category
         cat_id = cat.pk if cat else 'none'
         if cat_id not in category_map:
@@ -1905,10 +2169,11 @@ class OrderListView(ListView):
         return ctx
 
 
-class OrderDetailView(DetailView):
+class OrderDetailView(ArticleContextMixin, DetailView):
     model = Order
     template_name = 'core/order_detail.html'
     context_object_name = 'order'
+    article_link_param = 'order'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -2192,11 +2457,41 @@ class OrderCreateView(CreateView):
                 part.save(update_fields=['quantity_on_order', 'updated_at'])
                 items_created += 1
 
+            _attach_entity_form_document(self.request, order, 'orders', default_type='invoice')
+
             messages.success(
                 self.request,
                 f"Order '{order.order_number}' successfully created with {items_created} part item(s)! On-order quantities have been increased."
             )
             return redirect('order_detail', pk=order.pk)
+
+
+def _attach_entity_form_document(request, obj, m2m_field, default_type='other'):
+    """
+    Attaches an optional Article/Document dropped or entered on an entity's
+    create/edit form (Order, BoM, etc.) using the entity's hidden system tag.
+    """
+    uploaded_file = request.FILES.get('doc_file')
+    external_url = (request.POST.get('doc_external_url') or '').strip()
+    title = (request.POST.get('doc_title') or '').strip()
+    article_type = (request.POST.get('doc_article_type') or default_type).strip()
+
+    if not uploaded_file and not external_url and not title:
+        return None
+
+    if not title:
+        title = uploaded_file.name if uploaded_file else external_url[:180]
+
+    sys_tag = Tag.get_or_create_system_tag(obj)
+    article = Article.objects.create(
+        title=title[:200],
+        article_type=article_type,
+        file=uploaded_file,
+        external_url=external_url,
+    )
+    article.tags.add(sys_tag)
+    getattr(article, m2m_field).add(obj)
+    return article
 
 
 class OrderUpdateView(UpdateView):
@@ -2225,6 +2520,7 @@ class OrderUpdateView(UpdateView):
             order.revision = (old_order.revision or 1) + 1
         order.save()
         self.object = order
+        _attach_entity_form_document(self.request, order, 'orders', default_type='invoice')
         messages.success(self.request, f"Order '{self.object.order_number}' (Rev {self.object.revision}) was updated.")
         return redirect(self.get_success_url())
 
@@ -3408,9 +3704,10 @@ class TakeInventoryView(TemplateView):
         ctx = super().get_context_data(**kwargs)
         filters = resolve_persistent_filters(self.request, 'take_inventory_filters', COUNT_SHEET_FILTER_KEYS)
         qs = get_count_sheet_queryset(self.request, session_key='take_inventory_filters')
+        parts_list = _attach_kit_allocations(qs)
 
         category_map = {}
-        for part in qs:
+        for part in parts_list:
             cat = part.category
             cat_id = cat.pk if cat else 'none'
             if cat_id not in category_map:
@@ -3722,8 +4019,13 @@ class AssemblySaleListView(ListView):
         for bom in boms:
             _compute_bom_kit_metrics(bom)
         ctx['assemblies'] = boms
-        ctx['built_assemblies_count'] = sum(1 for b in boms if (b.quantity_on_hand or 0) > 0)
-        ctx['total_built_units'] = sum((b.quantity_on_hand or 0) for b in boms)
+        ctx['built_assemblies'] = list(
+            Assembly.objects.filter(status='BUILT')
+            .select_related('category', 'bom', 'kit')
+            .order_by('assembly_number')
+        )
+        ctx['built_assemblies_count'] = len(ctx['built_assemblies']) or sum(1 for b in boms if (b.quantity_on_hand or 0) > 0)
+        ctx['total_built_units'] = len(ctx['built_assemblies']) or sum((b.quantity_on_hand or 0) for b in boms)
 
         all_sales = list(AssemblySale.objects.prefetch_related('items').all())
         ctx['total_invoices_count'] = len(all_sales)
@@ -3769,13 +4071,25 @@ class AssemblySaleCreateView(CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         boms = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
+        built_assemblies = list(
+            Assembly.objects.filter(status='BUILT')
+            .select_related('category', 'bom')
+            .order_by('assembly_number')
+        )
         ctx['assemblies'] = boms
+        ctx['built_assemblies'] = built_assemblies
+        ctx['customers'] = Customer.objects.order_by('name')
         ctx['next_invoice_number'] = AssemblySale.generate_next_invoice_number()
         preselected_bom_id = self.request.GET.get('bom')
         if preselected_bom_id and preselected_bom_id.isdigit():
             ctx['preselected_bom'] = next((b for b in boms if b.pk == int(preselected_bom_id)), None)
         else:
             ctx['preselected_bom'] = None
+        preselected_asm_id = self.request.GET.get('assembly')
+        if preselected_asm_id and preselected_asm_id.isdigit():
+            ctx['preselected_assembly'] = next((a for a in built_assemblies if a.pk == int(preselected_asm_id)), None)
+        else:
+            ctx['preselected_assembly'] = None
         return ctx
 
     def form_valid(self, form):
@@ -3910,7 +4224,7 @@ class AssemblySaleCreateView(CreateView):
         return redirect('sale_detail', pk=sale.pk)
 
 
-class AssemblySaleDetailView(DetailView):
+class AssemblySaleDetailView(ArticleContextMixin, DetailView):
     """
     Displays the printable / PDF-ready Invoice for an `AssemblySale` with PAID STAMP overlay
     when paid, action button to Mark Paid & Close, and action to email the invoice PDF.
@@ -3918,6 +4232,7 @@ class AssemblySaleDetailView(DetailView):
     model = AssemblySale
     template_name = 'core/sale_detail.html'
     context_object_name = 'sale'
+    article_link_param = 'sale'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -3934,6 +4249,67 @@ class AssemblySaleDetailView(DetailView):
         return ctx
 
 
+class ReceiptListView(ListView):
+    """
+    Lists all Paid & Closed Customer Invoices as Official Payment Receipts.
+    """
+    model = AssemblySale
+    template_name = 'core/receipt_list.html'
+    context_object_name = 'receipts'
+    paginate_by = 25
+
+    def get_queryset(self):
+        qs = AssemblySale.objects.filter(status='PAID').prefetch_related('items', 'items__bom')
+        q = (self.request.GET.get('q') or '').strip()
+        if q:
+            qs = qs.filter(
+                Q(invoice_number__icontains=q) |
+                Q(customer_name__icontains=q) |
+                Q(customer_email__icontains=q) |
+                Q(customer_phone__icontains=q) |
+                Q(items__item_number__icontains=q) |
+                Q(items__description__icontains=q)
+            ).distinct()
+        payment_method = (self.request.GET.get('payment_method') or '').strip()
+        if payment_method:
+            qs = qs.filter(payment_method=payment_method)
+        return qs.order_by('-payment_date', '-invoice_date', '-id')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        all_paid = list(AssemblySale.objects.filter(status='PAID').prefetch_related('items'))
+        ctx['total_receipts_count'] = len(all_paid)
+        ctx['total_received_amount'] = sum((s.total_amount for s in all_paid), Decimal('0.00'))
+        ctx['total_units_sold'] = sum(s.total_quantity for s in all_paid)
+        ctx['unpaid_invoices_count'] = AssemblySale.objects.filter(status='UNPAID').count()
+        ctx['current_q'] = (self.request.GET.get('q') or '').strip()
+        ctx['current_payment_method'] = (self.request.GET.get('payment_method') or '').strip()
+        ctx['payment_method_choices'] = AssemblySale.PAYMENT_METHOD_CHOICES
+        return ctx
+
+
+class ReceiptDetailView(ArticleContextMixin, DetailView):
+    """
+    Official Customer Payment Receipt view for a Paid & Closed AssemblySale.
+    """
+    model = AssemblySale
+    template_name = 'core/receipt_detail.html'
+    context_object_name = 'sale'
+    article_link_param = 'sale'
+
+    def get_queryset(self):
+        return AssemblySale.objects.filter(status='PAID').prefetch_related('items', 'items__bom')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['items'] = list(self.object.items.select_related('bom').all())
+        ctx['company_name'] = AssemblySale.DEFAULT_COMPANY_NAME
+        ctx['company_address'] = AssemblySale.DEFAULT_COMPANY_ADDRESS
+        ctx['company_phone'] = AssemblySale.DEFAULT_COMPANY_PHONE
+        ctx['company_email'] = AssemblySale.DEFAULT_COMPANY_EMAIL
+        return ctx
+
+
 class AssemblySaleUpdateView(UpdateView):
     """
     Allows editing invoice header details (customer info, payment method, payment date, notes, status)
@@ -3946,6 +4322,12 @@ class AssemblySaleUpdateView(UpdateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['assemblies'] = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
+        ctx['built_assemblies'] = list(
+            Assembly.objects.filter(status='BUILT')
+            .select_related('category', 'bom')
+            .order_by('assembly_number')
+        )
+        ctx['customers'] = Customer.objects.order_by('name')
         ctx['existing_items'] = list(self.object.items.select_related('bom').all())
         return ctx
 
@@ -4343,13 +4725,25 @@ class QuoteCreateView(CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         boms = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
+        built_assemblies = list(
+            Assembly.objects.filter(status='BUILT')
+            .select_related('category', 'bom')
+            .order_by('assembly_number')
+        )
         ctx['assemblies'] = boms
+        ctx['built_assemblies'] = built_assemblies
+        ctx['customers'] = Customer.objects.order_by('name')
         ctx['next_quote_number'] = Quote.generate_next_quote_number()
         preselected_bom_id = self.request.GET.get('bom')
         if preselected_bom_id and preselected_bom_id.isdigit():
             ctx['preselected_bom'] = next((b for b in boms if b.pk == int(preselected_bom_id)), None)
         else:
             ctx['preselected_bom'] = None
+        preselected_asm_id = self.request.GET.get('assembly')
+        if preselected_asm_id and preselected_asm_id.isdigit():
+            ctx['preselected_assembly'] = next((a for a in built_assemblies if a.pk == int(preselected_asm_id)), None)
+        else:
+            ctx['preselected_assembly'] = None
         return ctx
 
     def form_valid(self, form):
@@ -4449,6 +4843,12 @@ class QuoteUpdateView(UpdateView):
         ctx = super().get_context_data(**kwargs)
         boms = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
         ctx['assemblies'] = boms
+        ctx['built_assemblies'] = list(
+            Assembly.objects.filter(status='BUILT')
+            .select_related('category', 'bom')
+            .order_by('assembly_number')
+        )
+        ctx['customers'] = Customer.objects.order_by('name')
         ctx['existing_items'] = list(self.object.items.all())
         ctx['next_quote_number'] = self.object.quote_number
         return ctx
@@ -4551,7 +4951,7 @@ class QuoteUpdateView(UpdateView):
         return redirect('quote_detail', pk=quote.pk)
 
 
-class QuoteDetailView(DetailView):
+class QuoteDetailView(ArticleContextMixin, DetailView):
     """
     Displays the printable / PDF-ready Quote reference card styled identically to an Invoice.
     Shows quote metadata, customer block, line items with BOM pricing, subtotal, grand total,
@@ -4560,6 +4960,7 @@ class QuoteDetailView(DetailView):
     model = Quote
     template_name = 'core/quote_detail.html'
     context_object_name = 'quote'
+    article_link_param = 'quote'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -4698,6 +5099,669 @@ class QuoteDeleteView(DeleteView):
                 pass
         messages.success(self.request, f"Quote {quote.quote_number} was deleted.")
         return super().form_valid(form)
+
+
+# ==============================================================================
+# KNOWLEDGE BASE: ARTICLES & TAGS VIEWS
+# ==============================================================================
+
+ARTICLE_PRELINK_MAP = {
+    'part': ('parts', Part),
+    'manufacturer': ('manufacturers', Manufacturer),
+    'company': ('companies', Company),
+    'category': ('categories', Category),
+    'customer': ('customers', Customer),
+    'location': ('locations', Location),
+    'order': ('orders', Order),
+    'bom': ('boms', BOM),
+    'kit': ('kits', Kit),
+    'assembly': ('assemblies', Assembly),
+    'quote': ('quotes', Quote),
+    'sale': ('sales', AssemblySale),
+}
+
+
+class ArticleListView(ListView):
+    model = Article
+    template_name = 'core/article_list.html'
+    context_object_name = 'articles'
+    paginate_by = 20
+
+    def get(self, request, *args, **kwargs):
+        if request.GET.get('clear') or request.GET.get('reset'):
+            request.session.pop('article_list_filters', None)
+            return redirect('article_list')
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        filters = resolve_persistent_filters(self.request, 'article_list_filters', ['q', 'type', 'tag'])
+        qs = Article.objects.prefetch_related('tags', 'parts', 'manufacturers', 'companies', 'categories').all()
+        q = filters['q']
+        if q:
+            qs = qs.filter(
+                Q(title__icontains=q) |
+                Q(summary__icontains=q) |
+                Q(content__icontains=q) |
+                Q(tags__name__icontains=q)
+            ).distinct()
+        if filters['type']:
+            qs = qs.filter(article_type=filters['type'])
+        if filters['tag']:
+            qs = qs.filter(tags__slug=filters['tag'])
+        return qs.order_by('-updated_at', 'title')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        filters = resolve_persistent_filters(self.request, 'article_list_filters', ['q', 'type', 'tag'])
+        ctx['current_q'] = filters['q']
+        ctx['current_type'] = filters['type']
+        ctx['current_tag'] = filters['tag']
+        ctx['article_types'] = Article.ARTICLE_TYPES
+        ctx['all_tags'] = Tag.objects.filter(is_system=False).order_by('name')
+        ctx['total_count'] = self.get_queryset().count()
+        return ctx
+
+
+class ArticleDetailView(DetailView):
+    model = Article
+    template_name = 'core/article_detail.html'
+    context_object_name = 'article'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['tags'] = self.object.tags.filter(is_system=False).order_by('name')
+        return ctx
+
+
+class ArticleCreateView(CreateView):
+    model = Article
+    form_class = ArticleForm
+    template_name = 'core/article_form.html'
+
+    def get_initial(self):
+        initial = super().get_initial()
+        for param, (field_name, model_cls) in ARTICLE_PRELINK_MAP.items():
+            pk = self.request.GET.get(param)
+            if pk and str(pk).isdigit():
+                obj = model_cls.objects.filter(pk=int(pk)).first()
+                if obj:
+                    initial[field_name] = [obj.pk]
+        return initial
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['next_url'] = self.request.GET.get('next') or self.request.POST.get('next', '')
+        return ctx
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, f"Article '{self.object.title}' was created successfully!")
+        next_url = self.request.POST.get('next') or self.request.GET.get('next')
+        if next_url and next_url.startswith('/'):
+            return redirect(next_url)
+        return response
+
+    def get_success_url(self):
+        return reverse('article_detail', args=[self.object.pk])
+
+
+class ArticleUpdateView(UpdateView):
+    model = Article
+    form_class = ArticleForm
+    template_name = 'core/article_form.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['next_url'] = self.request.GET.get('next') or self.request.POST.get('next', '')
+        return ctx
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, f"Article '{self.object.title}' was updated successfully!")
+        next_url = self.request.POST.get('next') or self.request.GET.get('next')
+        if next_url and next_url.startswith('/'):
+            return redirect(next_url)
+        return response
+
+    def get_success_url(self):
+        return reverse('article_detail', args=[self.object.pk])
+
+
+class ArticleDeleteView(DeleteView):
+    model = Article
+    template_name = 'core/confirm_delete.html'
+    success_url = reverse_lazy('article_list')
+
+    def delete(self, request, *args, **kwargs):
+        article = self.get_object()
+        messages.success(request, f"Article '{article.title}' was deleted.")
+        return super().delete(request, *args, **kwargs)
+
+
+class TagListView(ListView):
+    model = Tag
+    template_name = 'core/tag_list.html'
+    context_object_name = 'tags'
+
+    def get_queryset(self):
+        qs = Tag.objects.filter(is_system=False).annotate(
+            articles_count=Count('articles', distinct=True),
+            parts_count=Count('parts', distinct=True),
+            manufacturers_count=Count('manufacturers', distinct=True),
+            companies_count=Count('companies', distinct=True),
+            categories_count=Count('categories', distinct=True),
+            customers_count=Count('customers', distinct=True),
+            locations_count=Count('locations', distinct=True),
+            orders_count=Count('orders', distinct=True),
+        )
+        q = (self.request.GET.get('q') or '').strip()
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
+        return qs.order_by('name')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['current_q'] = (self.request.GET.get('q') or '').strip()
+        return ctx
+
+
+class TagDetailView(DetailView):
+    model = Tag
+    template_name = 'core/tag_detail.html'
+    context_object_name = 'tag'
+    slug_field = 'slug'
+    slug_url_kwarg = 'slug'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['articles'] = self.object.articles.prefetch_related('tags').all()
+        ctx['parts'] = self.object.parts.select_related('category', 'company').all()
+        ctx['manufacturers'] = self.object.manufacturers.all()
+        ctx['companies'] = self.object.companies.all()
+        ctx['categories'] = self.object.categories.all()
+        ctx['customers'] = self.object.customers.all()
+        ctx['locations'] = self.object.locations.all()
+        ctx['orders'] = self.object.orders.select_related('supplier').all()
+        return ctx
+
+
+class TagCreateView(CreateView):
+    model = Tag
+    form_class = TagForm
+    template_name = 'core/tag_form.html'
+    success_url = reverse_lazy('tag_list')
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, f"Tag '{self.object.name}' was created successfully!")
+        return response
+
+
+class TagUpdateView(UpdateView):
+    model = Tag
+    form_class = TagForm
+    template_name = 'core/tag_form.html'
+    slug_field = 'slug'
+    slug_url_kwarg = 'slug'
+    success_url = reverse_lazy('tag_list')
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, f"Tag '{self.object.name}' was updated successfully!")
+        return response
+
+
+class TagDeleteView(DeleteView):
+    model = Tag
+    template_name = 'core/confirm_delete.html'
+    slug_field = 'slug'
+    slug_url_kwarg = 'slug'
+    success_url = reverse_lazy('tag_list')
+
+    def delete(self, request, *args, **kwargs):
+        tag = self.get_object()
+        messages.success(request, f"Tag '{tag.name}' was deleted.")
+        return super().delete(request, *args, **kwargs)
+
+
+def attach_article_to_entity(request, model_name, pk):
+    """
+    Inline drop-zone / quick-attach endpoint for any taggable entity (Order, Part,
+    Manufacturer, Company, Category, Customer, Location).
+    Creates a new Article (or links an existing one) and automatically attaches
+    the entity's hidden internal system Tag (`is_system=True`) behind the scenes.
+    """
+    entry = ARTICLE_PRELINK_MAP.get(model_name)
+    if not entry:
+        return redirect('home')
+    m2m_field, model_cls = entry
+    obj = get_object_or_404(model_cls, pk=pk)
+    next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or '/'
+
+    if request.method == 'POST':
+        sys_tag = Tag.get_or_create_system_tag(obj)
+        existing_id = (request.POST.get('existing_article_id') or '').strip()
+
+        if existing_id and existing_id.isdigit():
+            article = get_object_or_404(Article, pk=int(existing_id))
+            article.tags.add(sys_tag)
+            getattr(article, m2m_field).add(obj)
+            messages.success(request, f"Linked '{article.title}' to this record.")
+            return redirect(next_url)
+
+        uploaded_file = request.FILES.get('file')
+        external_url = (request.POST.get('external_url') or '').strip()
+        summary = (request.POST.get('summary') or '').strip()
+        title = (request.POST.get('title') or '').strip()
+        article_type = (request.POST.get('article_type') or 'other').strip()
+
+        if not title:
+            if uploaded_file:
+                title = uploaded_file.name
+            elif external_url:
+                title = external_url[:180]
+            else:
+                messages.error(request, "Please drop/select a file, enter a URL, or provide a title.")
+                return redirect(next_url)
+
+        article = Article.objects.create(
+            title=title[:200],
+            article_type=article_type,
+            summary=summary[:300],
+            file=uploaded_file,
+            external_url=external_url,
+        )
+        article.tags.add(sys_tag)
+        getattr(article, m2m_field).add(obj)
+        messages.success(request, f"Attached '{article.title}'.")
+
+    return redirect(next_url)
+
+
+def detach_article_from_entity(request, model_name, pk, article_id):
+    """
+    Unlinks an Article from an entity by removing both the entity's hidden
+    system Tag and M2M relation (without deleting the Article itself).
+    """
+    entry = ARTICLE_PRELINK_MAP.get(model_name)
+    if not entry:
+        return redirect('home')
+    m2m_field, model_cls = entry
+    obj = get_object_or_404(model_cls, pk=pk)
+    article = get_object_or_404(Article, pk=article_id)
+    next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or '/'
+
+    if request.method == 'POST':
+        sys_slug = f"sys-{obj._meta.model_name}-{obj.pk}"
+        sys_tag = Tag.objects.filter(slug=sys_slug).first()
+        if sys_tag:
+            article.tags.remove(sys_tag)
+        getattr(article, m2m_field).remove(obj)
+        messages.success(request, f"Unlinked '{article.title}'.")
+
+    return redirect(next_url)
+
+
+# ==============================================================================
+# KITS (920 SERIES — PICKED FROM BOMS)
+# ==============================================================================
+
+class KitListView(ListView):
+    model = Kit
+    template_name = 'core/kit_list.html'
+    context_object_name = 'kits'
+
+    def get_queryset(self):
+        qs = Kit.objects.select_related('bom', 'part').all()
+        status = (self.request.GET.get('status') or '').strip()
+        if status:
+            qs = qs.filter(status=status)
+        q = (self.request.GET.get('q') or '').strip()
+        if q:
+            qs = qs.filter(Q(kit_number__icontains=q) | Q(bom__name__icontains=q) | Q(bom__assembly_number__icontains=q))
+        return qs.order_by('-created_at', 'kit_number')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['current_status'] = (self.request.GET.get('status') or '').strip()
+        ctx['current_q'] = (self.request.GET.get('q') or '').strip()
+        ctx['boms'] = BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name')
+        ctx['kit_categories'] = Category.objects.filter(prefix__startswith='92').order_by('prefix', 'name')
+        ctx['next_kit_number'] = Kit.generate_next_kit_number()
+        pre_bom = self.request.GET.get('bom')
+        ctx['preselected_bom_id'] = int(pre_bom) if pre_bom and pre_bom.isdigit() else None
+        return ctx
+
+
+class KitDetailView(ArticleContextMixin, DetailView):
+    model = Kit
+    template_name = 'core/kit_detail.html'
+    context_object_name = 'kit'
+    article_link_param = 'kit'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['items'] = self.object.bom.items.select_related('part', 'part__location', 'part__company').all()
+        return ctx
+
+
+def kit_pick_create(request):
+    """
+    POST action to pick a new Kit (920-xxx) from a BoM recipe, committing
+    1 set of the BoM's components into `quantity_committed`.
+    """
+    if request.method != 'POST':
+        return redirect('kit_list')
+
+    bom_id = (request.POST.get('bom') or '').strip()
+    if not bom_id.isdigit():
+        messages.error(request, "Please select a BoM to pick a kit from.")
+        return redirect('kit_list')
+
+    bom = get_object_or_404(BOM, pk=int(bom_id))
+    items = list(bom.items.select_related('part').all())
+    if not items:
+        messages.error(request, f"BoM '{bom.name}' has no component parts.")
+        return redirect('kit_list')
+
+    cat_id = (request.POST.get('category') or '').strip()
+    kit_category = Category.objects.filter(pk=int(cat_id)).first() if cat_id.isdigit() else None
+    if not kit_category and bom.category and bom.category.prefix and bom.category.prefix.startswith('91') and len(bom.category.prefix) == 3:
+        mirrored_prefix = '92' + bom.category.prefix[2]
+        kit_category = Category.objects.filter(prefix=mirrored_prefix).first()
+    if not kit_category:
+        kit_category = Category.objects.filter(prefix='920').first()
+
+    kit_prefix = f"{kit_category.prefix}-" if (kit_category and kit_category.prefix) else "920-"
+    kit_number = (request.POST.get('kit_number') or '').strip() or Kit.generate_next_kit_number(prefix=kit_prefix)
+    if Kit.objects.filter(kit_number=kit_number).exists():
+        messages.error(request, f"Kit number '{kit_number}' already exists.")
+        return redirect('kit_list')
+
+    with transaction.atomic():
+        for item in items:
+            part = item.part
+            req = item.quantity or 1
+            part.quantity_committed = (part.quantity_committed or 0) + req
+            part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+            part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+
+        kit = Kit.objects.create(
+            kit_number=kit_number,
+            bom=bom,
+            bom_revision=bom.revision,
+            category=kit_category,
+            status='PICKED',
+        )
+        _attach_entity_form_document(request, kit, 'kits', default_type='sop')
+
+    messages.success(request, f"Picked Kit {kit.kit_number} from '{bom.name}' (Rev {bom.revision}) and committed component parts.")
+    return redirect('kit_detail', pk=kit.pk)
+
+
+def kit_cancel_action(request, pk):
+    """
+    POST action to cancel/return a Picked Kit back to uncommitted stock.
+    """
+    kit = get_object_or_404(Kit.objects.select_related('bom'), pk=pk)
+    if request.method == 'POST' and kit.status == 'PICKED':
+        with transaction.atomic():
+            for item in kit.bom.items.select_related('part').all():
+                part = item.part
+                req = item.quantity or 1
+                old_c = part.quantity_committed or 0
+                part.quantity_committed = max(0, old_c - min(old_c, req))
+                part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+            kit.status = 'CANCELLED'
+            kit.save(update_fields=['status', 'updated_at'])
+        messages.success(request, f"Kit {kit.kit_number} cancelled and component parts returned to available stock.")
+    return redirect('kit_detail', pk=kit.pk)
+
+
+# ==============================================================================
+# ASSEMBLIES (930 SUB-ASSEMBLIES / 940 ASSEMBLIES / 950 FULL SYSTEMS)
+# ==============================================================================
+
+class AssemblyListView(ListView):
+    model = Assembly
+    template_name = 'core/assembly_list.html'
+    context_object_name = 'assemblies'
+
+    def get_queryset(self):
+        qs = Assembly.objects.select_related('kit', 'bom', 'part').all()
+        atype = (self.request.GET.get('type') or '').strip()
+        if atype in ('930', '940', '950'):
+            qs = qs.filter(assembly_type=atype)
+        q = (self.request.GET.get('q') or '').strip()
+        if q:
+            qs = qs.filter(
+                Q(assembly_number__icontains=q) |
+                Q(name__icontains=q) |
+                Q(kit__kit_number__icontains=q)
+            )
+        return qs.order_by('-created_at', 'assembly_number')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['current_type'] = (self.request.GET.get('type') or '').strip()
+        ctx['current_q'] = (self.request.GET.get('q') or '').strip()
+        ctx['picked_kits'] = Kit.objects.filter(status='PICKED').select_related('bom', 'category').order_by('kit_number')
+        ctx['assembly_types'] = Assembly.ASSEMBLY_TYPE_CHOICES
+        ctx['assembly_categories'] = Category.objects.filter(
+            Q(prefix__startswith='93') | Q(prefix__startswith='94') | Q(prefix__startswith='95')
+        ).order_by('prefix', 'name')
+        ctx['next_numbers'] = {
+            '930': Assembly.generate_next_number('930'),
+            '940': Assembly.generate_next_number('940'),
+            '950': Assembly.generate_next_number('950'),
+        }
+        pre_kit = self.request.GET.get('kit')
+        ctx['preselected_kit_id'] = int(pre_kit) if pre_kit and pre_kit.isdigit() else None
+        return ctx
+
+
+class AssemblyDetailView(ArticleContextMixin, DetailView):
+    model = Assembly
+    template_name = 'core/assembly_detail.html'
+    context_object_name = 'assembly'
+    article_link_param = 'assembly'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        if self.object.bom:
+            ctx['items'] = self.object.bom.items.select_related('part', 'part__location').all()
+        else:
+            ctx['items'] = []
+        ctx['full_system_categories'] = Category.objects.filter(prefix__startswith='95').order_by('prefix', 'name')
+        ctx['subassembly_categories'] = Category.objects.filter(
+            Q(prefix__startswith='93') | Q(prefix='945') | Q(prefix__lt='900')
+        ).order_by(Length('prefix'), 'prefix', 'name')
+        ctx['existing_subassembly_parts'] = Part.objects.select_related('category').filter(
+            Q(category__prefix__startswith='93') | Q(category__prefix='945')
+        ).order_by('part_number')
+        return ctx
+
+
+def assembly_build_from_kit(request):
+    """
+    POST action to convert a Picked Kit (920-xxx) into a built Assembly
+    (930 Sub-Assembly / 940-945 Assembly / 950-955 Full System), deducting all
+    component parts from on-hand and committed inventory and assigning a new part number.
+    """
+    if request.method != 'POST':
+        return redirect('assembly_list')
+
+    kit_id = (request.POST.get('kit') or '').strip()
+    if not kit_id.isdigit():
+        messages.error(request, "Please select a picked Kit to convert into an Assembly.")
+        return redirect('assembly_list')
+
+    kit = get_object_or_404(Kit.objects.select_related('bom', 'category'), pk=int(kit_id))
+    if kit.status != 'PICKED':
+        messages.error(request, f"Kit {kit.kit_number} is {kit.get_status_display()} and cannot be built.")
+        return redirect('assembly_list')
+
+    cat_id = (request.POST.get('category') or '').strip()
+    asm_category = Category.objects.filter(pk=int(cat_id)).first() if cat_id.isdigit() else None
+    assembly_type = (request.POST.get('assembly_type') or '940').strip()
+    if asm_category and asm_category.prefix:
+        num_prefix = asm_category.prefix
+        assembly_type = num_prefix[:2] + '0' if num_prefix[:2] in ('93', '94', '95') else '940'
+    else:
+        if assembly_type not in ('930', '940', '950'):
+            assembly_type = '940'
+        num_prefix = assembly_type
+        asm_category = Category.objects.filter(prefix=assembly_type).first()
+
+    assembly_number = (request.POST.get('assembly_number') or '').strip() or Assembly.generate_next_number(num_prefix)
+    if Assembly.objects.filter(assembly_number=assembly_number).exists():
+        messages.error(request, f"Assembly number '{assembly_number}' already exists.")
+        return redirect('assembly_list')
+
+    name = (request.POST.get('name') or '').strip() or kit.bom.name
+    raw_price = (request.POST.get('sale_price') or '').strip()
+    sale_price = None
+    if raw_price:
+        try:
+            sale_price = Decimal(raw_price)
+        except (InvalidOperation, ValueError):
+            sale_price = kit.bom.sale_price
+    elif kit.bom.sale_price is not None:
+        sale_price = kit.bom.sale_price
+
+    with transaction.atomic():
+        for item in kit.bom.items.select_related('part').all():
+            part = item.part
+            req = item.quantity or 1
+            old_oh = part.quantity_on_hand or 0
+            old_comm = part.quantity_committed or 0
+            part.quantity_on_hand = max(0, old_oh - req)
+            part.quantity_committed = max(0, old_comm - min(old_comm, req))
+            part.quantity_availible = max(0, part.quantity_on_hand - part.quantity_committed)
+            part.save(update_fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible', 'updated_at'])
+
+        kit.status = 'BUILT'
+        kit.save(update_fields=['status', 'updated_at'])
+
+        assembly = Assembly.objects.create(
+            assembly_type=assembly_type,
+            category=asm_category,
+            assembly_number=assembly_number,
+            name=name,
+            kit=kit,
+            bom=kit.bom,
+            sale_price=sale_price,
+            status='BUILT',
+        )
+
+    messages.success(
+        request,
+        f"Converted Kit {kit.kit_number} into {assembly.assembly_number} ({assembly.name}) and deducted parts from inventory."
+    )
+    return redirect('assembly_detail', pk=assembly.pk)
+
+
+def assembly_promote_to_full_system(request, pk):
+    """
+    POST action to promote a built 940-series Assembly into a 950-series Full System
+    (950/951/952/953/955) ready for sale.
+    """
+    source_asm = get_object_or_404(Assembly.objects.select_related('bom', 'category', 'part'), pk=pk)
+    if request.method != 'POST' or source_asm.status != 'BUILT':
+        return redirect('assembly_detail', pk=source_asm.pk)
+
+    cat_id = (request.POST.get('category') or '').strip()
+    target_cat = Category.objects.filter(pk=int(cat_id), prefix__startswith='95').first() if cat_id.isdigit() else None
+    if not target_cat and source_asm.category and source_asm.category.prefix and source_asm.category.prefix.startswith('94') and len(source_asm.category.prefix) == 3:
+        target_cat = Category.objects.filter(prefix='95' + source_asm.category.prefix[2]).first()
+    if not target_cat:
+        target_cat = Category.objects.filter(prefix='950').first()
+
+    num_prefix = target_cat.prefix if (target_cat and target_cat.prefix) else '950'
+    new_number = (request.POST.get('assembly_number') or '').strip() or Assembly.generate_next_number(num_prefix)
+    if Assembly.objects.filter(assembly_number=new_number).exists():
+        messages.error(request, f"Full System number '{new_number}' already exists.")
+        return redirect('assembly_detail', pk=source_asm.pk)
+
+    raw_price = (request.POST.get('sale_price') or '').strip()
+    sale_price = source_asm.sale_price
+    if raw_price:
+        try:
+            sale_price = Decimal(raw_price)
+        except (InvalidOperation, ValueError):
+            pass
+
+    name = (request.POST.get('name') or '').strip() or source_asm.name
+
+    with transaction.atomic():
+        source_asm.status = 'PROMOTED'
+        source_asm.save()
+        full_system = Assembly.objects.create(
+            assembly_type='950',
+            category=target_cat,
+            assembly_number=new_number,
+            name=name,
+            bom=source_asm.bom,
+            source_assembly=source_asm,
+            sale_price=sale_price,
+            status='BUILT',
+        )
+
+    messages.success(
+        request,
+        f"Promoted {source_asm.assembly_number} to Full System {full_system.assembly_number} (ready for sale)."
+    )
+    return redirect('assembly_detail', pk=full_system.pk)
+
+
+def assembly_convert_to_subassembly_part(request, pk):
+    """
+    POST action to convert a built Assembly back into a reusable Part (e.g. 930 Sub-Assembly
+    or another part category) with +1 on-hand stock so it can be used inside another BoM, Kit, and Assembly.
+    """
+    source_asm = get_object_or_404(Assembly.objects.select_related('bom', 'category', 'part'), pk=pk)
+    if request.method != 'POST' or source_asm.status != 'BUILT':
+        return redirect('assembly_detail', pk=source_asm.pk)
+
+    existing_part_id = (request.POST.get('existing_part_id') or '').strip()
+    target_part = None
+
+    with transaction.atomic():
+        if existing_part_id.isdigit():
+            target_part = get_object_or_404(Part, pk=int(existing_part_id))
+            target_part.quantity_on_hand = (target_part.quantity_on_hand or 0) + 1
+            target_part.quantity_availible = max(0, target_part.quantity_on_hand - (target_part.quantity_committed or 0))
+            target_part.save(update_fields=['quantity_on_hand', 'quantity_availible', 'updated_at'])
+        else:
+            cat_id = (request.POST.get('category') or '').strip()
+            target_cat = Category.objects.filter(pk=int(cat_id)).first() if cat_id.isdigit() else None
+            if not target_cat:
+                target_cat = Category.objects.filter(prefix='930').first()
+            part_num = (request.POST.get('part_number') or '').strip()
+            if not part_num and target_cat:
+                part_num = Part.generate_next_part_number(target_cat)
+            name = (request.POST.get('part_name') or '').strip() or source_asm.name
+            target_part = Part.objects.create(
+                part_number=part_num,
+                name=name[:150],
+                description=f"Sub-assembly converted from {source_asm.assembly_number}",
+                category=target_cat,
+                quantity_on_hand=1,
+                quantity_availible=1,
+                price_per=source_asm.sale_price,
+                confirmed=True,
+            )
+
+        source_asm.status = 'CONSUMED'
+        source_asm.converted_part = target_part
+        source_asm.save()
+
+    messages.success(
+        request,
+        f"Converted {source_asm.assembly_number} into reusable Part {target_part.part_number} (On-Hand: {target_part.quantity_on_hand}) for use in BoMs, Kits & Assemblies."
+    )
+    return redirect('part_detail', pk=target_part.pk)
 
 
 

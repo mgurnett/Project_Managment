@@ -161,6 +161,10 @@
                 <button type="button" class="btn btn-success btn-sm fw-semibold shadow-sm" data-bs-toggle="modal" data-bs-target="#markPaidModal">
                     <i class="bi bi-check2-circle me-1"></i> Mark as Paid &amp; Close Invoice
                 </button>
+            {% else %}
+                <a href="{% url 'receipt_detail' sale.pk %}" class="btn btn-success btn-sm fw-semibold shadow-sm">
+                    <i class="bi bi-receipt-cutoff me-1"></i> View Official Receipt
+                </a>
             {% endif %}
 
             <button type="button" class="btn btn-outline-primary btn-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#emailInvoiceModal">
@@ -220,8 +224,8 @@
                     </div>
                 </div>
                 <div class="d-flex align-items-center gap-2">
-                    <a href="{% url 'kit_action' %}" class="btn btn-sm btn-outline-secondary text-nowrap">
-                        <i class="bi bi-box-seam me-1"></i> Build in Kits
+                    <a href="{% url 'assembly_list' %}" class="btn btn-sm btn-outline-secondary text-nowrap">
+                        <i class="bi bi-tools me-1"></i> View Assemblies
                     </a>
                     <button type="button" class="btn btn-sm btn-success text-nowrap fw-semibold" data-bs-toggle="modal" data-bs-target="#markPaidModal">
                         <i class="bi bi-check2-circle me-1"></i> Close &amp; Stamp Paid
@@ -401,6 +405,11 @@
             <span>Questions? Contact {{ company_email }} or {{ company_phone }}</span>
         </div>
 
+    </div>
+
+    <!-- Attached Documents & Reference Files (Hidden when printing) -->
+    <div class="no-print mt-4 mb-5" style="max-width: 900px; margin: 0 auto;">
+        {% include "core/_articles_and_tags_card.html" %}
     </div>
 
 </div>

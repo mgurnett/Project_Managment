@@ -15,6 +15,31 @@ urlpatterns = [
     path('parts/<int:pk>/delete/', views.PartDeleteView.as_view(), name='part_delete'),
     path('parts/<int:pk>/move-category/', views.part_move_category_action, name='part_move_category'),
 
+    # Setup & Directory Hub
+    path('setup/', views.setup_directory, name='setup_directory'),
+
+    # Knowledge Base: Articles & Tags
+    path('articles/', views.ArticleListView.as_view(), name='article_list'),
+    path('articles/add/', views.ArticleCreateView.as_view(), name='article_create'),
+    path('articles/<int:pk>/', views.ArticleDetailView.as_view(), name='article_detail'),
+    path('articles/<int:pk>/edit/', views.ArticleUpdateView.as_view(), name='article_update'),
+    path('articles/<int:pk>/delete/', views.ArticleDeleteView.as_view(), name='article_delete'),
+    path('attach/<str:model_name>/<int:pk>/', views.attach_article_to_entity, name='attach_article_to_entity'),
+    path('detach/<str:model_name>/<int:pk>/<int:article_id>/', views.detach_article_from_entity, name='detach_article_from_entity'),
+
+    path('tags/', views.TagListView.as_view(), name='tag_list'),
+    path('tags/add/', views.TagCreateView.as_view(), name='tag_create'),
+    path('tags/<slug:slug>/', views.TagDetailView.as_view(), name='tag_detail'),
+    path('tags/<slug:slug>/edit/', views.TagUpdateView.as_view(), name='tag_update'),
+    path('tags/<slug:slug>/delete/', views.TagDeleteView.as_view(), name='tag_delete'),
+
+    # Customers CRUD
+    path('customers/', views.CustomerListView.as_view(), name='customer_list'),
+    path('customers/add/', views.CustomerCreateView.as_view(), name='customer_create'),
+    path('customers/<int:pk>/', views.CustomerDetailView.as_view(), name='customer_detail'),
+    path('customers/<int:pk>/edit/', views.CustomerUpdateView.as_view(), name='customer_update'),
+    path('customers/<int:pk>/delete/', views.CustomerDeleteView.as_view(), name='customer_delete'),
+
     # Companies / Suppliers CRUD
     path('companies/', views.CompanyListView.as_view(), name='company_list'),
     path('companies/add/', views.CompanyCreateView.as_view(), name='company_create'),
@@ -51,37 +76,46 @@ urlpatterns = [
     path('documents/<int:pk>/edit/', views.PartDocumentUpdateView.as_view(), name='part_document_update'),
     path('documents/<int:pk>/delete/', views.PartDocumentDeleteView.as_view(), name='part_document_delete'),
 
-    # BoM / Assembly / Kit Documents, Schematics & Video Links
+    # Inventory Count Sheet & Take Inventory Adjustments
+    path('inventory/count-sheet/', views.InventoryCountSheetView.as_view(), name='inventory_count_sheet'),
+    path('inventory/count-sheet/export/csv/', views.inventory_count_sheet_export_csv, name='inventory_count_sheet_csv'),
+    path('inventory/count-sheet/pdf/', views.inventory_count_sheet_pdf, name='inventory_count_sheet_pdf'),
+    path('inventory/take-inventory/', views.TakeInventoryView.as_view(), name='take_inventory'),
+
+    # Bills of Materials (BoMs — 910 Series Recipes)
     path('boms/<int:bom_pk>/documents/add/', views.BOMDocumentCreateView.as_view(), name='bom_document_create'),
     path('boms/documents/<int:pk>/', views.BOMDocumentDetailView.as_view(), name='bom_document_detail'),
     path('boms/documents/<int:pk>/edit/', views.BOMDocumentUpdateView.as_view(), name='bom_document_update'),
     path('boms/documents/<int:pk>/delete/', views.BOMDocumentDeleteView.as_view(), name='bom_document_delete'),
-
-    # Bills of Materials (BOM) / Product Assemblies
     path('boms/', views.BOMListView.as_view(), name='bom_list'),
     path('boms/add/', views.BOMCreateView.as_view(), name='bom_create'),
     path('boms/<int:pk>/', views.BOMDetailView.as_view(), name='bom_detail'),
     path('boms/<int:pk>/edit/', views.BOMUpdateView.as_view(), name='bom_update'),
     path('boms/<int:pk>/delete/', views.BOMDeleteView.as_view(), name='bom_delete'),
+    path('boms/<int:pk>/freeze/', views.bom_freeze_action, name='bom_freeze'),
+    path('boms/<int:pk>/new-revision/', views.bom_new_revision_action, name='bom_new_revision'),
+    path('boms/<int:pk>/pick-list/', views.bom_pick_list, name='bom_pick_list'),
     path('boms/<int:bom_pk>/items/add/', views.BOMItemCreateView.as_view(), name='bom_item_create'),
     path('boms/<int:pk>/add-bom/', views.bom_add_from_bom_action, name='bom_add_from_bom'),
     path('bom-items/<int:pk>/explode/', views.bom_item_explode_action, name='bom_item_explode'),
     path('boms/<int:pk>/items-json/', views.bom_get_items_json, name='bom_items_json'),
     path('bom-items/<int:pk>/update/', views.bom_item_update_action, name='bom_item_update'),
     path('bom-items/<int:pk>/delete/', views.BOMItemDeleteView.as_view(), name='bom_item_delete'),
-    path('boms/<int:pk>/kit/', views.bom_kit_action, name='bom_kit_action'),
-    path('boms/<int:pk>/adjust-kit/', views.bom_adjust_kit_action, name='bom_adjust_kit_action'),
-    path('boms/<int:pk>/close-kit/', views.bom_close_kit_action, name='bom_close_kit_action'),
-    path('boms/<int:pk>/build/', views.bom_build_action, name='bom_build_action'),
-    path('boms/<int:pk>/adjust-stock/', views.bom_adjust_assembly_stock, name='bom_adjust_assembly_stock'),
-    path('parts/<int:pk>/adjust-committed/', views.part_adjust_committed_action, name='part_adjust_committed_action'),
 
-    # Kit & Build Actions
-    path('actions/kit/', views.KitActionView.as_view(), name='kit_action'),
-    path('actions/build/', views.BuildActionView.as_view(), name='build_action'),
-    path('assemblies/', views.BuildActionView.as_view(), name='assemblies'),
+    # Kits (920 Series — Picked from BoMs)
+    path('kits/', views.KitListView.as_view(), name='kit_list'),
+    path('kits/pick/', views.kit_pick_create, name='kit_pick'),
+    path('kits/<int:pk>/', views.KitDetailView.as_view(), name='kit_detail'),
+    path('kits/<int:pk>/cancel/', views.kit_cancel_action, name='kit_cancel'),
 
-    # Sales Quotes & Estimates (Built from BOMs)
+    # Assemblies (930 Sub-Assemblies / 940 Assemblies / 950 Full Systems)
+    path('assemblies/', views.AssemblyListView.as_view(), name='assembly_list'),
+    path('assemblies/build/', views.assembly_build_from_kit, name='assembly_build'),
+    path('assemblies/<int:pk>/', views.AssemblyDetailView.as_view(), name='assembly_detail'),
+    path('assemblies/<int:pk>/promote-full-system/', views.assembly_promote_to_full_system, name='assembly_promote_full_system'),
+    path('assemblies/<int:pk>/convert-subassembly/', views.assembly_convert_to_subassembly_part, name='assembly_convert_subassembly'),
+
+    # Quotes (Customer Estimates -> Converts to Invoice)
     path('quotes/', views.QuoteListView.as_view(), name='quote_list'),
     path('quotes/create/', views.QuoteCreateView.as_view(), name='quote_create'),
     path('quotes/<int:pk>/', views.QuoteDetailView.as_view(), name='quote_detail'),
@@ -91,7 +125,7 @@ urlpatterns = [
     path('quotes/<int:pk>/send-email/', views.quote_send_email, name='quote_send_email'),
     path('quotes/<int:pk>/pdf/', views.quote_pdf, name='quote_pdf'),
 
-    # Sales & Invoices (1000-Series Built Assemblies)
+    # Invoices (Assembly Sales -> Mark Paid to Issue Receipt)
     path('sales/', views.AssemblySaleListView.as_view(), name='sale_list'),
     path('sales/create/', views.AssemblySaleCreateView.as_view(), name='sale_create'),
     path('sales/<int:pk>/', views.AssemblySaleDetailView.as_view(), name='sale_detail'),
@@ -101,12 +135,23 @@ urlpatterns = [
     path('sales/<int:pk>/delete/', views.AssemblySaleDeleteView.as_view(), name='sale_delete'),
     path('sales/<int:pk>/pdf/', views.assembly_sale_pdf, name='sale_pdf'),
 
-    # Inventory Count Sheet & Take Inventory Adjustments
-    path('inventory/count-sheet/', views.InventoryCountSheetView.as_view(), name='inventory_count_sheet'),
-    path('inventory/count-sheet/export/csv/', views.inventory_count_sheet_export_csv, name='inventory_count_sheet_csv'),
-    path('inventory/count-sheet/pdf/', views.inventory_count_sheet_pdf, name='inventory_count_sheet_pdf'),
-    path('inventory/take-inventory/', views.TakeInventoryView.as_view(), name='take_inventory'),
+    # Receipts (Paid & Closed Customer Invoices)
+    path('receipts/', views.ReceiptListView.as_view(), name='receipt_list'),
+    path('receipts/<int:pk>/', views.ReceiptDetailView.as_view(), name='receipt_detail'),
+    path('receipts/<int:pk>/pdf/', views.assembly_sale_pdf, name='receipt_pdf'),
 
+    # ==========================================================================
+    # LEGACY / RETIRED ROUTES (replaced by 900-series Kits & Assemblies)
+    # ==========================================================================
+    # path('boms/<int:pk>/kit/', views.bom_kit_action, name='bom_kit_action'),
+    # path('boms/<int:pk>/adjust-kit/', views.bom_adjust_kit_action, name='bom_adjust_kit_action'),
+    # path('boms/<int:pk>/close-kit/', views.bom_close_kit_action, name='bom_close_kit_action'),
+    # path('boms/<int:pk>/build/', views.bom_build_action, name='bom_build_action'),
+    # path('boms/<int:pk>/adjust-stock/', views.bom_adjust_assembly_stock, name='bom_adjust_assembly_stock'),
+    # path('parts/<int:pk>/adjust-committed/', views.part_adjust_committed_action, name='part_adjust_committed_action'),
+    # path('actions/kit/', views.KitActionView.as_view(), name='kit_action'),
+    # path('actions/build/', views.BuildActionView.as_view(), name='build_action'),
+    # path('assemblies/', views.BuildActionView.as_view(), name='assemblies'),
     # Purchase Orders & Order / Receive Actions
     path('orders/', views.OrderListView.as_view(), name='order_list'),
     path('orders/create/', views.OrderCreateView.as_view(), name='order_create'),

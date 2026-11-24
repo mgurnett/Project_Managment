@@ -21,9 +21,9 @@
     <div class="d-flex justify-content-between align-items-center mb-4 pb-2">
         <div>
             <h1 class="h3 fw-bold mb-1 text-custom">
-                {% if form.instance.pk %}Edit Bill of Materials: {{ form.instance.name }}{% else %}Create Assembly BoM{% endif %}
+                {% if form.instance.pk %}Edit Bill of Materials: {{ form.instance.name }}{% else %}Create Bill of Materials (BoM){% endif %}
             </h1>
-            <p class="text-muted small mb-0">Define an assembly, hardware string, or device build bill of materials and specify what components it takes to build.</p>
+            <p class="text-muted small mb-0">Define a 910-series BoM recipe listing the component parts required to pick a kit.</p>
         </div>
         <a href="{% url 'bom_list' %}" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-x-lg me-1"></i> Cancel
@@ -31,7 +31,7 @@
     </div>
 
     <!-- Form -->
-    <form method="post" novalidate>
+    <form method="post" enctype="multipart/form-data" novalidate>
         {% csrf_token %}
 
         {% if form.errors %}
@@ -50,49 +50,68 @@
         <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
             <div class="card-header bg-transparent border-0 pt-4 px-4 pb-0">
                 <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
-                    <i class="bi bi-diagram-3 me-2 text-custom"></i>1. Assembly Identification &amp; Notes
+                    <i class="bi bi-diagram-3 me-2 text-custom"></i>1. BoM Identification &amp; Notes
                 </h2>
             </div>
             <div class="card-body p-4">
                 <div class="row g-3">
                     <div class="col-12 col-md-4">
-                        <label class="form-label small fw-semibold">900-Series Assembly #</label>
+                        <label class="form-label small fw-semibold">BoM Category (910 Series)</label>
+                        {{ form.category }}
+                        <div class="form-text small">Only 910-series BoM categories are listed.</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">910-Series BoM #</label>
                         {{ form.assembly_number }}
-                        <div class="form-text small">900-series identifier (e.g. <code>900-001</code>). Auto-assigned if left blank.</div>
+                        <div class="form-text small">Auto-assigned from category if left blank.</div>
                     </div>
-                    <div class="col-12 col-md-8">
-                        <label class="form-label small fw-semibold">Assembly Name <span class="text-danger">*</span></label>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">BoM Name <span class="text-danger">*</span></label>
                         {{ form.name }}
-                        <div class="form-text small">e.g. String Assembly, Sensor Node Assembly, Base Station, Tipups Monitor.</div>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <label class="form-label small fw-semibold">Description</label>
-                        {{ form.description }}
-                        <div class="form-text small">High-level summary of the assembly, intended use, or revision notes.</div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <label class="form-label small fw-semibold">Built On Hand (Qty)</label>
-                        {{ form.quantity_on_hand }}
-                        <div class="form-text small">Finished assemblies in stock.</div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <label class="form-label small fw-semibold">Unit Sale Price ($)</label>
-                        {{ form.sale_price }}
-                        <div class="form-text small">Invoice price (defaults to cost if blank).</div>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <label class="form-label small fw-semibold">Build Sheet Link <span class="text-muted fw-normal">(Optional)</span></label>
-                        {{ form.build_sheet_url }}
-                        <div class="form-text small">Link to the Kit Build Sheet document.</div>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <label class="form-label small fw-semibold">Inspection Sheet Link <span class="text-muted fw-normal">(Optional)</span></label>
-                        {{ form.inspection_sheet_url }}
-                        <div class="form-text small">Link to the Kit Inspection Sheet document.</div>
                     </div>
                     <div class="col-12">
-                        <label class="form-label small fw-semibold">Assembly Instructions &amp; Engineering Notes</label>
+                        <label class="form-label small fw-semibold">Description</label>
+                        {{ form.description }}
+                        <div class="form-text small">High-level summary of this BoM recipe or intended kit.</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Pick &amp; Assembly Notes</label>
                         {{ form.notes }}
+                    </div>
+                    <div class="col-12 pt-2 border-top">
+                        <label class="form-label small fw-semibold">Build Sheets, Inspection Sheets &amp; Documents</label>
+                        <div class="drop-zone-area border border-2 border-dashed rounded-3 p-3 text-center mb-3 bg-body-tertiary"
+                             style="cursor: pointer; transition: border-color .15s, background-color .15s;"
+                             onclick="this.querySelector('input[type=file]').click();"
+                             ondragover="event.preventDefault(); this.classList.add('border-primary', 'bg-primary-subtle');"
+                             ondragleave="this.classList.remove('border-primary', 'bg-primary-subtle');"
+                             ondrop="event.preventDefault(); this.classList.remove('border-primary', 'bg-primary-subtle'); const inp = this.querySelector('input[type=file]'); inp.files = event.dataTransfer.files; inp.dispatchEvent(new Event('change'));">
+                            <input type="file" name="doc_file" class="d-none" onchange="const lbl = this.closest('.drop-zone-area').querySelector('.drop-zone-label'); lbl.textContent = this.files.length ? ('Selected: ' + this.files[0].name) : 'Drop build sheet, inspection sheet, or schematic here — or click to browse';">
+                            <i class="bi bi-cloud-arrow-up fs-4 text-custom d-block mb-1"></i>
+                            <span class="drop-zone-label small fw-semibold text-body">
+                                Drop build sheet, inspection sheet, or schematic here — or click to browse
+                            </span>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-12 col-md-4">
+                                <label class="form-label small fw-semibold mb-1">Document Type</label>
+                                <select name="doc_article_type" class="form-select form-select-sm">
+                                    <option value="sop" selected>SOP / Build &amp; Inspection Sheet</option>
+                                    <option value="pinout">Pinout Diagram / Schematic</option>
+                                    <option value="datasheet">Datasheet (PDF / Spec)</option>
+                                    <option value="guide">Technical Guide / How-To</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            <div class="col-12 col-md-4">
+                                <label class="form-label small fw-semibold mb-1">Title (optional if file dropped)</label>
+                                <input type="text" name="doc_title" class="form-control form-control-sm" placeholder="e.g. Build Sheet Rev 1">
+                            </div>
+                            <div class="col-12 col-md-4">
+                                <label class="form-label small fw-semibold mb-1">Or Link URL</label>
+                                <input type="url" name="doc_external_url" class="form-control form-control-sm" placeholder="https://...">
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -104,9 +123,9 @@
             <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <h2 class="h6 fw-bold text-uppercase text-muted mb-1" style="letter-spacing: 0.05em; font-size: 0.75rem;">
-                        <i class="bi bi-cpu me-2 text-custom"></i>2. Components Required to Build Assembly
+                        <i class="bi bi-cpu me-2 text-custom"></i>2. Components Required to Pick 1 Kit
                     </h2>
-                    <p class="text-muted small mb-0">Select the parts and quantities needed to build 1 unit of this assembly (you can also add/edit components later).</p>
+                    <p class="text-muted small mb-0">Select the parts and quantities needed to pick 1 kit from this BoM (you can also add/edit components later).</p>
                 </div>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-outline-primary fw-semibold" data-bs-toggle="modal" data-bs-target="#explodeBomCreateModal">
@@ -384,4 +403,24 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endif %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const catSelect = document.getElementById('id_bom_category');
+    const bomNumInput = document.querySelector('input[name="assembly_number"]');
+    if (!catSelect || !bomNumInput) return;
+
+    catSelect.addEventListener('change', function() {
+        const catId = this.value;
+        if (!catId) return;
+        fetch(`/categories/${catId}/next-part-number/`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok' && data.next_part_number) {
+                    bomNumInput.value = data.next_part_number;
+                }
+            })
+            .catch(() => {});
+    });
+});
+</script>
 {% endblock %}

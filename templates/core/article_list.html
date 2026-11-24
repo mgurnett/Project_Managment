@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block title %}Articles &amp; Knowledge Base | Inventory Manager{% endblock %}
+{% block breadcrumb %}
+    <a href="{% url 'setup_directory' %}" class="text-decoration-none text-muted">Setup &amp; Directory</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>Articles</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <h1 class="h3 fw-bold mb-0">Articles &amp; Knowledge Base</h1>
+                <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1 small rounded-pill">
+                    {{ total_count }} Article{{ total_count|pluralize }}
+                </span>
+            </div>
+            <p class="text-muted small mb-0 mt-1">Technical guides, datasheets, SOPs, and notes linked across parts, manufacturers, suppliers, and categories.</p>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <a href="{% url 'tag_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-tags me-1"></i>Tags
+            </a>
+            <a href="{% url 'article_create' %}" class="btn btn-custom btn-sm d-flex align-items-center gap-1 shadow-sm">
+                <i class="bi bi-plus-circle"></i>
+                <span class="fw-semibold">New Article</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- Search & Filter Toolbar -->
+    <div class="card border-0 shadow-sm rounded-3 mb-4 bg-body">
+        <div class="card-body p-3">
+            <form method="get" class="row g-2 align-items-center">
+                <div class="col-12 col-md-4">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-body border-end-0"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" name="q" class="form-control bg-body border-start-0" placeholder="Search title, content, or tag..." value="{{ current_q }}">
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <select name="type" class="form-select form-select-sm">
+                        <option value="">All Types</option>
+                        {% for val, label in article_types %}
+                            <option value="{{ val }}" {% if current_type == val %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <select name="tag" class="form-select form-select-sm">
+                        <option value="">All Tags</option>
+                        {% for t in all_tags %}
+                            <option value="{{ t.slug }}" {% if current_tag == t.slug %}selected{% endif %}>#{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto d-flex gap-1">
+                    <button type="submit" class="btn btn-sm btn-outline-custom">Filter</button>
+                    {% if current_q or current_type or current_tag %}
+                        <a href="{% url 'article_list' %}?clear=1" class="btn btn-sm btn-outline-secondary">Clear</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Articles List -->
+    <div class="row g-3">
+        {% for article in articles %}
+        <div class="col-12 col-md-6">
+            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                <div class="card-body p-4 d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                        <span class="badge bg-secondary-subtle text-secondary">{{ article.get_article_type_display }}</span>
+                        <span class="text-muted small">{{ article.updated_at|date:"M d, Y" }}</span>
+                    </div>
+                    <h2 class="h5 fw-bold mb-1">
+                        <a href="{% url 'article_detail' article.pk %}" class="text-decoration-none text-custom">{{ article.title }}</a>
+                    </h2>
+                    {% if article.summary %}
+                        <p class="text-muted small mb-3">{{ article.summary }}</p>
+                    {% endif %}
+                    <div class="d-flex flex-wrap gap-1 mb-3 mt-auto">
+                        {% for tag in article.tags.all %}
+                            <a href="{% url 'tag_detail' tag.slug %}" class="badge bg-{{ tag.color }}-subtle text-{{ tag.color }} border border-{{ tag.color }}-subtle text-decoration-none rounded-pill">
+                                #{{ tag.name }}
+                            </a>
+                        {% endfor %}
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center pt-2 border-top small text-muted">
+                        <span>
+                            {% if article.parts.count %}{{ article.parts.count }} part{{ article.parts.count|pluralize }} &bull; {% endif %}
+                            {% if article.manufacturers.count %}{{ article.manufacturers.count }} mfg &bull; {% endif %}
+                            {% if article.companies.count %}{{ article.companies.count }} supplier{{ article.companies.count|pluralize }} &bull; {% endif %}
+                            {% if article.categories.count %}{{ article.categories.count }} cat{% endif %}
+                        </span>
+                        <a href="{% url 'article_detail' article.pk %}" class="btn btn-sm btn-outline-secondary py-0 px-2">Read</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="col-12">
+            <div class="card border-0 shadow-sm rounded-3 bg-body text-center py-5">
+                <div class="text-muted my-3">
+                    <i class="bi bi-journal-richtext display-4 d-block mb-3 text-secondary opacity-50"></i>
+                    <h5>No articles yet</h5>
+                    <p class="small mb-3">Create technical guides, vendor notes, or SOPs and tag or link them anywhere.</p>
+                    <a href="{% url 'article_create' %}" class="btn btn-sm btn-custom">
+                        <i class="bi bi-plus-circle me-1"></i>New Article
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+</div>
+{% endblock %}

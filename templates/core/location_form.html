@@ -55,6 +55,11 @@
                         <label class="form-label small fw-semibold">Description</label>
                         {{ form.description }}
                     </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Tags (comma-separated)</label>
+                        {{ form.tags_input }}
+                        <div class="form-text small">{{ form.tags_input.help_text }}</div>
+                    </div>
                 </div>
             </div>
         </div>

@@ -19,9 +19,9 @@
                     {{ part.part_number|default:"(No Part Number)" }}
                 </span>
                 {% if part.assembly_bom %}
-                    <a href="{% url 'bom_detail' part.assembly_bom.pk %}" class="badge bg-info-subtle text-info border border-info-subtle rounded-pill text-decoration-none px-2.5 py-1" title="Click to view Bill of Materials and Kit">
+                    <span class="badge bg-info-subtle text-info border border-info-subtle rounded-pill px-2.5 py-1">
                         <i class="bi bi-diagram-3-fill me-1"></i> 900-Series Built Assembly
-                    </a>
+                    </span>
                 {% endif %}
                 {% if part.confirmed %}
                     <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1">
@@ -37,16 +37,6 @@
         </div>
 
         <div class="d-flex align-items-center gap-2 flex-wrap">
-            {% if part.assembly_bom %}
-                <a href="{% url 'bom_detail' part.assembly_bom.pk %}" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 shadow-sm" title="View Bill of Materials (BoM)">
-                    <i class="bi bi-diagram-3"></i>
-                    <span>View BoM / Kit</span>
-                </a>
-                <a href="{% url 'sale_create' %}?bom={{ part.assembly_bom.pk }}" class="btn btn-success btn-sm d-flex align-items-center gap-1 shadow-sm" title="Sell this assembly and generate invoice">
-                    <i class="bi bi-receipt"></i>
-                    <span>Sell / Invoice</span>
-                </a>
-            {% endif %}
             {% if part.document %}
                 <a href="{{ part.document.url }}" target="_blank" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 shadow-sm" title="Open Datasheet / Document">
                     <i class="bi bi-file-earmark-arrow-down"></i>
@@ -118,6 +108,24 @@
                             </div>
                         </div>
                     </div>
+
+                    {% if part.kit_allocations %}
+                    <div class="mt-3 pt-3 border-top">
+                        <div class="small fw-bold text-uppercase text-muted mb-2" style="letter-spacing: 0.05em; font-size: 0.72rem;">
+                            <i class="bi bi-geo-alt me-1 text-custom"></i>Where Stock Is Located (Bin vs. Active Kits)
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                            <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1.5">
+                                <i class="bi bi-inboxes me-1"></i><strong>{{ part.bin_quantity }}</strong> in {{ part.location.name|default:"Storage Bin" }}
+                            </span>
+                            {% for alloc in part.kit_allocations %}
+                                <a href="{% url 'kit_detail' alloc.kit.pk %}" class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle text-decoration-none px-2.5 py-1.5">
+                                    <i class="bi bi-box-seam me-1"></i><strong>{{ alloc.qty }}</strong> in Kit {{ alloc.kit.kit_number }} ({{ alloc.kit.bom.name }})
+                                </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
 
@@ -179,173 +187,41 @@
             </div>
             {% endif %}
 
-            <!-- Articles, Datasheets, Pinouts & Scans Section -->
-            <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
-                <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
-                    <div>
-                        <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
-                            <i class="bi bi-file-earmark-medical me-2 text-custom"></i>Articles, Datasheets, Pinouts &amp; Scans ({{ documents.count }})
-                        </h3>
-                    </div>
-                    <a href="{% url 'part_document_create' part.pk %}" class="btn btn-sm btn-custom">
-                        <i class="bi bi-cloud-arrow-up me-1"></i> Add Document / Scan
-                    </a>
-                </div>
-                <div class="card-body p-4 pt-2">
-                    {% if part.document %}
-                        <!-- Primary Uploaded Document -->
-                        <div class="p-3 mb-3 border rounded-3 bg-primary-subtle border-primary-subtle d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-3 p-2 bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0" style="width: 46px; height: 46px;">
-                                    <i class="bi {% if part.is_document_pdf %}bi-file-earmark-pdf{% elif part.is_document_image %}bi-file-earmark-image{% else %}bi-file-earmark-text{% endif %} fs-4"></i>
-                                </div>
-                                <div>
-                                    <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
-                                        <span class="fw-bold text-body">{{ part.document_filename }}</span>
-                                        <span class="badge bg-primary text-white px-2 py-0.5 text-uppercase" style="font-size: 0.65rem;">
-                                            Primary Document ({{ part.document_extension|upper }})
+            <!-- Unified Tags, Articles, Datasheets & Scans Section -->
+            {% include "core/_articles_and_tags_card.html" %}
+
+            {% if assembly_bom and assembly_documents %}
+                <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+                    <div class="card-body p-3">
+                        <div class="small fw-bold text-uppercase text-primary mb-2" style="font-size: 0.72rem; letter-spacing: 0.05em;">
+                            <i class="bi bi-diagram-3 me-1"></i> Assembly BoM Documentation ({{ assembly_documents.count }})
+                        </div>
+                        <div class="list-group list-group-flush bg-transparent">
+                            {% for doc in assembly_documents %}
+                                <div class="list-group-item bg-transparent px-0 py-1.5 d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <span class="fw-semibold text-body small">{{ doc.title }}</span>
+                                        <span class="badge bg-secondary-subtle text-secondary border ms-1 py-0 px-1" style="font-size: 0.65rem;">
+                                            {{ doc.get_document_type_display }}
                                         </span>
                                     </div>
-                                    <div class="text-muted small">
-                                        <span><i class="bi bi-hdd me-1"></i>{{ part.document_size_display }}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="d-flex align-items-center gap-2 flex-shrink-0 ms-auto ms-md-0">
-                                <a href="{{ part.document.url }}" target="_blank" class="btn btn-sm btn-primary">
-                                    <i class="bi bi-eye me-1"></i> Open File
-                                </a>
-                                <a href="{{ part.document.url }}" target="_blank" download class="btn btn-sm btn-outline-primary">
-                                    <i class="bi bi-download me-1"></i> Download
-                                </a>
-                            </div>
-                        </div>
-                    {% endif %}
-
-                    {% if documents %}
-                        <div class="row g-3">
-                            {% for doc in documents %}
-                            <div class="col-12">
-                                <div class="p-3 border rounded-3 bg-body-tertiary d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
-                                    <div class="d-flex align-items-start gap-3">
-                                        <!-- Thumbnail or Icon -->
-                                        {% if doc.is_image and doc.file %}
-                                            <a href="{% url 'part_document_detail' doc.pk %}" class="d-block flex-shrink-0">
-                                                <img src="{{ doc.file.url }}" alt="{{ doc.title }}" class="rounded border shadow-sm" style="width: 72px; height: 56px; object-fit: cover; background: #fff;">
-                                            </a>
-                                        {% elif doc.is_pdf %}
-                                            <div class="rounded-3 p-2 bg-danger-subtle text-danger d-flex align-items-center justify-content-center flex-shrink-0" style="width: 56px; height: 56px;">
-                                                <i class="bi bi-file-earmark-pdf fs-3"></i>
-                                            </div>
-                                        {% elif doc.content %}
-                                            <div class="rounded-3 p-2 bg-success-subtle text-success d-flex align-items-center justify-content-center flex-shrink-0" style="width: 56px; height: 56px;">
-                                                <i class="bi bi-journal-text fs-3"></i>
-                                            </div>
-                                        {% else %}
-                                            <div class="rounded-3 p-2 bg-info-subtle text-info d-flex align-items-center justify-content-center flex-shrink-0" style="width: 56px; height: 56px;">
-                                                <i class="bi bi-link-45deg fs-3"></i>
-                                            </div>
-                                        {% endif %}
-
-                                        <!-- Meta & Title -->
-                                        <div>
-                                            <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
-                                                <a href="{% url 'part_document_detail' doc.pk %}" class="fw-bold text-decoration-none text-body">
-                                                    {{ doc.title }}
-                                                </a>
-                                                <span class="badge {% if doc.document_type == 'datasheet' %}bg-primary-subtle text-primary{% elif doc.document_type == 'pinout' %}bg-info-subtle text-info{% elif doc.document_type == 'scan' %}bg-warning-subtle text-warning{% elif doc.document_type == 'instructions' %}bg-success-subtle text-success{% else %}bg-secondary-subtle text-secondary{% endif %} border px-2 py-0.5 text-uppercase" style="font-size: 0.65rem;">
-                                                    {{ doc.get_document_type_display }}
-                                                </span>
-                                            </div>
-                                            <div class="text-muted small">
-                                                {% if doc.file %}
-                                                    <span class="me-2"><i class="bi bi-paperclip me-1"></i>{{ doc.file_extension|upper }} ({{ doc.file_size_display }})</span>
-                                                {% endif %}
-                                                {% if doc.external_url %}
-                                                    <a href="{{ doc.external_url }}" target="_blank" rel="noopener" class="text-custom text-decoration-none me-2">
-                                                        <i class="bi bi-box-arrow-up-right me-1"></i>Web Link
-                                                    </a>
-                                                {% endif %}
-                                                <span><i class="bi bi-clock me-1"></i>{{ doc.created_at|date:"M d, Y" }}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Actions -->
-                                    <div class="d-flex align-items-center gap-1 flex-shrink-0 ms-auto ms-md-0">
-                                        <a href="{% url 'part_document_detail' doc.pk %}" class="btn btn-sm btn-outline-secondary" title="View Document / Reader">
-                                            <i class="bi bi-eye"></i> View
-                                        </a>
+                                    <div>
                                         {% if doc.file %}
-                                            <a href="{{ doc.file.url }}" target="_blank" download class="btn btn-sm btn-outline-secondary" title="Download">
-                                                <i class="bi bi-download"></i>
+                                            <a href="{{ doc.file.url }}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.7rem;">
+                                                <i class="bi bi-eye me-1"></i> View
+                                            </a>
+                                        {% elif doc.external_url %}
+                                            <a href="{{ doc.external_url }}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.7rem;">
+                                                Visit ↗
                                             </a>
                                         {% endif %}
-                                        <a href="{% url 'part_document_update' doc.pk %}" class="btn btn-sm btn-outline-secondary" title="Edit">
-                                            <i class="bi bi-pencil"></i>
-                                        </a>
-                                        <a href="{% url 'part_document_delete' doc.pk %}" class="btn btn-sm btn-outline-danger" title="Delete">
-                                            <i class="bi bi-trash"></i>
-                                        </a>
                                     </div>
                                 </div>
-                            </div>
                             {% endfor %}
                         </div>
-                    {% elif not part.document %}
-                        <div class="text-center py-4 border rounded-3 bg-body-tertiary">
-                            <i class="bi bi-file-earmark-arrow-up text-muted" style="font-size: 2.2rem;"></i>
-                            <h6 class="fw-semibold mt-2 mb-1">No Documents, Scans, or Pinouts Attached</h6>
-                            <p class="text-muted small mb-3">Upload component datasheets, pinout drawings, scans, or technical articles.</p>
-                            <a href="{% url 'part_document_create' part.pk %}" class="btn btn-custom btn-sm">
-                                <i class="bi bi-plus-circle me-1"></i> Attach First Document / Scan
-                            </a>
-                        </div>
-                    {% endif %}
-
-                    {% if assembly_bom and assembly_documents %}
-                        <div class="mt-3 p-3 bg-primary-subtle bg-opacity-10 rounded border border-primary-subtle">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="small fw-bold text-uppercase text-primary" style="font-size: 0.72rem; letter-spacing: 0.05em;">
-                                    <i class="bi bi-diagram-3 me-1"></i> Assembly BoM Documentation ({{ assembly_documents.count }})
-                                </span>
-                                <a href="{% url 'bom_document_create' assembly_bom.pk %}?next={% url 'part_detail' part.pk %}" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.72rem;">
-                                    + Add Schematic / Video
-                                </a>
-                            </div>
-                            <div class="list-group list-group-flush bg-transparent">
-                                {% for doc in assembly_documents %}
-                                    <div class="list-group-item bg-transparent px-0 py-1.5 d-flex justify-content-between align-items-center">
-                                        <div>
-                                            <a href="{% url 'bom_document_detail' doc.pk %}?next={% url 'part_detail' part.pk %}" class="fw-semibold text-decoration-none text-body small">
-                                                {{ doc.title }}
-                                            </a>
-                                            <span class="badge {% if doc.document_type == 'video' %}bg-danger-subtle text-danger border border-danger-subtle{% elif doc.document_type == 'schematic' %}bg-primary-subtle text-primary border border-primary-subtle{% else %}bg-secondary-subtle text-secondary border border-secondary-subtle{% endif %} ms-1 py-0 px-1" style="font-size: 0.65rem;">
-                                                {{ doc.get_document_type_display }}
-                                            </span>
-                                        </div>
-                                        <div>
-                                            {% if doc.is_youtube %}
-                                                <a href="{% url 'bom_document_detail' doc.pk %}?next={% url 'part_detail' part.pk %}" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.7rem;">
-                                                    <i class="bi bi-play-circle me-1"></i> Watch Video
-                                                </a>
-                                            {% elif doc.file %}
-                                                <a href="{{ doc.file.url }}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.7rem;">
-                                                    <i class="bi bi-eye me-1"></i> View
-                                                </a>
-                                            {% elif doc.external_url %}
-                                                <a href="{{ doc.external_url }}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.7rem;">
-                                                    Visit ↗
-                                                </a>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    {% endif %}
+                    </div>
                 </div>
-            </div>
+            {% endif %}
 
             <!-- Purchase Order History Section -->
             <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
@@ -355,9 +231,6 @@
                             <i class="bi bi-cart3 me-2 text-custom"></i>Purchase Order History ({{ order_items.count }})
                         </h3>
                     </div>
-                    <a href="{% url 'order_create' %}?part={{ part.pk }}{% if part.company %}&supplier={{ part.company.pk }}{% endif %}" class="btn btn-sm btn-outline-custom">
-                        <i class="bi bi-cart-plus me-1"></i> Order This Part
-                    </a>
                 </div>
                 <div class="card-body p-0 pt-2">
                     {% if order_items %}

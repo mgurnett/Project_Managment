@@ -203,6 +203,18 @@
                                 <span class="badge bg-secondary-subtle text-body border fw-bold px-2.5 py-1 fs-6">
                                     {{ part.quantity_on_hand|default:0 }}
                                 </span>
+                                {% if part.kit_allocations %}
+                                    <div class="mt-1 d-flex flex-column gap-1 align-items-center">
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 0.68rem;">
+                                            {{ part.bin_quantity }} in {{ part.location.name|default:"Bin" }}
+                                        </span>
+                                        {% for alloc in part.kit_allocations %}
+                                            <a href="{% url 'kit_detail' alloc.kit.pk %}" class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle text-decoration-none" style="font-size: 0.68rem;">
+                                                {{ alloc.qty }} in {{ alloc.kit.kit_number }}
+                                            </a>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
                             </td>
                             <td class="text-center py-2">
                                 <input type="hidden" name="part_id[]" value="{{ part.pk }}">

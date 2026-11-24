@@ -431,7 +431,15 @@
 
                     <!-- System On Hand -->
                     <td class="on-hand-cell">
-                        {{ part.quantity_on_hand }}
+                        <div>{{ part.quantity_on_hand }}</div>
+                        {% if part.kit_allocations %}
+                            <div style="font-size: 6.5pt; font-weight: 500; color: #334155; margin-top: 2px; line-height: 1.2;">
+                                <div>{{ part.bin_quantity }} in {{ part.location.name|default:"Bin" }}</div>
+                                {% for alloc in part.kit_allocations %}
+                                    <div>{{ alloc.qty }} in {{ alloc.kit.kit_number }}</div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
                     </td>
 
                     <!-- Physical Count Box -->

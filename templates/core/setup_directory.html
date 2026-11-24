@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+
+{% block title %}Setup &amp; Directory | Inventory Manager{% endblock %}
+{% block breadcrumb %}Setup &amp; Directory{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+
+    <!-- Header Section -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <h1 class="h3 fw-bold mb-0">Setup &amp; Directory</h1>
+                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2.5 py-1 small rounded-pill">
+                    Reference Data
+                </span>
+            </div>
+            <p class="text-muted small mb-0 mt-1">
+                Manage foundational categories, suppliers, manufacturers, customers, and storage locations outside the daily workflow.
+            </p>
+        </div>
+
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <a href="{% url 'part_list' %}" class="btn btn-outline-custom btn-sm d-flex align-items-center gap-1">
+                <i class="bi bi-cpu"></i>
+                <span>Go to Parts Workflow</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- Directory Cards Grid -->
+    <div class="row g-4">
+
+        <!-- Categories -->
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                <div class="card-body p-4 d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-3 bg-primary-subtle text-primary d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.3rem;">
+                                <i class="bi bi-diagram-2"></i>
+                            </div>
+                            <div>
+                                <h2 class="h5 fw-bold mb-0">Categories</h2>
+                                <span class="text-muted small">000&ndash;899 Parts &amp; 900&ndash;950 BoMs/Kits/Assemblies</span>
+                            </div>
+                        </div>
+                        <span class="badge bg-primary-subtle text-primary rounded-pill px-2.5 py-1">{{ counts.categories }}</span>
+                    </div>
+
+                    <div class="list-group list-group-flush small mb-3 flex-grow-1">
+                        {% for cat in recent_categories %}
+                        <a href="{% url 'category_detail' cat.pk %}" class="list-group-item list-group-item-action px-0 d-flex justify-content-between align-items-center">
+                            <span class="text-truncate">{{ cat.name }}</span>
+                            <span class="badge bg-light text-dark border font-monospace">{{ cat.prefix|default:"—" }}</span>
+                        </a>
+                        {% empty %}
+                        <div class="text-muted py-2">No categories created yet.</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex gap-2 pt-2 border-top">
+                        <a href="{% url 'category_list' %}" class="btn btn-sm btn-outline-secondary flex-grow-1">View All</a>
+                        <a href="{% url 'category_create' %}" class="btn btn-sm btn-custom"><i class="bi bi-plus-circle me-1"></i>Add</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Suppliers / Companies -->
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                <div class="card-body p-4 d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-3 bg-success-subtle text-success d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.3rem;">
+                                <i class="bi bi-building"></i>
+                            </div>
+                            <div>
+                                <h2 class="h5 fw-bold mb-0">Suppliers &amp; Companies</h2>
+                                <span class="text-muted small">Vendors, distributors, and account numbers</span>
+                            </div>
+                        </div>
+                        <span class="badge bg-success-subtle text-success rounded-pill px-2.5 py-1">{{ counts.companies }}</span>
+                    </div>
+
+                    <div class="list-group list-group-flush small mb-3 flex-grow-1">
+                        {% for comp in recent_companies %}
+                        <a href="{% url 'company_detail' comp.pk %}" class="list-group-item list-group-item-action px-0 d-flex justify-content-between align-items-center">
+                            <span class="text-truncate">{{ comp.name }}</span>
+                            {% if comp.account_number %}<span class="text-muted font-monospace small">{{ comp.account_number }}</span>{% endif %}
+                        </a>
+                        {% empty %}
+                        <div class="text-muted py-2">No suppliers recorded yet.</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex gap-2 pt-2 border-top">
+                        <a href="{% url 'company_list' %}" class="btn btn-sm btn-outline-secondary flex-grow-1">View All</a>
+                        <a href="{% url 'company_create' %}" class="btn btn-sm btn-custom"><i class="bi bi-plus-circle me-1"></i>Add</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manufacturers -->
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                <div class="card-body p-4 d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-3 bg-info-subtle text-info d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.3rem;">
+                                <i class="bi bi-building-gear"></i>
+                            </div>
+                            <div>
+                                <h2 class="h5 fw-bold mb-0">Manufacturers</h2>
+                                <span class="text-muted small">Original component brands and makers</span>
+                            </div>
+                        </div>
+                        <span class="badge bg-info-subtle text-info rounded-pill px-2.5 py-1">{{ counts.manufacturers }}</span>
+                    </div>
+
+                    <div class="list-group list-group-flush small mb-3 flex-grow-1">
+                        {% for mfg in recent_manufacturers %}
+                        <a href="{% url 'manufacturer_detail' mfg.pk %}" class="list-group-item list-group-item-action px-0 d-flex justify-content-between align-items-center">
+                            <span class="text-truncate">{{ mfg.name }}</span>
+                        </a>
+                        {% empty %}
+                        <div class="text-muted py-2">No manufacturers recorded yet.</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex gap-2 pt-2 border-top">
+                        <a href="{% url 'manufacturer_list' %}" class="btn btn-sm btn-outline-secondary flex-grow-1">View All</a>
+                        <a href="{% url 'manufacturer_create' %}" class="btn btn-sm btn-custom"><i class="bi bi-plus-circle me-1"></i>Add</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Customers -->
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                <div class="card-body p-4 d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-3 bg-warning-subtle text-warning d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.3rem;">
+                                <i class="bi bi-people"></i>
+                            </div>
+                            <div>
+                                <h2 class="h5 fw-bold mb-0">Customers</h2>
+                                <span class="text-muted small">Clients for quotes, invoices, and receipts</span>
+                            </div>
+                        </div>
+                        <span class="badge bg-warning-subtle text-warning rounded-pill px-2.5 py-1">{{ counts.customers }}</span>
+                    </div>
+
+                    <div class="list-group list-group-flush small mb-3 flex-grow-1">
+                        {% for cust in recent_customers %}
+                        <a href="{% url 'customer_detail' cust.pk %}" class="list-group-item list-group-item-action px-0 d-flex justify-content-between align-items-center">
+                            <span class="text-truncate">{{ cust.name }}</span>
+                            {% if cust.contact_name %}<span class="text-muted small">{{ cust.contact_name }}</span>{% endif %}
+                        </a>
+                        {% empty %}
+                        <div class="text-muted py-2">No customers recorded yet.</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex gap-2 pt-2 border-top">
+                        <a href="{% url 'customer_list' %}" class="btn btn-sm btn-outline-secondary flex-grow-1">View All</a>
+                        <a href="{% url 'customer_create' %}" class="btn btn-sm btn-custom"><i class="bi bi-plus-circle me-1"></i>Add</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Storage Locations -->
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                <div class="card-body p-4 d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-3 bg-secondary-subtle text-secondary d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.3rem;">
+                                <i class="bi bi-geo-alt"></i>
+                            </div>
+                            <div>
+                                <h2 class="h5 fw-bold mb-0">Storage Locations</h2>
+                                <span class="text-muted small">Warehouses, shelves, and storage bins</span>
+                            </div>
+                        </div>
+                        <span class="badge bg-secondary-subtle text-secondary rounded-pill px-2.5 py-1">{{ counts.locations }}</span>
+                    </div>
+
+                    <div class="list-group list-group-flush small mb-3 flex-grow-1">
+                        {% for loc in recent_locations %}
+                        <a href="{% url 'location_detail' loc.pk %}" class="list-group-item list-group-item-action px-0 d-flex justify-content-between align-items-center">
+                            <span class="text-truncate">{{ loc.name }}</span>
+                            {% if loc.code %}<span class="badge bg-light text-dark border font-monospace">{{ loc.code }}</span>{% endif %}
+                        </a>
+                        {% empty %}
+                        <div class="text-muted py-2">No locations recorded yet.</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex gap-2 pt-2 border-top">
+                        <a href="{% url 'location_list' %}" class="btn btn-sm btn-outline-secondary flex-grow-1">View All</a>
+                        <a href="{% url 'location_create' %}" class="btn btn-sm btn-custom"><i class="bi bi-plus-circle me-1"></i>Add</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Articles & Knowledge Base -->
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                <div class="card-body p-4 d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-3 bg-danger-subtle text-danger d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.3rem;">
+                                <i class="bi bi-journal-richtext"></i>
+                            </div>
+                            <div>
+                                <h2 class="h5 fw-bold mb-0">Articles &amp; Knowledge Base</h2>
+                                <span class="text-muted small">Guides, SOPs, and notes linked across records</span>
+                            </div>
+                        </div>
+                        <span class="badge bg-danger-subtle text-danger rounded-pill px-2.5 py-1">{{ counts.articles }}</span>
+                    </div>
+
+                    <div class="list-group list-group-flush small mb-3 flex-grow-1">
+                        {% for art in recent_articles %}
+                        <a href="{% url 'article_detail' art.pk %}" class="list-group-item list-group-item-action px-0 d-flex justify-content-between align-items-center">
+                            <span class="text-truncate">{{ art.title }}</span>
+                            <span class="badge bg-light text-dark border">{{ art.get_article_type_display }}</span>
+                        </a>
+                        {% empty %}
+                        <div class="text-muted py-2">No articles created yet.</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex gap-2 pt-2 border-top">
+                        <a href="{% url 'article_list' %}" class="btn btn-sm btn-outline-secondary flex-grow-1">View All</a>
+                        <a href="{% url 'article_create' %}" class="btn btn-sm btn-custom"><i class="bi bi-plus-circle me-1"></i>Add</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tags -->
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                <div class="card-body p-4 d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-3 bg-primary-subtle text-primary d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.3rem;">
+                                <i class="bi bi-tags"></i>
+                            </div>
+                            <div>
+                                <h2 class="h5 fw-bold mb-0">Tags</h2>
+                                <span class="text-muted small">Cross-link articles, parts, suppliers &amp; categories</span>
+                            </div>
+                        </div>
+                        <span class="badge bg-primary-subtle text-primary rounded-pill px-2.5 py-1">{{ counts.tags }}</span>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-1 mb-3 flex-grow-1 align-content-start">
+                        {% for tag in recent_tags %}
+                        <a href="{% url 'tag_detail' tag.slug %}" class="badge bg-{{ tag.color }}-subtle text-{{ tag.color }} border border-{{ tag.color }}-subtle text-decoration-none rounded-pill px-2.5 py-1">
+                            #{{ tag.name }}
+                        </a>
+                        {% empty %}
+                        <div class="text-muted small py-2">No tags created yet.</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex gap-2 pt-2 border-top">
+                        <a href="{% url 'tag_list' %}" class="btn btn-sm btn-outline-secondary flex-grow-1">View All</a>
+                        <a href="{% url 'tag_create' %}" class="btn btn-sm btn-custom"><i class="bi bi-plus-circle me-1"></i>Add</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+{% endblock %}

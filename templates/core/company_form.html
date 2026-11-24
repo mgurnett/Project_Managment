@@ -71,6 +71,11 @@
                         <label class="form-label small fw-semibold">Phone Number</label>
                         {{ form.phone }}
                     </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Tags (comma-separated)</label>
+                        {{ form.tags_input }}
+                        <div class="form-text small">{{ form.tags_input.help_text }}</div>
+                    </div>
                     <div class="col-12 mt-3">
                         <label class="form-label small fw-semibold">Notes &amp; Terms</label>
                         {{ form.notes }}

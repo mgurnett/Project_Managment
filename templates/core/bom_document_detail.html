@@ -35,9 +35,6 @@
             <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-arrow-left me-1"></i> Back
             </a>
-            <a href="{% url 'kit_action' %}?bom={{ bom.pk }}#pullSheetSection" class="btn btn-outline-primary btn-sm">
-                <i class="bi bi-box-seam me-1"></i> View Kit Pull Sheet
-            </a>
             <a href="{% url 'bom_document_update' doc.pk %}?next={{ back_url|urlencode }}" class="btn btn-outline-custom btn-sm">
                 <i class="bi bi-pencil me-1"></i> Edit
             </a>

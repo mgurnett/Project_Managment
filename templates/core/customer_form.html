@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if form.instance.pk %}Edit {{ form.instance.name }}{% else %}Add New Customer{% endif %} | Inventory Manager
+{% endblock %}
+
+{% block extra_head %}
+    {{ form.media }}
+{% endblock %}
+
+{% block breadcrumb %}
+    <a href="{% url 'setup_directory' %}" class="text-decoration-none text-muted">Setup &amp; Directory</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <a href="{% url 'customer_list' %}" class="text-decoration-none text-muted">Customers</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>{% if form.instance.pk %}Edit Customer{% else %}New Customer{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0" style="max-width: 860px;">
+
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2">
+        <div>
+            <h1 class="h3 fw-bold mb-1 text-custom">
+                {% if form.instance.pk %}Edit Customer: {{ form.instance.name }}{% else %}Add New Customer{% endif %}
+            </h1>
+            <p class="text-muted small mb-0">Record client contact details, billing/shipping address, and notes.</p>
+        </div>
+        <a href="{% if form.instance.pk %}{% url 'customer_detail' form.instance.pk %}{% else %}{% url 'customer_list' %}{% endif %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-x-lg me-1"></i> Cancel
+        </a>
+    </div>
+
+    <form method="post" novalidate>
+        {% csrf_token %}
+
+        {% if form.errors %}
+            <div class="alert alert-danger shadow-sm mb-4">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <strong>Please correct the errors below:</strong>
+                <ul class="mb-0 mt-2 small">
+                    {% for field, errors in form.errors.items %}
+                        <li><strong>{{ field|title }}:</strong> {{ errors|striptags }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-body p-4">
+                <div class="row g-3">
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small fw-semibold">Customer Name <span class="text-danger">*</span></label>
+                        {{ form.name }}
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Contact Person</label>
+                        {{ form.contact_name }}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Email Address</label>
+                        {{ form.email }}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Phone Number</label>
+                        {{ form.phone }}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Website URL</label>
+                        {{ form.website }}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Address</label>
+                        {{ form.address }}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Tags (comma-separated)</label>
+                        {{ form.tags_input }}
+                        <div class="form-text small">{{ form.tags_input.help_text }}</div>
+                    </div>
+                    <div class="col-12 mt-3">
+                        <label class="form-label small fw-semibold">Notes</label>
+                        {{ form.notes }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mb-5">
+            <a href="{% if form.instance.pk %}{% url 'customer_detail' form.instance.pk %}{% else %}{% url 'customer_list' %}{% endif %}" class="btn btn-outline-secondary px-4">
+                Cancel
+            </a>
+            <button type="submit" class="btn btn-custom px-4 fw-semibold">
+                <i class="bi bi-check2-circle me-1"></i> Save Customer
+            </button>
+        </div>
+
+    </form>
+
+</div>
+{% endblock %}

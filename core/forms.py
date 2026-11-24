@@ -1,12 +1,67 @@
 from django import forms
 from .models import (
-    Part, Company, Manufacturer, Category, Location, PartDocument,
+    Part, Company, Manufacturer, Customer, Category, Location, PartDocument,
     BOM, BOMItem, BOMDocument, Order, OrderItem, AssemblySale, AssemblySaleItem,
-    Quote, QuoteItem
+    Quote, QuoteItem, Tag, Article
 )
 
 
-class PartForm(forms.ModelForm):
+class TagInputMixin(forms.ModelForm):
+    """
+    Mixin adding a comma-separated `tags_input` field to any ModelForm whose
+    model has a `tags` ManyToManyField(Tag). Auto-creates missing tags by name.
+    """
+    tags_input = forms.CharField(
+        required=False,
+        label="Tags",
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'e.g. esp32, datasheet, soldering, vendor-notes (comma-separated)'
+        }),
+        help_text="Enter comma-separated tags; new tags are created automatically."
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk and 'tags_input' in self.fields:
+            self.fields['tags_input'].initial = ', '.join(
+                self.instance.tags.filter(is_system=False).order_by('name').values_list('name', flat=True)
+            )
+
+    def _sync_tags(self, instance):
+        raw = self.cleaned_data.get('tags_input', '') or ''
+        names = []
+        seen = set()
+        for part in raw.split(','):
+            name = part.strip()
+            if name and name.lower() not in seen:
+                seen.add(name.lower())
+                names.append(name)
+
+        tag_objs = list(instance.tags.filter(is_system=True))
+        for name in names:
+            tag = Tag.objects.filter(name__iexact=name, is_system=False).first()
+            if not tag:
+                tag = Tag.objects.create(name=name, is_system=False)
+            tag_objs.append(tag)
+        instance.tags.set(tag_objs)
+
+    def save(self, commit=True):
+        instance = super().save(commit=commit)
+        if commit:
+            self._sync_tags(instance)
+        else:
+            old_save_m2m = self.save_m2m
+
+            def save_m2m_with_tags():
+                old_save_m2m()
+                self._sync_tags(instance)
+
+            self.save_m2m = save_m2m_with_tags
+        return instance
+
+
+class PartForm(TagInputMixin):
     adjustment_reason = forms.CharField(
         required=False,
         max_length=255,
@@ -136,7 +191,7 @@ class PartForm(forms.ModelForm):
         return cleaned_data
 
 
-class CompanyForm(forms.ModelForm):
+class CompanyForm(TagInputMixin):
     class Meta:
         model = Company
         fields = ['name', 'website', 'contact_name', 'email', 'phone', 'account_number', 'notes']
@@ -150,13 +205,27 @@ class CompanyForm(forms.ModelForm):
         }
 
 
-class ManufacturerForm(forms.ModelForm):
+class ManufacturerForm(TagInputMixin):
     class Meta:
         model = Manufacturer
         fields = ['name', 'website', 'notes']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Texas Instruments, STMicroelectronics'}),
             'website': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://www.ti.com'}),
+        }
+
+
+class CustomerForm(TagInputMixin):
+    class Meta:
+        model = Customer
+        fields = ['name', 'contact_name', 'email', 'phone', 'address', 'website', 'notes']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Acme Robotics, University Lab'}),
+            'contact_name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Primary Contact Person'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'billing@customer.com'}),
+            'phone': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '(555) 123-4567'}),
+            'address': forms.Textarea(attrs={'class': 'form-control', 'rows': 2, 'placeholder': 'Billing / Shipping Address'}),
+            'website': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://customer.com'}),
         }
 
 
@@ -183,7 +252,7 @@ class CategoryForm(forms.ModelForm):
         return prefix.strip() if prefix else ''
 
 
-class LocationForm(forms.ModelForm):
+class LocationForm(TagInputMixin):
     class Meta:
         model = Location
         fields = ['name', 'code', 'description']
@@ -191,6 +260,40 @@ class LocationForm(forms.ModelForm):
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Main Warehouse, Shelf B, Bin 12'}),
             'code': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. BIN-B12, W1-S02'}),
             'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Location description or instructions'}),
+        }
+
+
+class TagForm(forms.ModelForm):
+    class Meta:
+        model = Tag
+        fields = ['name', 'color', 'description']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. esp32, datasheet, soldering'}),
+            'color': forms.Select(attrs={'class': 'form-select'}),
+            'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Optional description of when to use this tag'}),
+        }
+
+
+class ArticleForm(TagInputMixin):
+    class Meta:
+        model = Article
+        fields = [
+            'title', 'article_type', 'summary', 'content', 'file', 'external_url',
+            'parts', 'manufacturers', 'companies', 'categories', 'customers', 'locations', 'orders',
+        ]
+        widgets = {
+            'title': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Saft Li-SOCl2 Passivation & Storage Guide'}),
+            'article_type': forms.Select(attrs={'class': 'form-select'}),
+            'summary': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Brief one-line summary of this article'}),
+            'file': forms.FileInput(attrs={'class': 'form-control'}),
+            'external_url': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://...'}),
+            'parts': forms.SelectMultiple(attrs={'class': 'form-select', 'size': '5'}),
+            'manufacturers': forms.SelectMultiple(attrs={'class': 'form-select', 'size': '4'}),
+            'companies': forms.SelectMultiple(attrs={'class': 'form-select', 'size': '4'}),
+            'categories': forms.SelectMultiple(attrs={'class': 'form-select', 'size': '4'}),
+            'customers': forms.SelectMultiple(attrs={'class': 'form-select', 'size': '4'}),
+            'locations': forms.SelectMultiple(attrs={'class': 'form-select', 'size': '4'}),
+            'orders': forms.SelectMultiple(attrs={'class': 'form-select', 'size': '4'}),
         }
 
 
@@ -227,22 +330,22 @@ class PartDocumentForm(forms.ModelForm):
 class BOMForm(forms.ModelForm):
     class Meta:
         model = BOM
-        fields = ['assembly_number', 'name', 'description', 'quantity_on_hand', 'sale_price', 'build_sheet_url', 'inspection_sheet_url', 'notes']
+        fields = ['category', 'assembly_number', 'name', 'description', 'notes']
         widgets = {
+            'category': forms.Select(attrs={'class': 'form-select', 'id': 'id_bom_category'}),
             'assembly_number': forms.TextInput(attrs={
                 'class': 'form-control font-monospace',
-                'placeholder': 'e.g. 900-001 (leave blank to auto-assign next 900-series #)'
+                'placeholder': 'e.g. 910-001 (leave blank to auto-assign next 910-series #)'
             }),
-            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. String Assembly, Sensor Node, Base Station'}),
-            'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Brief description of the assembly or device'}),
-            'quantity_on_hand': forms.NumberInput(attrs={'class': 'form-control', 'min': 0}),
-            'sale_price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '0.00'}),
-            'build_sheet_url': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://... (Optional link to Build Sheet)'}),
-            'inspection_sheet_url': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://... (Optional link to Inspection Sheet)'}),
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. String BoM, Sensor Node BoM, Base Station BoM'}),
+            'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Brief description of this BoM recipe'}),
         }
 
-    def clean_quantity_on_hand(self):
-        return self.cleaned_data.get('quantity_on_hand') or 0
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if 'category' in self.fields:
+            self.fields['category'].queryset = Category.objects.filter(prefix__startswith='91').order_by('prefix', 'name')
+            self.fields['category'].empty_label = "-- Select 910-Series BoM Category --"
 
 
 class BOMItemForm(forms.ModelForm):

@@ -36,7 +36,7 @@
         </a>
     </div>
 
-    <form method="post" id="orderActionForm">
+    <form method="post" id="orderActionForm" enctype="multipart/form-data">
         {% csrf_token %}
 
         <div class="row g-4">
@@ -258,6 +258,45 @@
                     {% if form.notes.errors %}
                         <div class="text-danger small mt-1">{{ form.notes.errors.0 }}</div>
                     {% endif %}
+                </div>
+
+                <!-- Invoices, Receipts & Documents Drop-Zone -->
+                <div class="card border-0 shadow-sm rounded-3 bg-body p-4 mb-4">
+                    <h5 class="fw-bold mb-3 d-flex align-items-center gap-2">
+                        <i class="bi bi-receipt-cutoff text-custom"></i>
+                        <span>Invoices, Receipts &amp; Documents</span>
+                    </h5>
+                    <div class="drop-zone-area border border-2 border-dashed rounded-3 p-3 text-center mb-3 bg-body-tertiary"
+                         style="cursor: pointer; transition: border-color .15s, background-color .15s;"
+                         onclick="this.querySelector('input[type=file]').click();"
+                         ondragover="event.preventDefault(); this.classList.add('border-primary', 'bg-primary-subtle');"
+                         ondragleave="this.classList.remove('border-primary', 'bg-primary-subtle');"
+                         ondrop="event.preventDefault(); this.classList.remove('border-primary', 'bg-primary-subtle'); const inp = this.querySelector('input[type=file]'); inp.files = event.dataTransfer.files; inp.dispatchEvent(new Event('change'));">
+                        <input type="file" name="doc_file" class="d-none" onchange="const lbl = this.closest('.drop-zone-area').querySelector('.drop-zone-label'); lbl.textContent = this.files.length ? ('Selected: ' + this.files[0].name) : 'Drop invoice or receipt PDF/image here — or click to browse';">
+                        <i class="bi bi-cloud-arrow-up fs-4 text-custom d-block mb-1"></i>
+                        <span class="drop-zone-label small fw-semibold text-body">
+                            Drop invoice or receipt PDF/image here — or click to browse
+                        </span>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small fw-semibold mb-1">Document Type</label>
+                            <select name="doc_article_type" class="form-select form-select-sm">
+                                <option value="invoice" selected>Supplier Invoice</option>
+                                <option value="receipt">Payment / Order Receipt</option>
+                                <option value="vendor_note">Supplier / Vendor Note</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small fw-semibold mb-1">Title (optional if file dropped)</label>
+                            <input type="text" name="doc_title" class="form-control form-control-sm" placeholder="e.g. Mouser Invoice #12345">
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small fw-semibold mb-1">Or Link URL</label>
+                            <input type="url" name="doc_external_url" class="form-control form-control-sm" placeholder="https://...">
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Submit Bar -->

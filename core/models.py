@@ -5,7 +5,76 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
+from django.utils.text import slugify
 from django_ckeditor_5.fields import CKEditor5Field
+
+
+class Tag(models.Model):
+    """
+    Reusable tag for cross-linking Articles, Parts, Manufacturers, Suppliers,
+    Categories, Customers, Locations, and BoMs.
+    """
+    COLOR_CHOICES = [
+        ('primary', 'Blue'),
+        ('success', 'Green'),
+        ('info', 'Cyan'),
+        ('warning', 'Amber'),
+        ('danger', 'Red'),
+        ('secondary', 'Slate'),
+    ]
+
+    name = models.CharField(max_length=80, unique=True, verbose_name="Tag Name")
+    slug = models.SlugField(max_length=90, unique=True, blank=True, verbose_name="Slug")
+    color = models.CharField(max_length=20, choices=COLOR_CHOICES, default='primary', verbose_name="Badge Color")
+    description = models.CharField(max_length=255, blank=True, verbose_name="Description")
+    is_system = models.BooleanField(default=False, verbose_name="Internal System Tag")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Tag"
+        verbose_name_plural = "Tags"
+        ordering = ['name']
+
+    def save(self, *args, **kwargs):
+        self.name = (self.name or '').strip()
+        if not self.slug:
+            base_slug = slugify(self.name) or 'tag'
+            candidate = base_slug
+            idx = 1
+            while Tag.objects.filter(slug=candidate).exclude(pk=self.pk).exists():
+                idx += 1
+                candidate = f"{base_slug}-{idx}"
+            self.slug = candidate
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def get_or_create_system_tag(cls, obj):
+        """
+        Returns the hidden internal system Tag for any taggable entity (Order, Part,
+        Manufacturer, Company, Category, Customer, Location, BOM) and ensures it
+        is attached to `obj.tags`. Never exposed in user-facing tag UI.
+        """
+        model_key = obj._meta.model_name
+        sys_slug = f"sys-{model_key}-{obj.pk}"
+        sys_name = f"sys:{model_key}:{obj.pk}"
+        tag, _ = cls.objects.get_or_create(
+            slug=sys_slug,
+            defaults={
+                'name': sys_name,
+                'color': 'secondary',
+                'description': f"Internal system link tag for {model_key} #{obj.pk}",
+                'is_system': True,
+            },
+        )
+        if not tag.is_system:
+            tag.is_system = True
+            tag.save(update_fields=['is_system'])
+        if hasattr(obj, 'tags') and not obj.tags.filter(pk=tag.pk).exists():
+            obj.tags.add(tag)
+        return tag
 
 
 class Company(models.Model):
@@ -25,6 +94,7 @@ class Company(models.Model):
         help_text="Customer or account ID with this supplier"
     )
     notes = CKEditor5Field('Notes', config_name='notes', blank=True, null=True)
+    tags = models.ManyToManyField(Tag, blank=True, related_name='companies', verbose_name="Tags")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -44,12 +114,37 @@ class Manufacturer(models.Model):
     name = models.CharField(max_length=150, unique=True, verbose_name="Manufacturer Name")
     website = models.URLField(max_length=300, blank=True, verbose_name="Website")
     notes = CKEditor5Field('Notes', config_name='notes', blank=True, null=True)
+    tags = models.ManyToManyField(Tag, blank=True, related_name='manufacturers', verbose_name="Tags")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "Manufacturer"
         verbose_name_plural = "Manufacturers"
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class Customer(models.Model):
+    """
+    Customers and clients for Quotes, Invoices, and Receipts.
+    """
+    name = models.CharField(max_length=150, unique=True, verbose_name="Customer Name")
+    contact_name = models.CharField(max_length=100, blank=True, verbose_name="Contact Person")
+    email = models.EmailField(blank=True, verbose_name="Email")
+    phone = models.CharField(max_length=30, blank=True, verbose_name="Phone")
+    address = models.TextField(blank=True, verbose_name="Address")
+    website = models.URLField(max_length=300, blank=True, verbose_name="Website")
+    notes = CKEditor5Field('Notes', config_name='notes', blank=True, null=True)
+    tags = models.ManyToManyField(Tag, blank=True, related_name='customers', verbose_name="Tags")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Customer"
+        verbose_name_plural = "Customers"
         ordering = ['name']
 
     def __str__(self):
@@ -77,6 +172,7 @@ class Category(models.Model):
         verbose_name="Parent Category"
     )
     description = models.CharField(max_length=255, blank=True, verbose_name="Description")
+    tags = models.ManyToManyField(Tag, blank=True, related_name='categories', verbose_name="Tags")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -265,6 +361,7 @@ class Location(models.Model):
     name = models.CharField(max_length=100, unique=True, verbose_name="Location Name")
     code = models.CharField(max_length=50, blank=True, verbose_name="Location Code", help_text="Bin barcode / identifier")
     description = models.CharField(max_length=255, blank=True, verbose_name="Description")
+    tags = models.ManyToManyField(Tag, blank=True, related_name='locations', verbose_name="Tags")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -417,6 +514,7 @@ class Part(models.Model):
         null=True,
         help_text="Additional notes, alternate parts, or lead time details"
     )
+    tags = models.ManyToManyField(Tag, blank=True, related_name='parts', verbose_name="Tags")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -856,6 +954,14 @@ class BOM(models.Model):
         help_text="900-series assembly number (e.g. 900-001). Leave blank to auto-assign."
     )
     name = models.CharField(max_length=150, unique=True, verbose_name="BOM / Assembly Name")
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='boms',
+        verbose_name="BoM Category (910 Series)"
+    )
     description = models.CharField(max_length=255, blank=True, verbose_name="Description")
     quantity_on_hand = models.PositiveIntegerField(
         default=0,
@@ -893,6 +999,17 @@ class BOM(models.Model):
         verbose_name="Inspection Sheet Link",
         help_text="Optional link to the Inspection Sheet document for this kit"
     )
+    revision = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Revision #",
+        help_text="BoM revision number. Starts at 1 and increments when unfrozen for changes."
+    )
+    is_frozen = models.BooleanField(
+        default=False,
+        verbose_name="Frozen",
+        help_text="Frozen BoMs are locked against edits until a new revision is started."
+    )
+    tags = models.ManyToManyField(Tag, blank=True, related_name='boms', verbose_name="Tags")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -907,7 +1024,7 @@ class BOM(models.Model):
         return self.name
 
     @classmethod
-    def generate_next_assembly_number(cls, exclude_pk=None, prefix="900-"):
+    def generate_next_assembly_number(cls, exclude_pk=None, prefix="910-"):
         """
         Generates the next sequential 900-series assembly number (e.g. 900-001, 900-002).
         """
@@ -937,13 +1054,15 @@ class BOM(models.Model):
         the 'Assemblies, Kits & BoMs' category (prefix 900 or its 910-950 subcategories),
         kept in sync with this BOM.
         """
-        category, _ = Category.objects.get_or_create(
-            prefix='900',
-            defaults={
-                'name': 'Assemblies, Kits & BoMs',
-                'description': '900-series assemblies, kits, and BoMs',
-            }
-        )
+        category = self.category or Category.objects.filter(prefix='910').first()
+        if not category:
+            category, _ = Category.objects.get_or_create(
+                prefix='900',
+                defaults={
+                    'name': 'Assemblies, Kits & BoMs',
+                    'description': '900-series assemblies, kits, and BoMs',
+                }
+            )
         if not self.assembly_number:
             self.assembly_number = self.generate_next_assembly_number(exclude_pk=self.pk)
 
@@ -984,6 +1103,9 @@ class BOM(models.Model):
                 update_fields.append('description')
             if part_cat_prefix not in nine_hundred_prefixes and part.category_id != category.pk:
                 part.category = category
+                update_fields.append('category')
+            elif self.category_id and part.category_id != self.category_id:
+                part.category = self.category
                 update_fields.append('category')
             if part.quantity_on_hand != target_on_hand:
                 part.quantity_on_hand = target_on_hand
@@ -1404,6 +1526,340 @@ class BOMDocument(models.Model):
         return ""
 
 
+class Kit(models.Model):
+    """
+    A picked Kit (920 series) created from a BoM recipe.
+    Each picked kit has its own unique 920-xxx serial/part number, commits
+    1 set of the BoM's parts from uncommitted stock, and can later be converted
+    into a built Assembly (930/940/950) or cancelled/returned to stock.
+    """
+    STATUS_CHOICES = [
+        ('PICKED', 'Picked / Active'),
+        ('BUILT', 'Converted to Assembly'),
+        ('CANCELLED', 'Cancelled / Returned'),
+    ]
+
+    kit_number = models.CharField(
+        max_length=50,
+        unique=True,
+        blank=True,
+        verbose_name="Kit Serial / Part # (920 Series)",
+        help_text="920-series kit serial/part number (e.g. 920-001). Leave blank to auto-assign."
+    )
+    bom = models.ForeignKey(
+        BOM,
+        on_delete=models.PROTECT,
+        related_name='kits',
+        verbose_name="Source BoM"
+    )
+    bom_revision = models.PositiveIntegerField(
+        default=1,
+        verbose_name="BoM Revision"
+    )
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='kits',
+        verbose_name="Kit Category (920 Series)"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='PICKED',
+        verbose_name="Kit Status"
+    )
+    part = models.OneToOneField(
+        Part,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='kit_record',
+        verbose_name="Associated Part (920 Series)"
+    )
+    build_sheet_url = models.URLField(max_length=500, blank=True, verbose_name="Build Sheet Link")
+    inspection_sheet_url = models.URLField(max_length=500, blank=True, verbose_name="Inspection Sheet Link")
+    notes = CKEditor5Field('Kit Notes', config_name='notes', blank=True, null=True)
+    tags = models.ManyToManyField(Tag, blank=True, related_name='kits', verbose_name="Tags")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Kit"
+        verbose_name_plural = "Kits"
+        ordering = ['-created_at', 'kit_number']
+
+    def __str__(self):
+        return f"{self.kit_number} ({self.bom.name} Rev {self.bom_revision})"
+
+    @classmethod
+    def generate_next_kit_number(cls, prefix="920-"):
+        existing = cls.objects.filter(kit_number__startswith=prefix).values_list('kit_number', flat=True)
+        highest = 0
+        for kn in existing:
+            if not kn:
+                continue
+            suffix = kn[len(prefix):]
+            if suffix.isdigit():
+                highest = max(highest, int(suffix))
+        next_num = highest + 1
+        candidate = f"{prefix}{next_num:03d}"
+        while cls.objects.filter(kit_number=candidate).exists() or Part.objects.filter(part_number=candidate).exists():
+            next_num += 1
+            candidate = f"{prefix}{next_num:03d}"
+        return candidate
+
+    def sync_part(self):
+        category = self.category
+        if not category:
+            category, _ = Category.objects.get_or_create(
+                prefix='920',
+                defaults={'name': 'Kits', 'description': 'Kits and kitted part sets (920 series)'}
+            )
+        if not self.kit_number:
+            self.kit_number = self.generate_next_kit_number()
+
+        part = self.part or Part.objects.filter(part_number=self.kit_number).first()
+        qty_on_hand = 1 if self.status == 'PICKED' else 0
+        part_name = f"Kit: {self.bom.name} (Rev {self.bom_revision})"
+        if not part:
+            part = Part.objects.create(
+                part_number=self.kit_number,
+                name=part_name[:150],
+                description=f"Picked kit from BoM {self.bom.assembly_number} Rev {self.bom_revision}",
+                category=category,
+                quantity_on_hand=qty_on_hand,
+                quantity_availible=qty_on_hand,
+                confirmed=True,
+            )
+            self.part = part
+            Kit.objects.filter(pk=self.pk).update(part=part)
+        else:
+            update_fields = []
+            if part.part_number != self.kit_number:
+                part.part_number = self.kit_number
+                update_fields.append('part_number')
+            if part.name != part_name[:150]:
+                part.name = part_name[:150]
+                update_fields.append('name')
+            if part.category_id != category.pk:
+                part.category = category
+                update_fields.append('category')
+            if part.quantity_on_hand != qty_on_hand:
+                part.quantity_on_hand = qty_on_hand
+                part.quantity_availible = qty_on_hand
+                update_fields.extend(['quantity_on_hand', 'quantity_availible'])
+            if update_fields:
+                update_fields.append('updated_at')
+                part.save(update_fields=update_fields)
+            if self.part_id != part.pk:
+                self.part = part
+                Kit.objects.filter(pk=self.pk).update(part=part)
+        return part
+
+    def save(self, *args, **kwargs):
+        if not self.kit_number:
+            self.kit_number = self.generate_next_kit_number()
+        if not self.bom_revision and self.bom_id:
+            self.bom_revision = self.bom.revision
+        super().save(*args, **kwargs)
+        try:
+            self.sync_part()
+        except Exception:
+            pass
+
+
+class Assembly(models.Model):
+    """
+    A built Assembly (930 Sub-Assembly, 940 Assembly, or 950 Full System)
+    converted from a picked Kit (920). Converting deducts component parts from
+    on-hand & committed inventory and assigns a new 930/940/950 part number.
+    """
+    ASSEMBLY_TYPE_CHOICES = [
+        ('930', 'Sub-Assembly (930)'),
+        ('940', 'Assembly (940)'),
+        ('950', 'Full System (950)'),
+    ]
+    STATUS_CHOICES = [
+        ('BUILT', 'Built / In Stock'),
+        ('PROMOTED', 'Promoted to Full System'),
+        ('CONSUMED', 'Converted to Sub-Assembly Part'),
+        ('SOLD', 'Sold / Invoiced'),
+    ]
+
+    assembly_type = models.CharField(
+        max_length=10,
+        choices=ASSEMBLY_TYPE_CHOICES,
+        default='940',
+        verbose_name="Assembly Category"
+    )
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assemblies',
+        verbose_name="Category (930 / 940 / 950 Series)"
+    )
+    assembly_number = models.CharField(
+        max_length=50,
+        unique=True,
+        blank=True,
+        verbose_name="Assembly Part # (930/940/950)"
+    )
+    name = models.CharField(max_length=150, verbose_name="Assembly Name")
+    kit = models.OneToOneField(
+        Kit,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='built_assembly',
+        verbose_name="Source Kit (920)"
+    )
+    source_assembly = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='promoted_systems',
+        verbose_name="Source 940 Assembly"
+    )
+    converted_part = models.ForeignKey(
+        Part,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='converted_from_assemblies',
+        verbose_name="Converted Sub-Assembly Part"
+    )
+    bom = models.ForeignKey(
+        BOM,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='built_assemblies',
+        verbose_name="Source BoM"
+    )
+    sale_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Sale Price ($)"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='BUILT',
+        verbose_name="Status"
+    )
+    part = models.OneToOneField(
+        Part,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='built_assembly_record',
+        verbose_name="Associated Catalog Part"
+    )
+    notes = CKEditor5Field('Assembly Notes', config_name='notes', blank=True, null=True)
+    tags = models.ManyToManyField(Tag, blank=True, related_name='assemblies', verbose_name="Tags")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Assembly"
+        verbose_name_plural = "Assemblies"
+        ordering = ['-created_at', 'assembly_number']
+
+    def __str__(self):
+        return f"{self.assembly_number} - {self.name}"
+
+    @classmethod
+    def generate_next_number(cls, assembly_type='940'):
+        prefix = f"{assembly_type}-"
+        existing = cls.objects.filter(assembly_number__startswith=prefix).values_list('assembly_number', flat=True)
+        highest = 0
+        for num_str in existing:
+            if not num_str:
+                continue
+            suffix = num_str[len(prefix):]
+            if suffix.isdigit():
+                highest = max(highest, int(suffix))
+        next_num = highest + 1
+        candidate = f"{prefix}{next_num:03d}"
+        while cls.objects.filter(assembly_number=candidate).exists() or Part.objects.filter(part_number=candidate).exists():
+            next_num += 1
+            candidate = f"{prefix}{next_num:03d}"
+        return candidate
+
+    def sync_part(self):
+        cat_names = {
+            '930': ('Sub-Assemblies', 'Sub-assemblies (930 series)'),
+            '940': ('Assemblies', 'Finished assemblies (940 series)'),
+            '950': ('Full Systems', 'Complete full systems (950 series)'),
+        }
+        category = self.category
+        if not category:
+            cat_name, cat_desc = cat_names.get(self.assembly_type, ('Assemblies', 'Finished assemblies'))
+            category, _ = Category.objects.get_or_create(
+                prefix=self.assembly_type,
+                defaults={'name': cat_name, 'description': cat_desc}
+            )
+        if not self.assembly_number:
+            self.assembly_number = self.generate_next_number(self.assembly_type)
+
+        part = self.part or Part.objects.filter(part_number=self.assembly_number).first()
+        qty_on_hand = 1 if self.status == 'BUILT' else 0
+        if not part:
+            part = Part.objects.create(
+                part_number=self.assembly_number,
+                name=self.name[:150],
+                description=f"Built {self.get_assembly_type_display()}",
+                category=category,
+                quantity_on_hand=qty_on_hand,
+                quantity_availible=qty_on_hand,
+                price_per=self.sale_price,
+                confirmed=True,
+            )
+            self.part = part
+            Assembly.objects.filter(pk=self.pk).update(part=part)
+        else:
+            update_fields = []
+            if part.part_number != self.assembly_number:
+                part.part_number = self.assembly_number
+                update_fields.append('part_number')
+            if part.name != self.name[:150]:
+                part.name = self.name[:150]
+                update_fields.append('name')
+            if part.category_id != category.pk:
+                part.category = category
+                update_fields.append('category')
+            if part.quantity_on_hand != qty_on_hand:
+                part.quantity_on_hand = qty_on_hand
+                part.quantity_availible = qty_on_hand
+                update_fields.extend(['quantity_on_hand', 'quantity_availible'])
+            if self.sale_price is not None and part.price_per != self.sale_price:
+                part.price_per = self.sale_price
+                update_fields.append('price_per')
+            if update_fields:
+                update_fields.append('updated_at')
+                part.save(update_fields=update_fields)
+            if self.part_id != part.pk:
+                self.part = part
+                Assembly.objects.filter(pk=self.pk).update(part=part)
+        return part
+
+    def save(self, *args, **kwargs):
+        if not self.assembly_number:
+            self.assembly_number = self.generate_next_number(self.assembly_type)
+        super().save(*args, **kwargs)
+        try:
+            self.sync_part()
+        except Exception:
+            pass
+
+
 class Order(models.Model):
     """
     Purchase Order (PO) placed with a supplier/vendor.
@@ -1511,6 +1967,7 @@ class Order(models.Model):
         verbose_name="Revision #",
         help_text="Document revision number. Starts at 1 and increments when modified while open."
     )
+    tags = models.ManyToManyField(Tag, blank=True, related_name='orders', verbose_name="Tags")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1746,6 +2203,7 @@ class AssemblySale(models.Model):
         verbose_name="Revision #",
         help_text="Document revision number. Starts at 1 and increments when modified while open."
     )
+    tags = models.ManyToManyField(Tag, blank=True, related_name='sales', verbose_name="Tags")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1855,6 +2313,7 @@ class AssemblySaleItem(models.Model):
         return (Decimal(str(self.unit_price or 0)) * Decimal(str(self.quantity or 0))).quantize(Decimal('0.01'))
 
 
+
 class Quote(models.Model):
     """
     Sales Quote / Estimate for 1000-series assemblies and custom items.
@@ -1946,6 +2405,7 @@ class Quote(models.Model):
         verbose_name="Revision #",
         help_text="Document revision number. Starts at 1 and increments when modified while open."
     )
+    tags = models.ManyToManyField(Tag, blank=True, related_name='quotes', verbose_name="Tags")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -2090,6 +2550,124 @@ class QuoteItem(models.Model):
     @property
     def subtotal(self):
         return (Decimal(str(self.unit_price or 0)) * Decimal(str(self.quantity or 0))).quantize(Decimal('0.01'))
+
+
+class Article(models.Model):
+    """
+    Knowledge-base article, technical note, SOP, or reference document that can be
+    tagged and linked to any number of Parts, Manufacturers, Suppliers, Categories,
+    Customers, Locations, or BoMs.
+    """
+    ARTICLE_TYPES = [
+        ('guide', 'Technical Guide / How-To'),
+        ('datasheet', 'Datasheet (PDF / Spec)'),
+        ('pinout', 'Pinout Diagram / Schematic'),
+        ('scan', 'Document Scan / Drawing'),
+        ('instructions', 'Instructions / Manual'),
+        ('sop', 'SOP / Assembly Instructions'),
+        ('invoice', 'Supplier Invoice'),
+        ('receipt', 'Payment / Order Receipt'),
+        ('troubleshooting', 'Troubleshooting / Errata'),
+        ('vendor_note', 'Supplier / Vendor Note'),
+        ('reference', 'Reference / Standard'),
+        ('other', 'Other'),
+    ]
+
+    title = models.CharField(max_length=200, verbose_name="Article Title")
+    article_type = models.CharField(
+        max_length=30,
+        choices=ARTICLE_TYPES,
+        default='guide',
+        verbose_name="Article Type"
+    )
+    summary = models.CharField(max_length=300, blank=True, verbose_name="Short Summary")
+    content = CKEditor5Field('Article Content', config_name='notes', blank=True, null=True)
+    file = models.FileField(
+        upload_to='articles/files/%Y/%m/',
+        blank=True,
+        null=True,
+        verbose_name="Attachment (PDF / Image / Doc)"
+    )
+    external_url = models.URLField(max_length=500, blank=True, verbose_name="External Reference URL")
+
+    tags = models.ManyToManyField(Tag, blank=True, related_name='articles', verbose_name="Tags")
+    parts = models.ManyToManyField(Part, blank=True, related_name='articles', verbose_name="Linked Parts")
+    manufacturers = models.ManyToManyField(Manufacturer, blank=True, related_name='articles', verbose_name="Linked Manufacturers")
+    companies = models.ManyToManyField(Company, blank=True, related_name='articles', verbose_name="Linked Suppliers")
+    categories = models.ManyToManyField(Category, blank=True, related_name='articles', verbose_name="Linked Categories")
+    customers = models.ManyToManyField(Customer, blank=True, related_name='articles', verbose_name="Linked Customers")
+    locations = models.ManyToManyField(Location, blank=True, related_name='articles', verbose_name="Linked Locations")
+    orders = models.ManyToManyField(Order, blank=True, related_name='articles', verbose_name="Linked Orders")
+    boms = models.ManyToManyField(BOM, blank=True, related_name='articles', verbose_name="Linked BoMs")
+    kits = models.ManyToManyField(Kit, blank=True, related_name='articles', verbose_name="Linked Kits")
+    assemblies = models.ManyToManyField(Assembly, blank=True, related_name='articles', verbose_name="Linked Assemblies")
+    quotes = models.ManyToManyField(Quote, blank=True, related_name='articles', verbose_name="Linked Quotes")
+    sales = models.ManyToManyField(AssemblySale, blank=True, related_name='articles', verbose_name="Linked Invoices / Receipts")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Article"
+        verbose_name_plural = "Articles"
+        ordering = ['-updated_at', 'title']
+
+    def __str__(self):
+        return self.title
+
+    @property
+    def file_extension(self):
+        if self.file and self.file.name:
+            _, ext = os.path.splitext(self.file.name)
+            return ext.lstrip('.').lower()
+        return ""
+
+    @property
+    def is_image(self):
+        return self.file_extension in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']
+
+    @property
+    def is_pdf(self):
+        return self.file_extension == 'pdf'
+
+    @property
+    def file_size_display(self):
+        try:
+            if self.file and hasattr(self.file, 'size') and self.file.size:
+                size = self.file.size
+                if size < 1024:
+                    return f"{size} B"
+                elif size < 1024 * 1024:
+                    return f"{size / 1024:.1f} KB"
+                return f"{size / (1024 * 1024):.1f} MB"
+        except Exception:
+            pass
+        return ""
+
+    @classmethod
+    def split_for_object(cls, obj):
+        """
+        Returns (linked_articles_qs, tag_related_articles_qs) for any taggable entity.
+        `linked` includes articles attached directly or via the entity's hidden
+        internal system tag; `tag_related` only considers non-system user tags.
+        """
+        sys_slug = f"sys-{obj._meta.model_name}-{obj.pk}"
+        linked = cls.objects.filter(
+            models.Q(pk__in=obj.articles.values_list('pk', flat=True))
+            | models.Q(tags__slug=sys_slug)
+        ).prefetch_related('tags').distinct()
+
+        user_tag_ids = list(obj.tags.filter(is_system=False).values_list('id', flat=True))
+        if user_tag_ids:
+            tag_related = (
+                cls.objects.filter(tags__id__in=user_tag_ids)
+                .exclude(pk__in=linked.values_list('pk', flat=True))
+                .prefetch_related('tags')
+                .distinct()
+            )
+        else:
+            tag_related = cls.objects.none()
+        return linked, tag_related
 
 
 

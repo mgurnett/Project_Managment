@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Pick List: {{ bom.name }} (Rev {{ bom.revision }}) | Inventory Manager{% endblock %}
+{% block breadcrumb %}
+    <a href="{% url 'bom_list' %}" class="text-decoration-none text-muted">BoMs</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <a href="{% url 'bom_detail' bom.pk %}" class="text-decoration-none text-muted">{{ bom.name }}</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>Pick List</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0" style="max-width: 920px;">
+
+    <div class="d-flex justify-content-between align-items-center mb-4 d-print-none">
+        <a href="{% url 'bom_detail' bom.pk %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Back to BoM
+        </a>
+        <button type="button" onclick="window.print()" class="btn btn-custom btn-sm">
+            <i class="bi bi-printer me-1"></i>Print Pick List
+        </button>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-3 bg-body p-4">
+        <div class="d-flex justify-content-between align-items-start border-bottom pb-3 mb-3">
+            <div>
+                <div class="small text-uppercase text-muted fw-bold">Kit Pick List</div>
+                <h1 class="h3 fw-bold mb-1">{{ bom.name }}</h1>
+                {% if bom.description %}<p class="text-muted small mb-0">{{ bom.description }}</p>{% endif %}
+            </div>
+            <div class="text-end">
+                <div class="font-monospace fw-bold fs-5">{{ bom.assembly_number }}</div>
+                <div class="small text-muted">Rev {{ bom.revision }} &bull; {% if bom.is_frozen %}Frozen{% else %}Draft{% endif %}</div>
+                <div class="small text-muted">Printed {% now "M j, Y" %}</div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-bordered align-middle mb-0">
+                <thead class="table-light small text-uppercase">
+                    <tr>
+                        <th style="width: 48px;" class="text-center">Picked</th>
+                        <th>Part #</th>
+                        <th>Component</th>
+                        <th>Ref</th>
+                        <th>Location / Bin</th>
+                        <th class="text-center">Qty / Kit</th>
+                        <th class="text-center">On-Hand</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td class="text-center">&#9744;</td>
+                        <td class="font-monospace fw-bold">{{ item.part.part_number }}</td>
+                        <td>
+                            <div class="fw-semibold">{{ item.part.name|default:item.part.description }}</div>
+                            {% if item.notes %}<div class="text-muted small">{{ item.notes }}</div>{% endif %}
+                        </td>
+                        <td class="font-monospace small">{{ item.reference|default:"—" }}</td>
+                        <td class="small">{{ item.part.location.name|default:"—" }}</td>
+                        <td class="text-center fw-bold fs-6">{{ item.quantity }}</td>
+                        <td class="text-center">{{ item.part.quantity_on_hand|default:0 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">No components in this BoM yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

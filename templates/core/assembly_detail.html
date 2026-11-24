@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}{{ assembly.assembly_number }} - {{ assembly.name }} | Inventory Manager{% endblock %}
+{% block breadcrumb %}
+    <a href="{% url 'assembly_list' %}" class="text-decoration-none text-muted">Assemblies</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>{{ assembly.assembly_number }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                <span class="badge bg-primary text-white font-monospace fs-6 px-2.5 py-1">{{ assembly.assembly_number }}</span>
+                <h1 class="h3 fw-bold mb-0 text-custom">{{ assembly.name }}</h1>
+                <span class="badge bg-info-subtle text-info border border-info-subtle px-2.5 py-1">
+                    {% if assembly.category %}[{{ assembly.category.prefix }}] {{ assembly.category.name }}{% else %}{{ assembly.get_assembly_type_display }}{% endif %}
+                </span>
+                {% if assembly.status == 'BUILT' %}
+                    <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1">Built / In Stock</span>
+                {% elif assembly.status == 'PROMOTED' %}
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1">Promoted to Full System</span>
+                {% elif assembly.status == 'CONSUMED' %}
+                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2.5 py-1">Converted to Sub-Assembly Part</span>
+                {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary border px-2.5 py-1">Sold</span>
+                {% endif %}
+            </div>
+            <p class="text-muted small mb-0">
+                {% if assembly.kit %}Built from Kit <a href="{% url 'kit_detail' assembly.kit.pk %}" class="font-monospace text-decoration-none">{{ assembly.kit.kit_number }}</a> &bull; {% endif %}
+                {% if assembly.source_assembly %}Promoted from <a href="{% url 'assembly_detail' assembly.source_assembly.pk %}" class="font-monospace text-decoration-none">{{ assembly.source_assembly.assembly_number }}</a> &bull; {% endif %}
+                {% if assembly.converted_part %}Converted into Part <a href="{% url 'part_detail' assembly.converted_part.pk %}" class="font-monospace text-decoration-none">{{ assembly.converted_part.part_number }}</a> &bull; {% endif %}
+                {% if assembly.bom %}BoM <a href="{% url 'bom_detail' assembly.bom.pk %}" class="text-decoration-none">{{ assembly.bom.name }}</a> &bull; {% endif %}
+                {{ assembly.created_at|date:"M d, Y" }}
+            </p>
+        </div>
+
+        <div class="d-flex gap-2 flex-wrap">
+            {% if assembly.status == 'BUILT' %}
+                <a href="{% url 'quote_create' %}?assembly={{ assembly.pk }}" class="btn btn-outline-primary btn-sm fw-semibold">
+                    <i class="bi bi-file-earmark-text me-1"></i>Create Quote
+                </a>
+                <a href="{% url 'sale_create' %}?assembly={{ assembly.pk }}" class="btn btn-success btn-sm fw-semibold">
+                    <i class="bi bi-receipt me-1"></i>Create Invoice
+                </a>
+            {% endif %}
+            <a href="{% url 'assembly_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i>All Assemblies
+            </a>
+            {% if assembly.part %}
+                <a href="{% url 'part_detail' assembly.part.pk %}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-cpu me-1"></i>Catalog Part ({{ assembly.part.part_number }})
+                </a>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if assembly.status == 'BUILT' %}
+    <!-- Convert / Promote Assembly Actions -->
+    <div class="row g-3 mb-4">
+        {% if assembly.assembly_type != '950' %}
+        <div class="col-12 col-lg-6">
+            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                <div class="card-header bg-transparent border-0 pt-3 px-4 pb-1">
+                    <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                        <i class="bi bi-rocket-takeoff me-2 text-success"></i>Promote to Full System (950-Series — Ready for Sale)
+                    </h2>
+                </div>
+                <div class="card-body px-4 pb-4 pt-2">
+                    <form method="post" action="{% url 'assembly_promote_full_system' assembly.pk %}" class="row g-2 align-items-end">
+                        {% csrf_token %}
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold mb-1">Full System Category</label>
+                            <select name="category" class="form-select form-select-sm">
+                                {% for cat in full_system_categories %}
+                                    <option value="{{ cat.pk }}">[{{ cat.prefix }}] {{ cat.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small fw-semibold mb-1">System #</label>
+                            <input type="text" name="assembly_number" class="form-control form-control-sm font-monospace" placeholder="Auto 95x">
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small fw-semibold mb-1">Sale Price ($)</label>
+                            <input type="number" step="0.01" name="sale_price" class="form-control form-control-sm" value="{{ assembly.sale_price|default:'' }}" placeholder="0.00">
+                        </div>
+                        <div class="col-12 mt-2">
+                            <button type="submit" class="btn btn-success btn-sm fw-semibold">
+                                <i class="bi bi-check2-circle me-1"></i>Promote to 950 Full System
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="col-12 {% if assembly.assembly_type != '950' %}col-lg-6{% endif %}">
+            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
+                <div class="card-header bg-transparent border-0 pt-3 px-4 pb-1">
+                    <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                        <i class="bi bi-arrow-return-left me-2 text-primary"></i>Convert to Sub-Assembly Part (Use in BoMs / Kits)
+                    </h2>
+                </div>
+                <div class="card-body px-4 pb-4 pt-2">
+                    <form method="post" action="{% url 'assembly_convert_subassembly' assembly.pk %}" class="row g-2 align-items-end">
+                        {% csrf_token %}
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold mb-1">Target Category (for new Part #)</label>
+                            <select name="category" class="form-select form-select-sm">
+                                {% for cat in subassembly_categories %}
+                                    <option value="{{ cat.pk }}" {% if cat.prefix == '930' %}selected{% endif %}>[{{ cat.prefix }}] {{ cat.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold mb-1">Or Add +1 to Existing Part</label>
+                            <select name="existing_part_id" class="form-select form-select-sm">
+                                <option value="">-- Create New Sub-Assembly Part --</option>
+                                {% for ep in existing_subassembly_parts %}
+                                    <option value="{{ ep.pk }}">{{ ep.part_number }} &mdash; {{ ep.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 mt-2">
+                            <button type="submit" class="btn btn-outline-primary btn-sm fw-semibold">
+                                <i class="bi bi-box-arrow-in-down-left me-1"></i>Convert to Reusable Part
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if items %}
+    <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
+        <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2">
+            <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                <i class="bi bi-cpu me-2 text-custom"></i>Consumed Components ({{ items|length }})
+            </h2>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light border-top border-bottom small text-uppercase text-muted">
+                    <tr>
+                        <th class="ps-4 py-2.5">Part #</th>
+                        <th class="py-2.5">Component</th>
+                        <th class="py-2.5">Ref</th>
+                        <th class="text-center py-2.5">Qty Used</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td class="ps-4 py-2.5 font-monospace fw-bold">
+                            <a href="{% url 'part_detail' item.part.pk %}" class="text-decoration-none text-custom">{{ item.part.part_number }}</a>
+                        </td>
+                        <td class="py-2.5">{{ item.part.name|default:item.part.description }}</td>
+                        <td class="py-2.5 font-monospace small">{{ item.reference|default:"—" }}</td>
+                        <td class="text-center py-2.5 fw-bold">{{ item.quantity }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% include "core/_articles_and_tags_card.html" %}
+
+</div>
+{% endblock %}

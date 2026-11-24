@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block title %}{{ article.title }} | Articles{% endblock %}
+{% block breadcrumb %}
+    <a href="{% url 'setup_directory' %}" class="text-decoration-none text-muted">Setup &amp; Directory</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <a href="{% url 'article_list' %}" class="text-decoration-none text-muted">Articles</a>
+    <i class="bi bi-chevron-right" style="font-size: 0.75rem;"></i>
+    <span>{{ article.title }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0" style="max-width: 980px;">
+
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge bg-secondary-subtle text-secondary">{{ article.get_article_type_display }}</span>
+                <span class="text-muted small">Updated {{ article.updated_at|date:"M d, Y" }}</span>
+            </div>
+            <h1 class="h3 fw-bold mb-1">{{ article.title }}</h1>
+            {% if article.summary %}<p class="text-muted mb-0">{{ article.summary }}</p>{% endif %}
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'article_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i>All Articles
+            </a>
+            <a href="{% url 'article_update' article.pk %}" class="btn btn-outline-custom btn-sm">
+                <i class="bi bi-pencil me-1"></i>Edit
+            </a>
+            <a href="{% url 'article_delete' article.pk %}" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-trash me-1"></i>Delete
+            </a>
+        </div>
+    </div>
+
+    {% if tags %}
+    <div class="mb-3 d-flex flex-wrap gap-1 align-items-center">
+        <span class="small text-muted me-1"><i class="bi bi-tags me-1"></i>Tags:</span>
+        {% for tag in tags %}
+            <a href="{% url 'tag_detail' tag.slug %}" class="badge bg-{{ tag.color }}-subtle text-{{ tag.color }} border border-{{ tag.color }}-subtle text-decoration-none rounded-pill px-2.5 py-1">
+                #{{ tag.name }}
+            </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if article.file or article.external_url %}
+    <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+        <div class="card-body p-3 d-flex flex-wrap gap-2 align-items-center">
+            {% if article.file %}
+                <a href="{{ article.file.url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-file-earmark-arrow-down me-1"></i>Open Attachment
+                </a>
+            {% endif %}
+            {% if article.external_url %}
+                <a href="{{ article.external_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>{{ article.external_url }}
+                </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if article.content %}
+    <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+        <div class="card-body p-4">
+            {{ article.content|safe }}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Linked Entities -->
+    <div class="card border-0 shadow-sm rounded-3 bg-body">
+        <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2">
+            <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                Linked Records
+            </h3>
+        </div>
+        <div class="card-body px-4 pb-4 pt-2">
+            <div class="row g-3 small">
+                {% if article.parts.exists %}
+                <div class="col-md-6">
+                    <div class="fw-bold text-muted mb-1">Parts</div>
+                    {% for p in article.parts.all %}
+                        <div><a href="{% url 'part_detail' p.pk %}" class="text-decoration-none">{{ p.part_number }} &mdash; {{ p.name|default:p.description }}</a></div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if article.manufacturers.exists %}
+                <div class="col-md-6">
+                    <div class="fw-bold text-muted mb-1">Manufacturers</div>
+                    {% for m in article.manufacturers.all %}
+                        <div><a href="{% url 'manufacturer_detail' m.pk %}" class="text-decoration-none">{{ m.name }}</a></div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if article.companies.exists %}
+                <div class="col-md-6">
+                    <div class="fw-bold text-muted mb-1">Suppliers &amp; Companies</div>
+                    {% for c in article.companies.all %}
+                        <div><a href="{% url 'company_detail' c.pk %}" class="text-decoration-none">{{ c.name }}</a></div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if article.categories.exists %}
+                <div class="col-md-6">
+                    <div class="fw-bold text-muted mb-1">Categories</div>
+                    {% for cat in article.categories.all %}
+                        <div><a href="{% url 'category_detail' cat.pk %}" class="text-decoration-none">{{ cat.name }}</a></div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if article.customers.exists %}
+                <div class="col-md-6">
+                    <div class="fw-bold text-muted mb-1">Customers</div>
+                    {% for cust in article.customers.all %}
+                        <div><a href="{% url 'customer_detail' cust.pk %}" class="text-decoration-none">{{ cust.name }}</a></div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if article.locations.exists %}
+                <div class="col-md-6">
+                    <div class="fw-bold text-muted mb-1">Storage Locations</div>
+                    {% for loc in article.locations.all %}
+                        <div><a href="{% url 'location_detail' loc.pk %}" class="text-decoration-none">{{ loc.name }}</a></div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if article.orders.exists %}
+                <div class="col-md-6">
+                    <div class="fw-bold text-muted mb-1">Purchase Orders</div>
+                    {% for o in article.orders.all %}
+                        <div><a href="{% url 'order_detail' o.pk %}" class="text-decoration-none font-monospace">{{ o.order_number }}</a></div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
