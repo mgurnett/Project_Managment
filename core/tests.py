@@ -976,7 +976,7 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
            Invoice (INV-0001, INV-0002) with:
            - Invoice number (sequential)
            - Invoice date (date of sale)
-           - Customer information (Granary Watch, 11940 52 St NW, Edmonton, AB T5J 3J6, 780.901.9315, michael@granarywatch.com)
+           - Customer information (Granary Watch, 11940 52 St NW, Edmonton, AB T5W 3J6, 780.901.9315, michael@granarywatch.com)
            - Item information (900-series item number, item description, quantity, price)
            - Total amount
            - Payment information (payment method, payment date)
@@ -1027,7 +1027,7 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
             'invoice_date': sale_date,
             'status': 'PAID',
             'customer_name': 'Granary Watch',
-            'customer_address': '11940 52 St NW, Edmonton, AB T5J 3J6',
+            'customer_address': '11940 52 St NW, Edmonton, AB T5W 3J6',
             'customer_phone': '780.901.9315',
             'customer_email': 'michael@granarywatch.com',
             'payment_method': 'E-Transfer',
@@ -1051,7 +1051,7 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertEqual(sale1.invoice_number, 'INV-0001')
         self.assertEqual(sale1.status, 'PAID')
         self.assertEqual(sale1.customer_name, 'Granary Watch')
-        self.assertEqual(sale1.customer_address, '11940 52 St NW, Edmonton, AB T5J 3J6')
+        self.assertEqual(sale1.customer_address, '11940 52 St NW, Edmonton, AB T5W 3J6')
         self.assertEqual(sale1.customer_phone, '780.901.9315')
         self.assertEqual(sale1.customer_email, 'michael@granarywatch.com')
         self.assertEqual(sale1.total_amount, Decimal("75.00"))
@@ -1065,7 +1065,7 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
         self.assertEqual(res_detail.status_code, 200)
         self.assertContains(res_detail, 'INV-0001')
         self.assertContains(res_detail, 'Granary Watch')
-        self.assertContains(res_detail, '11940 52 St NW, Edmonton, AB T5J 3J6')
+        self.assertContains(res_detail, '11940 52 St NW, Edmonton, AB T5W 3J6')
         self.assertContains(res_detail, '780.901.9315')
         self.assertContains(res_detail, 'michael@granarywatch.com')
         self.assertContains(res_detail, '900-001')
@@ -1110,7 +1110,7 @@ class EndToEndAllActionsWorkflowTestCase(TestCase):
             'invoice_date': sale_date,
             'status': 'UNPAID',
             'customer_name': 'Granary Watch',
-            'customer_address': '11940 52 St NW, Edmonton, AB T5J 3J6',
+            'customer_address': '11940 52 St NW, Edmonton, AB T5W 3J6',
             'customer_phone': '780.901.9315',
             'customer_email': 'michael@granarywatch.com',
             'payment_method': 'E-Transfer',

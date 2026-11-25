@@ -1,3 +1,3 @@
 agent dialog.txt
 
-once a quote has been rolled into a invoice, then the quote needs to be archived and the smae as boms, there needs to be a show archied button with no as the default.
+I need to change the address of Granary Watch to 11940 52 St NW, Edmonton, AB T5W 3J6

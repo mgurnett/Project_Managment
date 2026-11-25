@@ -2208,7 +2208,7 @@ class AssemblySale(models.Model):
     Sales Order / Invoice for selling built 1000-series assemblies (and/or items) to a customer.
     """
     DEFAULT_COMPANY_NAME = "Granary Watch"
-    DEFAULT_COMPANY_ADDRESS = "11940 52 St NW, Edmonton, AB T5J 3J6"
+    DEFAULT_COMPANY_ADDRESS = "11940 52 St NW, Edmonton, AB T5W 3J6"
     DEFAULT_COMPANY_PHONE = "780.901.9315"
     DEFAULT_COMPANY_EMAIL = "michael@granarywatch.com"
 
@@ -2265,7 +2265,7 @@ class AssemblySale(models.Model):
     )
     customer_address = models.CharField(
         max_length=255,
-        default="11940 52 St NW, Edmonton, AB T5J 3J6",
+        default="11940 52 St NW, Edmonton, AB T5W 3J6",
         blank=True,
         verbose_name="Customer Address"
     )
@@ -2428,7 +2428,7 @@ class Quote(models.Model):
     Produces an invoice-styled quote. Once accepted, converts directly to an AssemblySale invoice.
     """
     DEFAULT_COMPANY_NAME = "Granary Watch"
-    DEFAULT_COMPANY_ADDRESS = "11940 52 St NW, Edmonton, AB T5J 3J6"
+    DEFAULT_COMPANY_ADDRESS = "11940 52 St NW, Edmonton, AB T5W 3J6"
     DEFAULT_COMPANY_PHONE = "780.901.9315"
     DEFAULT_COMPANY_EMAIL = "michael@granarywatch.com"
 
@@ -2470,7 +2470,7 @@ class Quote(models.Model):
     )
     customer_address = models.CharField(
         max_length=255,
-        default="11940 52 St NW, Edmonton, AB T5J 3J6",
+        default="11940 52 St NW, Edmonton, AB T5W 3J6",
         blank=True,
         verbose_name="Customer Address"
     )
