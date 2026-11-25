@@ -65,6 +65,11 @@
             <div class="card-body p-4 pt-3">
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Category</label>
+                        {{ form.category }}
+                        <div class="form-text small">Select a category first to auto-suggest the next sequential Part Number.</div>
+                    </div>
+                    <div class="col-12 col-md-6">
                         <label class="form-label small fw-semibold">Part Number</label>
                         {{ form.part_number }}
                         <div id="categoryChangedAlert" class="alert alert-info py-2 px-3 mt-2 small shadow-sm" style="display: none;">
@@ -82,11 +87,6 @@
                         <div class="form-text small">Short part name (e.g. <code>Saft LS33600</code>, <code>Aircraft cable</code>).</div>
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label small fw-semibold">Supplier SKU / Part Number</label>
-                        {{ form.supplier_part_number }}
-                        <div class="form-text small">{{ form.supplier_part_number.help_text }}</div>
-                    </div>
-                    <div class="col-12 col-md-6">
                         <label class="form-label small fw-semibold">Description / Specifications</label>
                         {{ form.description }}
                         <div class="form-text small">Detailed technical specifications or package details.</div>
@@ -100,8 +100,9 @@
                         {{ form.manufacturer }}
                     </div>
                     <div class="col-12 col-md-4">
-                        <label class="form-label small fw-semibold">Category</label>
-                        {{ form.category }}
+                        <label class="form-label small fw-semibold">Supplier SKU / Part Number</label>
+                        {{ form.supplier_part_number }}
+                        <div class="form-text small">{{ form.supplier_part_number.help_text }}</div>
                     </div>
                     <div class="col-12 col-md-4">
                         <label class="form-label small fw-semibold">Storage Location</label>
@@ -193,52 +194,63 @@
             </div>
         </div>
 
-        <!-- Card 4: Documentation & Notes -->
+        {% if not form.instance.pk %}
+        <!-- Card 4: Articles, Datasheets & Documents (Drag & Drop on Create) -->
         <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
             <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
                 <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
-                    <i class="bi bi-file-earmark-text me-2 text-custom"></i>Documentation &amp; Rich Notes
+                    <i class="bi bi-journal-richtext me-2 text-custom"></i>Articles, Datasheets &amp; Documents
                 </h3>
             </div>
             <div class="card-body p-4 pt-3">
-                <div class="row g-3 mb-3">
-                    <div class="col-12 col-md-6">
-                        <label class="form-label small fw-semibold">Product URL / Datasheet Web Link</label>
-                        {{ form.link }}
-                        <div class="form-text small">{{ form.link.help_text }}</div>
+                <div class="drop-zone-area border border-2 border-dashed rounded-3 p-3 text-center mb-3 bg-body-tertiary"
+                     style="cursor: pointer; transition: border-color .15s, background-color .15s;"
+                     onclick="this.querySelector('input[type=file]').click();"
+                     ondragover="event.preventDefault(); this.classList.add('border-primary', 'bg-primary-subtle');"
+                     ondragleave="this.classList.remove('border-primary', 'bg-primary-subtle');"
+                     ondrop="event.preventDefault(); this.classList.remove('border-primary', 'bg-primary-subtle'); const inp = this.querySelector('input[type=file]'); inp.files = event.dataTransfer.files; inp.dispatchEvent(new Event('change'));">
+                    <input type="file" name="doc_file" class="d-none" onchange="const lbl = this.closest('.drop-zone-area').querySelector('.drop-zone-label'); lbl.textContent = this.files.length ? ('Selected: ' + this.files[0].name) : 'Drop a datasheet, pinout, scan, or document here — or click to browse (optional)';">
+                    <i class="bi bi-cloud-arrow-up fs-4 text-custom d-block mb-1"></i>
+                    <span class="drop-zone-label small fw-semibold text-body">
+                        Drop a datasheet, pinout, scan, or document here — or click to browse (optional)
+                    </span>
+                </div>
+                <div class="row g-2">
+                    <div class="col-12 col-md-4">
+                        <select name="doc_article_type" class="form-select form-select-sm">
+                            <option value="datasheet" selected>Datasheet (PDF / Spec)</option>
+                            <option value="pinout">Pinout Diagram / Schematic</option>
+                            <option value="scan">Document Scan / Drawing</option>
+                            <option value="guide">Technical Guide / How-To</option>
+                            <option value="instructions">Instructions / Manual</option>
+                            <option value="other">Other</option>
+                        </select>
                     </div>
-                    <div class="col-12 col-md-6">
-                        <label class="form-label small fw-semibold">Upload Document / Datasheet (PDF, Scan, Image)</label>
-                        {{ form.document }}
-                        <div class="form-text small">Accepted formats: PDF, PNG, JPG, JPEG, WEBP, CAD drawings, etc.</div>
-                        {% if form.instance.document %}
-                            <div class="mt-2 p-2 bg-body-tertiary rounded small d-flex align-items-center justify-content-between">
-                                <div class="d-flex align-items-center gap-2 text-truncate">
-                                    <i class="bi bi-file-earmark-text text-custom"></i>
-                                    <a href="{{ form.instance.document.url }}" target="_blank" class="fw-semibold text-truncate text-decoration-none">
-                                        {{ form.instance.document_filename }}
-                                    </a>
-                                    <span class="text-muted">({{ form.instance.document_size_display }})</span>
-                                </div>
-                                <span class="badge bg-secondary-subtle text-secondary small">Current File</span>
-                            </div>
-                        {% endif %}
+                    <div class="col-12 col-md-4">
+                        <input type="text" name="doc_title" class="form-control form-control-sm" placeholder="Title (optional if file dropped)">
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <input type="url" name="doc_external_url" class="form-control form-control-sm" placeholder="Or link URL (https://...)">
                     </div>
                 </div>
-                <div class="mb-3">
-                    <label class="form-label small fw-semibold">Tags (comma-separated)</label>
-                    {{ form.tags_input }}
-                    <div class="form-text small">{{ form.tags_input.help_text }}</div>
-                </div>
-                <div>
-                    <label class="form-label small fw-semibold">Technical Notes</label>
-                    {{ form.notes }}
-                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Technical Notes -->
+        <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
+            <div class="card-header bg-transparent border-0 pt-4 px-4 pb-1">
+                <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                    <i class="bi bi-card-text me-2 text-custom"></i>Technical Notes (Optional)
+                </h3>
+            </div>
+            <div class="card-body p-4 pt-3">
+                {{ form.notes }}
             </div>
         </div>
 
         <!-- Submit Button Row -->
-        <div class="d-flex justify-content-end gap-2 mb-5">
+        <div class="d-flex justify-content-end gap-2 mb-4">
             <a href="{% if form.instance.pk %}{% url 'part_detail' form.instance.pk %}{% else %}{% url 'part_list' %}{% endif %}" class="btn btn-outline-secondary px-4">
                 Cancel
             </a>
@@ -254,6 +266,13 @@
         </div>
 
     </form>
+
+    {% if form.instance.pk %}
+    <!-- Unified Articles, Datasheets & Documents Card (Same as Part Detail) -->
+    <div class="mb-5">
+        {% include "core/_articles_and_tags_card.html" %}
+    </div>
+    {% endif %}
 
 </div>
 {% endblock %}

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Setup &amp; Directory | Inventory Manager{% endblock %}
-{% block breadcrumb %}Setup &amp; Directory{% endblock %}
+{% block title %}Setup | Inventory Manager{% endblock %}
+{% block breadcrumb %}Setup{% endblock %}
 
 {% block content %}
 <div class="container-fluid p-0">
@@ -10,13 +10,13 @@
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
         <div>
             <div class="d-flex align-items-center gap-2">
-                <h1 class="h3 fw-bold mb-0">Setup &amp; Directory</h1>
+                <h1 class="h3 fw-bold mb-0">Setup</h1>
                 <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2.5 py-1 small rounded-pill">
                     Reference Data
                 </span>
             </div>
             <p class="text-muted small mb-0 mt-1">
-                Manage foundational categories, suppliers, manufacturers, customers, and storage locations outside the daily workflow.
+                Manage foundational categories, suppliers, manufacturers, and storage locations outside the daily workflow.
             </p>
         </div>
 
@@ -138,42 +138,6 @@
             </div>
         </div>
 
-        <!-- Customers -->
-        <div class="col-12 col-md-6 col-xl-4">
-            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
-                <div class="card-body p-4 d-flex flex-column">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="rounded-3 bg-warning-subtle text-warning d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.3rem;">
-                                <i class="bi bi-people"></i>
-                            </div>
-                            <div>
-                                <h2 class="h5 fw-bold mb-0">Customers</h2>
-                                <span class="text-muted small">Clients for quotes, invoices, and receipts</span>
-                            </div>
-                        </div>
-                        <span class="badge bg-warning-subtle text-warning rounded-pill px-2.5 py-1">{{ counts.customers }}</span>
-                    </div>
-
-                    <div class="list-group list-group-flush small mb-3 flex-grow-1">
-                        {% for cust in recent_customers %}
-                        <a href="{% url 'customer_detail' cust.pk %}" class="list-group-item list-group-item-action px-0 d-flex justify-content-between align-items-center">
-                            <span class="text-truncate">{{ cust.name }}</span>
-                            {% if cust.contact_name %}<span class="text-muted small">{{ cust.contact_name }}</span>{% endif %}
-                        </a>
-                        {% empty %}
-                        <div class="text-muted py-2">No customers recorded yet.</div>
-                        {% endfor %}
-                    </div>
-
-                    <div class="d-flex gap-2 pt-2 border-top">
-                        <a href="{% url 'customer_list' %}" class="btn btn-sm btn-outline-secondary flex-grow-1">View All</a>
-                        <a href="{% url 'customer_create' %}" class="btn btn-sm btn-custom"><i class="bi bi-plus-circle me-1"></i>Add</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <!-- Storage Locations -->
         <div class="col-12 col-md-6 col-xl-4">
             <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
@@ -241,41 +205,6 @@
                     <div class="d-flex gap-2 pt-2 border-top">
                         <a href="{% url 'article_list' %}" class="btn btn-sm btn-outline-secondary flex-grow-1">View All</a>
                         <a href="{% url 'article_create' %}" class="btn btn-sm btn-custom"><i class="bi bi-plus-circle me-1"></i>Add</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Tags -->
-        <div class="col-12 col-md-6 col-xl-4">
-            <div class="card border-0 shadow-sm rounded-3 bg-body h-100">
-                <div class="card-body p-4 d-flex flex-column">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="rounded-3 bg-primary-subtle text-primary d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.3rem;">
-                                <i class="bi bi-tags"></i>
-                            </div>
-                            <div>
-                                <h2 class="h5 fw-bold mb-0">Tags</h2>
-                                <span class="text-muted small">Cross-link articles, parts, suppliers &amp; categories</span>
-                            </div>
-                        </div>
-                        <span class="badge bg-primary-subtle text-primary rounded-pill px-2.5 py-1">{{ counts.tags }}</span>
-                    </div>
-
-                    <div class="d-flex flex-wrap gap-1 mb-3 flex-grow-1 align-content-start">
-                        {% for tag in recent_tags %}
-                        <a href="{% url 'tag_detail' tag.slug %}" class="badge bg-{{ tag.color }}-subtle text-{{ tag.color }} border border-{{ tag.color }}-subtle text-decoration-none rounded-pill px-2.5 py-1">
-                            #{{ tag.name }}
-                        </a>
-                        {% empty %}
-                        <div class="text-muted small py-2">No tags created yet.</div>
-                        {% endfor %}
-                    </div>
-
-                    <div class="d-flex gap-2 pt-2 border-top">
-                        <a href="{% url 'tag_list' %}" class="btn btn-sm btn-outline-secondary flex-grow-1">View All</a>
-                        <a href="{% url 'tag_create' %}" class="btn btn-sm btn-custom"><i class="bi bi-plus-circle me-1"></i>Add</a>
                     </div>
                 </div>
             </div>

@@ -2218,7 +2218,9 @@ class SidebarNavigationLayoutTestCase(TestCase):
 
         # Check Headings
         self.assertIn("Workflow", html)
-        self.assertIn("Setup &amp; Directory", html)
+        self.assertIn("Customers", html)
+        self.assertIn("Setup", html)
+        self.assertNotIn("#settings", html)
 
         # Check Workflow covers full chain: Parts -> Orders -> BoMs -> Kits -> Assemblies -> Quotes -> Invoices -> Receipts
         self.assertIn(reverse('part_list'), html)
@@ -2231,16 +2233,16 @@ class SidebarNavigationLayoutTestCase(TestCase):
         self.assertIn(reverse('quote_list'), html)
         self.assertIn(reverse('sale_list'), html)
         self.assertIn(reverse('receipt_list'), html)
+        self.assertIn(reverse('customer_list'), html)
         self.assertIn(reverse('setup_directory'), html)
 
     def test_setup_directory_and_customer_crud(self):
-        """Verifies Setup & Directory hub and Customer CRUD workflow."""
+        """Verifies Setup hub and Customer CRUD workflow."""
         res_hub = self.client.get(reverse('setup_directory'))
         self.assertEqual(res_hub.status_code, 200)
         self.assertContains(res_hub, "Categories")
         self.assertContains(res_hub, "Suppliers")
         self.assertContains(res_hub, "Manufacturers")
-        self.assertContains(res_hub, "Customers")
         self.assertContains(res_hub, "Storage Locations")
 
         # Create customer
@@ -2345,11 +2347,11 @@ class TagAndArticleKnowledgeBaseTestCase(TestCase):
         self.assertContains(res_tag, 'ESP32-S3 Flashing &amp; Boot Mode Guide')
         self.assertContains(res_tag, 'Espressif')
 
-        # Setup & Directory hub shows Articles & Knowledge Base and Tags
+        # Setup hub shows Articles & Knowledge Base, and Tags are hidden from Setup (Admin only)
         res_setup = self.client.get(reverse('setup_directory'))
         self.assertEqual(res_setup.status_code, 200)
         self.assertContains(res_setup, 'Articles &amp; Knowledge Base')
-        self.assertContains(res_setup, '#esp32')
+        self.assertNotContains(res_setup, '#esp32')
 
     def test_order_invoice_and_receipt_via_hidden_system_tags(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -2394,6 +2396,17 @@ class TagAndArticleKnowledgeBaseTestCase(TestCase):
         self.assertContains(res_order, 'mouser_inv_88412.pdf')
         self.assertContains(res_order, 'Visa Receipt #88412')
         self.assertNotContains(res_order, f"sys:order:{order.pk}")
+
+        # Cross-tagging: Order documents are automatically linked to the Order's Supplier too!
+        supplier_sys_tag = Tag.objects.get(slug=f"sys-company-{self.supplier.pk}")
+        self.assertIn(supplier_sys_tag, inv_art.tags.all())
+        self.assertIn(self.supplier, inv_art.companies.all())
+        res_sup = self.client.get(reverse('company_detail', args=[self.supplier.pk]))
+        self.assertEqual(res_sup.status_code, 200)
+        self.assertContains(res_sup, 'Purchase Orders (1)')
+        self.assertContains(res_sup, 'PO-2026-901')
+        self.assertContains(res_sup, 'mouser_inv_88412.pdf')
+        self.assertContains(res_sup, 'Visa Receipt #88412')
 
         # Hidden system tags do not appear in TagListView
         res_tags = self.client.get(reverse('tag_list'))
@@ -2454,47 +2467,60 @@ class BOMFreezeRevisionAndArticlesTestCase(TestCase):
         res_edit_blocked = self.client.get(reverse('bom_update', args=[bom.pk]))
         self.assertEqual(res_edit_blocked.status_code, 302)
 
-        # Start New Revision -> unfrozen at Rev 2
+        # Start New Revision -> creates active Rev 2 and archives Rev 1
         res_rev = self.client.post(reverse('bom_new_revision', args=[bom.pk]), follow=True)
         self.assertEqual(res_rev.status_code, 200)
         bom.refresh_from_db()
-        self.assertFalse(bom.is_frozen)
-        self.assertEqual(bom.revision, 2)
+        self.assertTrue(bom.is_archived)
+        self.assertEqual(bom.revision, 1)
 
-        # Now edit succeeds
+        new_bom = BOM.objects.get(name="Sensor Board BoM", is_archived=False)
+        self.assertEqual(new_bom.revision, 2)
+        self.assertFalse(new_bom.is_frozen)
+        self.assertEqual(new_bom.items.count(), 1)
+        new_item = new_bom.items.first()
+
+        # Default BoM list hides archived Rev 1; show_archived=1 reveals it
+        res_list_active = self.client.get(reverse('bom_list'))
+        self.assertContains(res_list_active, "Sensor Board BoM")
+        self.assertNotContains(res_list_active, "Sensor Board BoM (Rev 1)")
+        res_list_arch = self.client.get(reverse('bom_list') + '?show_archived=1')
+        self.assertContains(res_list_arch, "Sensor Board BoM (Rev 1)")
+
+        # Now edit succeeds on Rev 2
         res_upd_ok = self.client.post(
-            reverse('bom_item_update', args=[item.pk]),
+            reverse('bom_item_update', args=[new_item.pk]),
             {'mode': 'set', 'quantity': 4},
             follow=True,
         )
         self.assertEqual(res_upd_ok.status_code, 200)
-        item.refresh_from_db()
-        self.assertEqual(item.quantity, 4)
+        new_item.refresh_from_db()
+        self.assertEqual(new_item.quantity, 4)
 
         # Printable Pick List works
-        res_pick = self.client.get(reverse('bom_pick_list', args=[bom.pk]))
+        res_pick = self.client.get(reverse('bom_pick_list', args=[new_bom.pk]))
         self.assertEqual(res_pick.status_code, 200)
         self.assertContains(res_pick, "Kit Pick List")
         self.assertContains(res_pick, "100-001")
 
         # Attach article via hidden system tag
         res_att = self.client.post(
-            reverse('attach_article_to_entity', args=['bom', bom.pk]),
+            reverse('attach_article_to_entity', args=['bom', new_bom.pk]),
             {
                 'article_type': 'pinout',
                 'title': 'Sensor Board Wiring Diagram',
                 'external_url': 'https://example.com/wiring.pdf',
-                'next': reverse('bom_detail', args=[bom.pk]),
+                'next': reverse('bom_detail', args=[new_bom.pk]),
             },
             follow=True,
         )
         self.assertEqual(res_att.status_code, 200)
         self.assertContains(res_att, 'Sensor Board Wiring Diagram')
-        self.assertNotContains(res_att, f"sys:bom:{bom.pk}")
+        self.assertNotContains(res_att, f"sys:bom:{new_bom.pk}")
 
         # BOMForm only lists 910-series categories and supports inline drop-zone upload
         cat_911 = Category.objects.create(name="GranaryWatch Products", prefix="911")
-        res_edit_get = self.client.get(reverse('bom_update', args=[bom.pk]))
+        res_edit_get = self.client.get(reverse('bom_update', args=[new_bom.pk]))
         self.assertEqual(res_edit_get.status_code, 200)
         self.assertContains(res_edit_get, "GranaryWatch Products")
         self.assertNotContains(res_edit_get, "Passives")
@@ -2503,7 +2529,7 @@ class BOMFreezeRevisionAndArticlesTestCase(TestCase):
         from django.core.files.uploadedfile import SimpleUploadedFile
         sheet_file = SimpleUploadedFile("build_sheet_r2.pdf", b"%PDF-1.4 sheet", content_type="application/pdf")
         res_edit_post = self.client.post(
-            reverse('bom_update', args=[bom.pk]),
+            reverse('bom_update', args=[new_bom.pk]),
             {
                 'category': cat_911.pk,
                 'assembly_number': '911-001',
@@ -2515,10 +2541,12 @@ class BOMFreezeRevisionAndArticlesTestCase(TestCase):
             follow=True,
         )
         self.assertEqual(res_edit_post.status_code, 200)
-        bom.refresh_from_db()
-        self.assertEqual(bom.category_id, cat_911.pk)
+        new_bom.refresh_from_db()
+        self.assertEqual(new_bom.category_id, cat_911.pk)
         self.assertContains(res_edit_post, 'build_sheet_r2.pdf')
-        self.assertNotContains(res_edit_post, f"sys:bom:{bom.pk}")
+        self.assertNotContains(res_edit_post, f"sys:bom:{new_bom.pk}")
+        self.assertNotContains(res_edit_post, 'Documents, Schematics &amp; Video Guides')
+        self.assertNotContains(res_edit_post, 'Assembly Instructions &amp; Engineering Notes')
 
 
 class KitWorkflow920TestCase(TestCase):
@@ -2626,6 +2654,160 @@ class KitWorkflow920TestCase(TestCase):
         self.assertContains(res_cs, "10 in Blue Bins")
         self.assertContains(res_cs, "920-001")
         self.assertContains(res_cs, "920-002")
+
+    def test_partial_kit_pick_update_and_serial_number(self):
+        """Verifies available-only kit picking (0 when none uncommitted), later update, and assembly-only serial numbers (942/952)."""
+        p_avail = Part.objects.create(
+            name="Sensor Housing",
+            part_number="100-030",
+            category=self.cat,
+            quantity_on_hand=5,
+            quantity_committed=3,  # Only 2 uncommitted available!
+            quantity_availible=2,
+        )
+        p_backorder = Part.objects.create(
+            name="Backordered MCU",
+            part_number="100-031",
+            category=self.cat,
+            quantity_on_hand=0,
+            quantity_availible=0,
+        )
+        bom = BOM.objects.create(name="Field Node BoM")
+        bi1 = BOMItem.objects.create(bom=bom, part=p_avail, quantity=4)
+        bi2 = BOMItem.objects.create(bom=bom, part=p_backorder, quantity=2)
+
+        # Even if requesting full BoM qty, only uncommitted on-hand stock carries over (2 of 4 housings, 0 of 2 backordered MCUs)
+        res_pick = self.client.post(
+            reverse('kit_pick'),
+            {
+                'bom': bom.pk,
+                'kit_number': '920-050',
+                'interactive_pick': '1',
+                'item_included[]': [str(bi1.pk), str(bi2.pk)],
+                'item_bom_item_id[]': [str(bi1.pk), str(bi2.pk)],
+                'item_part_id[]': [str(p_avail.pk), str(p_backorder.pk)],
+                'item_qty_picked[]': ['4', '2'],
+            },
+            follow=True,
+        )
+        self.assertEqual(res_pick.status_code, 200)
+        kit = Kit.objects.get(kit_number='920-050')
+        self.assertEqual(kit.serial_number, '')
+        self.assertFalse(kit.is_fully_picked)
+        self.assertEqual(kit.total_picked_qty, 2)
+        self.assertEqual(kit.total_required_qty, 6)
+
+        p_avail.refresh_from_db()
+        p_backorder.refresh_from_db()
+        self.assertEqual(p_avail.quantity_committed, 5)  # 3 prior + 2 newly picked
+        self.assertEqual(p_backorder.quantity_committed, 0)
+
+        # More parts arrive; update kit picked quantities
+        p_avail.quantity_on_hand = 10
+        p_avail.quantity_availible = 5
+        p_avail.save()
+        p_backorder.quantity_on_hand = 5
+        p_backorder.quantity_availible = 5
+        p_backorder.save()
+
+        ki1 = kit.kit_items.get(part=p_avail)
+        ki2 = kit.kit_items.get(part=p_backorder)
+        res_upd = self.client.post(
+            reverse('kit_update_items', args=[kit.pk]),
+            {
+                f'picked_{ki1.pk}': '4',
+                f'picked_{ki2.pk}': '2',
+            },
+            follow=True,
+        )
+        self.assertEqual(res_upd.status_code, 200)
+        kit.refresh_from_db()
+        self.assertTrue(kit.is_fully_picked)
+        p_avail.refresh_from_db()
+        p_backorder.refresh_from_db()
+        self.assertEqual(p_avail.quantity_committed, 7)  # 3 prior + 4 picked
+        self.assertEqual(p_backorder.quantity_committed, 2)
+
+        # Convert kit to 941 Products Assembly -> serial number applies on the Assembly!
+        cat_941, _ = Category.objects.get_or_create(prefix='941', defaults={'name': 'GranaryWatch Products (Assemblies)'})
+        res_build = self.client.post(
+            reverse('assembly_build'),
+            {'kit': kit.pk, 'category': cat_941.pk, 'assembly_number': '941-050', 'serial_number': 'SN-PROD-042'},
+            follow=True,
+        )
+        self.assertEqual(res_build.status_code, 200)
+        asm = Assembly.objects.get(assembly_number='941-050')
+        self.assertEqual(asm.serial_number, 'SN-PROD-042')
+        self.assertContains(res_build, 'SN-PROD-042')
+        p_avail.refresh_from_db()
+        p_backorder.refresh_from_db()
+        self.assertEqual(p_avail.quantity_on_hand, 6)
+        self.assertEqual(p_avail.quantity_committed, 3)  # only the 3 prior remain committed
+        self.assertEqual(p_backorder.quantity_on_hand, 3)
+        self.assertEqual(p_backorder.quantity_committed, 0)
+
+    def test_kit_pick_and_update_add_remove_substitute_parts(self):
+        """Verifies adding, removing, and substituting parts during kit pick and on kit detail."""
+        p_orig = Part.objects.create(name="Orig Sensor", part_number="100-040", category=self.cat, quantity_on_hand=10, quantity_availible=10)
+        p_drop = Part.objects.create(name="Optional Bracket", part_number="100-041", category=self.cat, quantity_on_hand=10, quantity_availible=10)
+        p_sub = Part.objects.create(name="Sub Sensor V2", part_number="100-042", category=self.cat, quantity_on_hand=10, quantity_availible=10)
+        p_extra = Part.objects.create(name="Extra Gasket", part_number="100-043", category=self.cat, quantity_on_hand=10, quantity_availible=10)
+        p_sub2 = Part.objects.create(name="Sub Sensor V3", part_number="100-044", category=self.cat, quantity_on_hand=10, quantity_availible=10)
+
+        bom = BOM.objects.create(name="Custom Kit BoM")
+        bi1 = BOMItem.objects.create(bom=bom, part=p_orig, quantity=2)
+        BOMItem.objects.create(bom=bom, part=p_drop, quantity=1)
+
+        # Pick kit: substitute p_orig -> p_sub, omit p_drop, and add p_extra
+        res_pick = self.client.post(
+            reverse('kit_pick'),
+            {
+                'bom': bom.pk,
+                'kit_number': '920-077',
+                'interactive_pick': '1',
+                'item_bom_item_id[]': [str(bi1.pk), ''],
+                'item_part_id[]': [str(p_sub.pk), str(p_extra.pk)],
+                'item_qty_required[]': ['2', '3'],
+                'item_qty_picked[]': ['2', '3'],
+            },
+            follow=True,
+        )
+        self.assertEqual(res_pick.status_code, 200)
+        kit = Kit.objects.get(kit_number='920-077')
+        self.assertEqual(kit.kit_items.count(), 2)
+        self.assertFalse(kit.kit_items.filter(part=p_orig).exists())
+        self.assertFalse(kit.kit_items.filter(part=p_drop).exists())
+        p_sub.refresh_from_db()
+        p_extra.refresh_from_db()
+        self.assertEqual(p_sub.quantity_committed, 2)
+        self.assertEqual(p_extra.quantity_committed, 3)
+
+        # On kit_detail: substitute p_sub -> p_sub2, remove p_extra, and add p_orig
+        ki_sub = kit.kit_items.get(part=p_sub)
+        ki_extra = kit.kit_items.get(part=p_extra)
+        res_upd = self.client.post(
+            reverse('kit_update_items', args=[kit.pk]),
+            {
+                f'part_{ki_sub.pk}': str(p_sub2.pk),
+                f'required_{ki_sub.pk}': '2',
+                f'picked_{ki_sub.pk}': '2',
+                f'remove_{ki_extra.pk}': '1',
+                'add_part_id[]': [str(p_orig.pk)],
+                'add_qty_required[]': ['1'],
+                'add_qty_picked[]': ['1'],
+            },
+            follow=True,
+        )
+        self.assertEqual(res_upd.status_code, 200)
+        p_sub.refresh_from_db()
+        p_extra.refresh_from_db()
+        p_sub2.refresh_from_db()
+        p_orig.refresh_from_db()
+        self.assertEqual(p_sub.quantity_committed, 0)
+        self.assertEqual(p_extra.quantity_committed, 0)
+        self.assertEqual(p_sub2.quantity_committed, 2)
+        self.assertEqual(p_orig.quantity_committed, 1)
+        self.assertEqual(kit.kit_items.count(), 2)
 
 
 class AssemblyBuildFromKitTestCase(TestCase):
@@ -2963,7 +3145,14 @@ class QuoteWorkflowTestCase(TestCase):
         quote.refresh_from_db()
         self.assertEqual(quote.status, 'ACCEPTED')
         self.assertTrue(quote.is_accepted)
+        self.assertTrue(quote.is_archived)
         self.assertIsNotNone(quote.invoice)
+
+        # Archived quote is hidden from default /quotes/ list, visible when show_archived=1
+        res_ql_default = self.client.get(reverse('quote_list'))
+        self.assertNotContains(res_ql_default, 'QTE-0002')
+        res_ql_arch = self.client.get(reverse('quote_list') + '?show_archived=1')
+        self.assertContains(res_ql_arch, 'QTE-0002')
 
         sale = quote.invoice
         self.assertEqual(sale.customer_name, 'Alberta Robotics')
@@ -3075,6 +3264,7 @@ class QuoteWorkflowTestCase(TestCase):
         )
         self.assertEqual(res_q_att.status_code, 200)
         self.assertTrue(quote.articles.filter(title='Signed Spec Sheet').exists())
+        # Quote detail renders the attached document via hidden system tag
         res_qd = self.client.get(reverse('quote_detail', args=[quote.pk]))
         self.assertEqual(res_qd.status_code, 200)
         self.assertContains(res_qd, 'Signed Spec Sheet')
@@ -3088,24 +3278,126 @@ class QuoteWorkflowTestCase(TestCase):
         self.assertEqual(res_sale_list.status_code, 200)
         self.assertContains(res_sale_list, sale.invoice_number)
 
-        # Mark Paid -> now appears in Receipts & supports hidden-tag attachment
+        # Mark Paid -> now appears in Receipts without Articles/Documents card
         self.client.post(reverse('sale_mark_paid', args=[sale.pk]))
         res_rl = self.client.get(reverse('receipt_list'))
         self.assertEqual(res_rl.status_code, 200)
         self.assertContains(res_rl, sale.invoice_number)
 
-        res_s_att = self.client.post(
-            reverse('attach_article_to_entity', kwargs={'model_name': 'sale', 'pk': sale.pk}),
-            {'title': 'E-Transfer Confirmation', 'article_type': 'receipt', 'external_url': 'https://example.com/etransfer.pdf'},
-            follow=True,
-        )
-        self.assertEqual(res_s_att.status_code, 200)
-        self.assertTrue(sale.articles.filter(title='E-Transfer Confirmation').exists())
-
         res_rd = self.client.get(reverse('receipt_detail', args=[sale.pk]))
         self.assertEqual(res_rd.status_code, 200)
         self.assertContains(res_rd, 'Official Payment Receipt')
-        self.assertContains(res_rd, 'E-Transfer Confirmation')
+        self.assertContains(res_rd, 'images/logo.jpeg')
+        self.assertNotContains(res_rd, 'Articles, Datasheets &amp; Documents')
+
+    def test_quote_and_invoice_serial_number_validation_and_logo(self):
+        """Verifies serial numbers on quotes/invoices must come from existing Kits/Assemblies (or blank) and logo renders."""
+        asm_cat, _ = Category.objects.get_or_create(prefix="941", defaults={"name": "GranaryWatch Products (Assemblies)"})
+        asm = Assembly.objects.create(
+            assembly_number="941-099",
+            serial_number="SN-GW-1001",
+            name="Granary Sensor Pro",
+            assembly_type="940",
+            category=asm_cat,
+            bom=self.bom,
+            sale_price=Decimal("199.00"),
+            status="BUILT",
+        )
+
+        # 1. Invalid serial number is rejected on Quote create
+        res_bad_q = self.client.post(
+            reverse('quote_create'),
+            {
+                'quote_number': 'QTE-BAD-1',
+                'quote_date': timezone.now().date(),
+                'status': 'DRAFT',
+                'customer_name': 'Test Client',
+                'customer_address': '123 Main St',
+                'item_bom[]': [str(self.bom.pk)],
+                'item_number[]': ['941-099'],
+                'item_serial_number[]': ['FAKE-SN-999'],
+                'item_description[]': ['Granary Sensor Pro'],
+                'item_quantity[]': ['1'],
+                'item_unit_price[]': ['199.00'],
+            },
+        )
+        self.assertEqual(res_bad_q.status_code, 200)
+        self.assertFalse(Quote.objects.filter(quote_number='QTE-BAD-1').exists())
+
+        # 2. Valid existing Assembly serial number succeeds on Quote, renders logo, and carries over to Invoice
+        res_good_q = self.client.post(
+            reverse('quote_create'),
+            {
+                'quote_number': 'QTE-SN-1',
+                'quote_date': timezone.now().date(),
+                'status': 'DRAFT',
+                'customer_name': 'Test Client',
+                'customer_address': '123 Main St',
+                'item_bom[]': [str(self.bom.pk)],
+                'item_number[]': ['941-099'],
+                'item_serial_number[]': ['SN-GW-1001'],
+                'item_description[]': ['Granary Sensor Pro'],
+                'item_quantity[]': ['1'],
+                'item_unit_price[]': ['199.00'],
+            },
+            follow=True,
+        )
+        self.assertEqual(res_good_q.status_code, 200)
+        self.assertContains(res_good_q, 'SN-GW-1001')
+        self.assertContains(res_good_q, 'images/logo.jpeg')
+        quote = Quote.objects.get(quote_number='QTE-SN-1')
+        self.assertEqual(quote.items.first().serial_number, 'SN-GW-1001')
+
+        # Accept -> Invoice inherits serial_number and renders logo
+        res_acc = self.client.post(reverse('quote_accept', args=[quote.pk]), follow=True)
+        self.assertEqual(res_acc.status_code, 200)
+        self.assertContains(res_acc, 'SN-GW-1001')
+        self.assertContains(res_acc, 'images/logo.jpeg')
+        quote.refresh_from_db()
+        self.assertEqual(quote.invoice.items.first().serial_number, 'SN-GW-1001')
+
+        # 3. Invalid serial number is rejected on Invoice create; blank is allowed
+        res_bad_s = self.client.post(
+            reverse('sale_create'),
+            {
+                'invoice_number': 'INV-BAD-1',
+                'invoice_date': timezone.now().date(),
+                'status': 'UNPAID',
+                'payment_method': 'E-Transfer',
+                'customer_name': 'Test Client',
+                'customer_address': '123 Main St',
+                'item_bom[]': [str(self.bom.pk)],
+                'item_number[]': ['941-099'],
+                'item_serial_number[]': ['NOT-A-REAL-SN'],
+                'item_description[]': ['Granary Sensor Pro'],
+                'item_quantity[]': ['1'],
+                'item_unit_price[]': ['199.00'],
+            },
+        )
+        self.assertEqual(res_bad_s.status_code, 200)
+        self.assertFalse(AssemblySale.objects.filter(invoice_number='INV-BAD-1').exists())
+
+        res_blank_s = self.client.post(
+            reverse('sale_create'),
+            {
+                'invoice_number': 'INV-BLANK-1',
+                'invoice_date': timezone.now().date(),
+                'status': 'UNPAID',
+                'payment_method': 'E-Transfer',
+                'customer_name': 'Test Client',
+                'customer_address': '123 Main St',
+                'item_bom[]': [str(self.bom.pk)],
+                'item_number[]': ['941-099'],
+                'item_serial_number[]': [''],
+                'item_description[]': ['Granary Sensor Pro'],
+                'item_quantity[]': ['1'],
+                'item_unit_price[]': ['199.00'],
+            },
+            follow=True,
+        )
+        self.assertEqual(res_blank_s.status_code, 200)
+        sale_blank = AssemblySale.objects.get(invoice_number='INV-BLANK-1')
+        self.assertEqual(sale_blank.items.first().serial_number, '')
 
 
 class BOMDocumentsTestCase(TestCase):

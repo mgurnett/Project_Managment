@@ -156,6 +156,73 @@
         </div>
     </div>
 
+    <!-- Purchase Orders for this Supplier -->
+    <div class="card border-0 shadow-sm rounded-3 bg-body mt-4 mb-4">
+        <div class="card-header bg-transparent border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h3 class="h5 fw-bold mb-1">Purchase Orders ({{ supplier_orders|length }})</h3>
+                <p class="text-muted small mb-0">Purchase orders placed with {{ company.name }}.</p>
+            </div>
+            <a href="{% url 'order_create' %}?supplier={{ company.pk }}" class="btn btn-sm btn-outline-custom">
+                <i class="bi bi-cart-plus me-1"></i> New Order for {{ company.name }}
+            </a>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light border-top border-bottom small text-uppercase text-muted">
+                        <tr>
+                            <th scope="col" class="ps-4 py-3">Order / PO #</th>
+                            <th scope="col" class="py-3">Order Date</th>
+                            <th scope="col" class="text-center py-3">Status</th>
+                            <th scope="col" class="text-center py-3">Line Items</th>
+                            <th scope="col" class="text-end py-3">Total</th>
+                            <th scope="col" class="text-end pe-4 py-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in supplier_orders %}
+                        <tr>
+                            <td class="ps-4 py-3 font-monospace fw-bold">
+                                <a href="{% url 'order_detail' order.pk %}" class="text-decoration-none text-custom">
+                                    {{ order.order_number }}
+                                </a>
+                            </td>
+                            <td class="py-3 small text-muted">{{ order.order_date|date:"M d, Y" }}</td>
+                            <td class="text-center py-3">
+                                {% if order.status == 'RECEIVED' %}
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle">Received</span>
+                                {% elif order.status == 'ORDERED' %}
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Ordered</span>
+                                {% elif order.status == 'PARTIALLY_RECEIVED' %}
+                                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">Partial</span>
+                                {% elif order.status == 'CANCELLED' %}
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Cancelled</span>
+                                {% else %}
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Pending</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center py-3 small">{{ order.items.count }}</td>
+                            <td class="text-end py-3 font-monospace fw-semibold">${{ order.total_cost|floatformat:2 }}</td>
+                            <td class="text-end pe-4 py-3">
+                                <a href="{% url 'order_detail' order.pk %}" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.75rem;">
+                                    View
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center py-4 text-muted small">
+                                No purchase orders placed with this supplier yet.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     {% include "core/_articles_and_tags_card.html" %}
 
 </div>

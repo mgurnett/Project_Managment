@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Invoice {{ sale.invoice_number }} | {{ sale.customer_name }} | Inventory Manager{% endblock %}
 
@@ -251,17 +252,19 @@
         <!-- Header Banner -->
         <div class="invoice-header-banner d-flex flex-column flex-sm-row justify-content-between align-items-start gap-3">
             <div>
-                <div class="text-uppercase fw-bold small text-primary mb-1" style="letter-spacing: 0.08em;">Sales Invoice</div>
-                <h1 class="h2 fw-bold mb-1">{{ company_name }}</h1>
+                <div class="mb-2">
+                    <img src="{% static 'images/logo.jpeg' %}" alt="{{ company_name }}" style="max-height: 110px; width: auto; border-radius: 8px; display: block;">
+                </div>
                 <div class="small text-muted">
                     <div>{{ company_address }}</div>
                     <div>Phone: {{ company_phone }} &bull; Email: {{ company_email }}</div>
                 </div>
             </div>
             <div class="text-sm-end">
-                <div class="badge bg-primary text-white fs-5 font-monospace px-3 py-2 mb-2">
+                <div class="badge bg-primary text-white fs-5 font-monospace px-3 py-2 mb-1">
                     {{ sale.invoice_number }} <span class="opacity-75 ms-1">Rev {{ sale.revision }}</span>
                 </div>
+                <div class="text-uppercase fw-bold small text-primary mb-2" style="letter-spacing: 0.08em; font-size: 0.72rem;">Sales Invoice</div>
                 <div class="small">
                     <div><strong>Invoice Date:</strong> {{ sale.invoice_date|date:"F j, Y" }}</div>
                     <div>
@@ -356,6 +359,9 @@
                         </td>
                         <td>
                             <div class="fw-semibold">{{ item.description }}</div>
+                            {% if item.serial_number %}
+                                <div class="small font-monospace text-dark">S/N: <strong>{{ item.serial_number }}</strong></div>
+                            {% endif %}
                             {% if item.bom %}
                                 <div class="small text-muted font-monospace">
                                     Current Built Stock: {{ item.bom.quantity_on_hand|default:0 }} built on hand

@@ -94,7 +94,7 @@
     <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
         <div class="card-body p-3">
             <form method="get" class="row g-2 align-items-center">
-                <div class="col-12 col-md-5">
+                <div class="col-12 col-md-4">
                     <div class="input-group input-group-sm">
                         <span class="input-group-text bg-transparent border-end-0"><i class="bi bi-search text-muted"></i></span>
                         <input type="text" name="q" class="form-control border-start-0 ps-0" placeholder="Search quote #, customer, email, or item description..." value="{{ current_q }}">
@@ -108,9 +108,17 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-6 col-md-4 d-flex gap-2">
+                <div class="col-auto">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" role="switch" id="showArchivedQuotesSwitch" name="show_archived" value="1" {% if show_archived %}checked{% endif %} onchange="this.form.submit()">
+                        <label class="form-check-label small fw-semibold" for="showArchivedQuotesSwitch">
+                            Show Archived{% if archived_count %} ({{ archived_count }}){% endif %}
+                        </label>
+                    </div>
+                </div>
+                <div class="col-auto d-flex gap-2">
                     <button type="submit" class="btn btn-sm btn-outline-primary fw-semibold px-3">Filter</button>
-                    {% if current_q or current_status %}
+                    {% if current_q or current_status or show_archived %}
                         <a href="{% url 'quote_list' %}" class="btn btn-sm btn-outline-secondary">Reset</a>
                     {% endif %}
                 </div>
@@ -142,12 +150,15 @@
                     </thead>
                     <tbody>
                         {% for q in quotes %}
-                        <tr>
+                        <tr class="{% if q.is_archived %}table-secondary bg-opacity-25 text-muted{% endif %}">
                             <td class="ps-4 py-3">
-                                <a href="{% url 'quote_detail' q.pk %}" class="fw-bold font-monospace text-decoration-none text-custom">
+                                <a href="{% url 'quote_detail' q.pk %}" class="fw-bold font-monospace text-decoration-none {% if q.is_archived %}text-muted{% else %}text-custom{% endif %}">
                                     {{ q.quote_number }}
                                 </a>
                                 <span class="badge bg-secondary-subtle text-secondary border font-monospace ms-1" style="font-size: 0.7rem;">Rev {{ q.revision }}</span>
+                                {% if q.is_archived %}
+                                    <span class="badge bg-secondary-subtle text-secondary border ms-1" style="font-size: 0.68rem;">Archived</span>
+                                {% endif %}
                             </td>
                             <td class="py-3 small text-muted">
                                 {{ q.quote_date|date:"M d, Y" }}

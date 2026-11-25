@@ -1009,6 +1009,11 @@ class BOM(models.Model):
         verbose_name="Frozen",
         help_text="Frozen BoMs are locked against edits until a new revision is started."
     )
+    is_archived = models.BooleanField(
+        default=False,
+        verbose_name="Archived",
+        help_text="Archived BoMs are hidden from the default list unless 'Show Archived' is checked."
+    )
     tags = models.ManyToManyField(Tag, blank=True, related_name='boms', verbose_name="Tags")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1578,6 +1583,13 @@ class Kit(models.Model):
         related_name='kit_record',
         verbose_name="Associated Part (920 Series)"
     )
+    serial_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name="Serial Number",
+        help_text="Optional unit serial number reserved for this kit / future assembly."
+    )
     build_sheet_url = models.URLField(max_length=500, blank=True, verbose_name="Build Sheet Link")
     inspection_sheet_url = models.URLField(max_length=500, blank=True, verbose_name="Inspection Sheet Link")
     notes = CKEditor5Field('Kit Notes', config_name='notes', blank=True, null=True)
@@ -1669,6 +1681,87 @@ class Kit(models.Model):
         except Exception:
             pass
 
+    @property
+    def total_required_qty(self):
+        items = list(self.kit_items.all())
+        if items:
+            return sum(i.quantity_required for i in items)
+        return sum((i.quantity or 0) for i in self.bom.items.all())
+
+    @property
+    def total_picked_qty(self):
+        items = list(self.kit_items.all())
+        if items:
+            return sum(i.quantity_picked for i in items)
+        return sum((i.quantity or 0) for i in self.bom.items.all())
+
+    @property
+    def is_fully_picked(self):
+        items = list(self.kit_items.all())
+        if not items:
+            return True
+        return all(i.quantity_picked >= i.quantity_required for i in items)
+
+    @property
+    def short_items_count(self):
+        items = list(self.kit_items.all())
+        return sum(1 for i in items if i.quantity_picked < i.quantity_required)
+
+
+class KitItem(models.Model):
+    """
+    Per-part picked quantity record for a Kit (920 series), supporting partial
+    picking before all parts arrive and optional per-component serial numbers.
+    """
+    kit = models.ForeignKey(
+        Kit,
+        on_delete=models.CASCADE,
+        related_name='kit_items',
+        verbose_name="Kit"
+    )
+    part = models.ForeignKey(
+        Part,
+        on_delete=models.PROTECT,
+        related_name='kit_items',
+        verbose_name="Component Part"
+    )
+    quantity_required = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Qty Required"
+    )
+    quantity_picked = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Qty Picked"
+    )
+    reference = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        verbose_name="Designator / Ref"
+    )
+    serial_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name="Component Serial #"
+    )
+
+    class Meta:
+        verbose_name = "Kit Item"
+        verbose_name_plural = "Kit Items"
+        ordering = ['part__part_number', 'id']
+
+    def __str__(self):
+        return f"{self.kit.kit_number}: {self.part.part_number} ({self.quantity_picked}/{self.quantity_required})"
+
+    @property
+    def quantity_remaining(self):
+        return max(0, (self.quantity_required or 0) - (self.quantity_picked or 0))
+
+    @property
+    def is_complete(self):
+        return (self.quantity_picked or 0) >= (self.quantity_required or 0)
+
 
 class Assembly(models.Model):
     """
@@ -1707,6 +1800,13 @@ class Assembly(models.Model):
         unique=True,
         blank=True,
         verbose_name="Assembly Part # (930/940/950)"
+    )
+    serial_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name="Serial Number",
+        help_text="Unit serial number carried over from kit or assigned at build."
     )
     name = models.CharField(max_length=150, verbose_name="Assembly Name")
     kit = models.OneToOneField(
@@ -2284,6 +2384,13 @@ class AssemblySaleItem(models.Model):
         verbose_name="Item / Assembly Number",
         help_text="e.g. 900-001"
     )
+    serial_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name="Serial Number",
+        help_text="Optional serial number from an existing Kit or Assembly."
+    )
     description = models.CharField(
         max_length=255,
         verbose_name="Item Description"
@@ -2405,6 +2512,11 @@ class Quote(models.Model):
         verbose_name="Revision #",
         help_text="Document revision number. Starts at 1 and increments when modified while open."
     )
+    is_archived = models.BooleanField(
+        default=False,
+        verbose_name="Archived",
+        help_text="Archived quotes (such as quotes converted to an invoice) are hidden from the default list unless 'Show Archived' is checked."
+    )
     tags = models.ManyToManyField(Tag, blank=True, related_name='quotes', verbose_name="Tags")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -2489,13 +2601,15 @@ class Quote(models.Model):
                     sale=sale,
                     bom=q_item.bom,
                     item_number=q_item.item_number,
+                    serial_number=q_item.serial_number,
                     description=q_item.description,
                     quantity=q_item.quantity,
                     unit_price=q_item.unit_price,
                 )
             self.status = 'ACCEPTED'
             self.invoice = sale
-            self.save(update_fields=['status', 'invoice', 'updated_at'])
+            self.is_archived = True
+            self.save(update_fields=['status', 'invoice', 'is_archived', 'updated_at'])
 
         return sale
 
@@ -2522,6 +2636,13 @@ class QuoteItem(models.Model):
         max_length=50,
         verbose_name="Item / Assembly Number",
         help_text="e.g. 900-001"
+    )
+    serial_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name="Serial Number",
+        help_text="Optional serial number from an existing Kit or Assembly."
     )
     description = models.CharField(
         max_length=255,

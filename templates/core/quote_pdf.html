@@ -215,8 +215,13 @@
     <!-- Header -->
     <div class="header">
         <div>
-            <div class="badge-type">Official Sales Quote &amp; Estimate</div>
-            <h1 class="company-title">{{ company_name }}</h1>
+            {% if logo_path %}
+                <div style="margin: 0 0 6pt 0;">
+                    <img src="{{ logo_path }}" alt="{{ company_name }}" style="max-height: 85pt; width: auto; border-radius: 5pt; display: block;">
+                </div>
+            {% else %}
+                <h1 class="company-title">{{ company_name }}</h1>
+            {% endif %}
             <div class="company-sub">
                 {{ company_address }}<br>
                 Phone: {{ company_phone }} &bull; Email: {{ company_email }}
@@ -224,6 +229,7 @@
         </div>
         <div class="text-right">
             <div class="quote-badge">{{ quote.quote_number }} &bull; Rev {{ quote.revision }}</div>
+            <div class="badge-type" style="margin-top: 3pt; margin-bottom: 4pt;">Official Technical Sales Quote &amp; Estimate</div>
             <div style="font-size: 8.5pt; color: #475569;">
                 <div><strong>Quote Date:</strong> {{ quote.quote_date|date:"F d, Y" }}</div>
                 {% if quote.valid_until %}
@@ -281,6 +287,7 @@
                 <td class="mono" style="font-weight: 700;">{{ item.item_number }}</td>
                 <td>
                     <div style="font-weight: 600;">{{ item.description }}</div>
+                    {% if item.serial_number %}<div class="mono" style="font-size: 8pt; color: #0f172a;">S/N: <strong>{{ item.serial_number }}</strong></div>{% endif %}
                     {% if item.bom %}<div style="font-size: 8pt; color: #64748b;">BoM: {{ item.bom.name }}</div>{% endif %}
                 </td>
                 <td class="text-center mono">{{ item.quantity }}</td>

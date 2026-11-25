@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Quote {{ quote.quote_number }} | {{ quote.customer_name }} | Inventory Manager{% endblock %}
 
@@ -238,18 +239,20 @@
         <!-- Sheet Header Banner -->
         <div class="quote-header-banner d-flex justify-content-between align-items-start flex-wrap gap-3">
             <div>
-                <div class="small text-uppercase fw-bold text-primary" style="letter-spacing: 0.1em; font-size: 0.75rem;">
-                    Official Technical Sales Quote &amp; Estimate
+                <div class="mb-2">
+                    <img src="{% static 'images/logo.jpeg' %}" alt="{{ company_name }}" style="max-height: 110px; width: auto; border-radius: 8px; display: block;">
                 </div>
-                <h1 class="h2 fw-bold mb-1 text-dark">{{ company_name }}</h1>
                 <div class="text-muted small">
                     <div>{{ company_address }}</div>
                     <div>Phone: {{ company_phone }} &bull; Email: {{ company_email }}</div>
                 </div>
             </div>
             <div class="text-end">
-                <div class="badge bg-primary text-white font-monospace px-3 py-2 fs-6 mb-2">
+                <div class="badge bg-primary text-white font-monospace px-3 py-2 fs-6 mb-1">
                     {{ quote.quote_number }} <span class="opacity-75 ms-1">Rev {{ quote.revision }}</span>
+                </div>
+                <div class="small text-uppercase fw-bold text-primary mb-2" style="letter-spacing: 0.08em; font-size: 0.72rem;">
+                    Official Technical Sales Quote &amp; Estimate
                 </div>
                 <div class="small text-muted">
                     <div><strong>Quote Date:</strong> {{ quote.quote_date|date:"F d, Y" }}</div>
@@ -345,6 +348,9 @@
                         </td>
                         <td class="align-middle">
                             <div class="fw-semibold">{{ item.description }}</div>
+                            {% if item.serial_number %}
+                                <div class="small font-monospace text-dark">S/N: <strong>{{ item.serial_number }}</strong></div>
+                            {% endif %}
                             {% if item.bom %}
                                 <div class="text-muted small">BoM: {{ item.bom.name }}</div>
                             {% endif %}

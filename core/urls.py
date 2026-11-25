@@ -94,6 +94,7 @@ urlpatterns = [
     path('boms/<int:pk>/delete/', views.BOMDeleteView.as_view(), name='bom_delete'),
     path('boms/<int:pk>/freeze/', views.bom_freeze_action, name='bom_freeze'),
     path('boms/<int:pk>/new-revision/', views.bom_new_revision_action, name='bom_new_revision'),
+    path('boms/<int:pk>/toggle-archive/', views.bom_toggle_archive_action, name='bom_toggle_archive'),
     path('boms/<int:pk>/pick-list/', views.bom_pick_list, name='bom_pick_list'),
     path('boms/<int:bom_pk>/items/add/', views.BOMItemCreateView.as_view(), name='bom_item_create'),
     path('boms/<int:pk>/add-bom/', views.bom_add_from_bom_action, name='bom_add_from_bom'),
@@ -106,6 +107,7 @@ urlpatterns = [
     path('kits/', views.KitListView.as_view(), name='kit_list'),
     path('kits/pick/', views.kit_pick_create, name='kit_pick'),
     path('kits/<int:pk>/', views.KitDetailView.as_view(), name='kit_detail'),
+    path('kits/<int:pk>/update-items/', views.kit_update_items, name='kit_update_items'),
     path('kits/<int:pk>/cancel/', views.kit_cancel_action, name='kit_cancel'),
 
     # Assemblies (930 Sub-Assemblies / 940 Assemblies / 950 Full Systems)

@@ -15,6 +15,9 @@
             <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
                 <span class="badge bg-primary text-white font-monospace fs-6 px-2.5 py-1">{{ assembly.assembly_number }}</span>
                 <h1 class="h3 fw-bold mb-0 text-custom">{{ assembly.name }}</h1>
+                {% if assembly.serial_number %}
+                    <span class="badge bg-dark text-white font-monospace px-2.5 py-1">S/N: {{ assembly.serial_number }}</span>
+                {% endif %}
                 <span class="badge bg-info-subtle text-info border border-info-subtle px-2.5 py-1">
                     {% if assembly.category %}[{{ assembly.category.prefix }}] {{ assembly.category.name }}{% else %}{{ assembly.get_assembly_type_display }}{% endif %}
                 </span>

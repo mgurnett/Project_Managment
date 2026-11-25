@@ -1,4 +1,5 @@
 import csv
+import json
 import os
 import re
 from pathlib import Path
@@ -19,7 +20,7 @@ from django.db.models.functions import Length
 from .models import (
     Part, Company, Manufacturer, Customer, Category, Location, PartDocument,
     InventoryAdjustment,
-    BOM, BOMItem, BOMDocument, Kit, Assembly, Order, OrderItem, AssemblySale, AssemblySaleItem,
+    BOM, BOMItem, BOMDocument, Kit, KitItem, Assembly, Order, OrderItem, AssemblySale, AssemblySaleItem,
     Quote, QuoteItem, Tag, Article
 )
 from .forms import (
@@ -314,22 +315,45 @@ def _attach_kit_allocations(parts):
     """
     Attaches `.kit_allocations` ([{'kit': Kit, 'qty': int}, ...]), `.kitted_total`,
     and `.bin_quantity` (unkitted on-hand count in storage bin) to each Part in `parts`.
+    Uses actual picked quantities from `KitItem` when present, falling back to `BOMItem`
+    for legacy kits without `KitItem` rows.
     """
     part_list = list(parts)
     if not part_list:
         return part_list
     part_ids = {p.pk for p in part_list}
-    active_kits = list(Kit.objects.filter(status='PICKED').select_related('bom').order_by('kit_number'))
-    bom_ids = {k.bom_id for k in active_kits}
+    active_kits = list(
+        Kit.objects.filter(status='PICKED')
+        .select_related('bom')
+        .prefetch_related('kit_items')
+        .order_by('kit_number')
+    )
+
+    legacy_bom_ids = set()
+    kit_item_qty = {}
+    kits_with_items = set()
+    for kit in active_kits:
+        kitems = list(kit.kit_items.all())
+        if kitems:
+            kits_with_items.add(kit.pk)
+            for ki in kitems:
+                if ki.part_id in part_ids and (ki.quantity_picked or 0) > 0:
+                    kit_item_qty[(kit.pk, ki.part_id)] = kit_item_qty.get((kit.pk, ki.part_id), 0) + ki.quantity_picked
+        else:
+            legacy_bom_ids.add(kit.bom_id)
+
     bom_part_qty = {}
-    if bom_ids:
-        for bi in BOMItem.objects.filter(bom_id__in=bom_ids, part_id__in=part_ids):
+    if legacy_bom_ids:
+        for bi in BOMItem.objects.filter(bom_id__in=legacy_bom_ids, part_id__in=part_ids):
             bom_part_qty[(bi.bom_id, bi.part_id)] = bom_part_qty.get((bi.bom_id, bi.part_id), 0) + (bi.quantity or 0)
 
     alloc_by_part = {pid: [] for pid in part_ids}
     for kit in active_kits:
         for pid in part_ids:
-            qty = bom_part_qty.get((kit.bom_id, pid), 0)
+            if kit.pk in kits_with_items:
+                qty = kit_item_qty.get((kit.pk, pid), 0)
+            else:
+                qty = bom_part_qty.get((kit.bom_id, pid), 0)
             if qty > 0:
                 alloc_by_part[pid].append({'kit': kit, 'qty': qty})
 
@@ -509,6 +533,7 @@ class PartCreateView(CreateView):
 
     def form_valid(self, form):
         response = super().form_valid(form)
+        _attach_entity_form_document(self.request, self.object, 'parts', default_type='datasheet')
         messages.success(self.request, f"Part '{self.object}' was created successfully!")
         return response
 
@@ -583,11 +608,12 @@ class PartDuplicateView(CreateView):
         return HttpResponseRedirect(self.get_success_url())
 
 
-class PartUpdateView(UpdateView):
+class PartUpdateView(ArticleContextMixin, UpdateView):
     model = Part
     form_class = PartForm
     template_name = 'core/part_form.html'
     success_url = reverse_lazy('part_list')
+    article_link_param = 'part'
 
     def form_valid(self, form):
         old_part = Part.objects.get(pk=self.get_object().pk)
@@ -724,6 +750,9 @@ class CompanyDetailView(ArticleContextMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['parts'] = self.object.parts.select_related('category', 'location').all()
+        ctx['supplier_orders'] = list(
+            self.object.orders.prefetch_related('items').order_by('-order_date', '-id')
+        )
         return ctx
 
 
@@ -1337,6 +1366,9 @@ class BOMListView(ListView):
     def get_queryset(self):
         filters = resolve_persistent_filters(self.request, 'bom_list_filters', ['q'])
         qs = BOM.objects.annotate(items_count=Count('items')).all()
+        show_archived = self.request.GET.get('show_archived') in ('1', 'true', 'on', 'yes')
+        if not show_archived:
+            qs = qs.filter(is_archived=False)
         q = filters['q']
         if q:
             qs = qs.filter(
@@ -1344,12 +1376,14 @@ class BOMListView(ListView):
                 Q(name__icontains=q) |
                 Q(description__icontains=q)
             )
-        return qs.order_by('assembly_number', 'name')
+        return qs.order_by('is_archived', 'assembly_number', 'name')
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         filters = resolve_persistent_filters(self.request, 'bom_list_filters', ['q'])
         ctx['current_q'] = filters['q']
+        ctx['show_archived'] = self.request.GET.get('show_archived') in ('1', 'true', 'on', 'yes')
+        ctx['archived_count'] = BOM.objects.filter(is_archived=True).count()
         ctx['total_count'] = self.get_queryset().count()
         ctx['total_built_on_hand'] = BOM.objects.aggregate(total=Sum('quantity_on_hand'))['total'] or 0
         return ctx
@@ -1363,7 +1397,11 @@ class BOMDetailView(ArticleContextMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        items = list(self.object.items.select_related('part', 'part__company', 'part__location').all())
+        items = list(
+            self.object.items
+            .select_related('part', 'part__company', 'part__location')
+            .order_by('part__part_number', 'id')
+        )
         ctx['items'] = items
         ctx['item_form'] = BOMItemForm(bom=self.object)
         ctx['documents'] = list(self.object.documents.all())
@@ -1498,21 +1536,101 @@ def bom_freeze_action(request, pk):
 
 
 def bom_new_revision_action(request, pk):
-    """POST action to unfreeze a frozen BoM and increment its revision number."""
+    """
+    POST action to create the next revision (Rev N+1) of a BoM as a fresh active BoM
+    and archive the current revision (Rev N), cloning all component items & linked articles.
+    """
+    bom = get_object_or_404(BOM.objects.prefetch_related('items__part', 'articles'), pk=pk)
+    if request.method != 'POST':
+        return redirect('bom_detail', pk=bom.pk)
+
+    old_rev = bom.revision or 1
+    new_rev = old_rev + 1
+    base_name = re.sub(r'\s*\(Rev\s+\d+\)$', '', bom.name).strip()
+    base_num = re.sub(r'-R\d+$', '', bom.assembly_number or '').strip()
+
+    with transaction.atomic():
+        # Archive old revision under unique historical name & number
+        arch_name = f"{base_name} (Rev {old_rev})"
+        idx = 2
+        while BOM.objects.exclude(pk=bom.pk).filter(name=arch_name).exists():
+            arch_name = f"{base_name} (Rev {old_rev}-{idx})"
+            idx += 1
+
+        arch_num = f"{base_num}-R{old_rev}" if base_num else None
+        if arch_num:
+            n_idx = 2
+            while BOM.objects.exclude(pk=bom.pk).filter(assembly_number=arch_num).exists():
+                arch_num = f"{base_num}-R{old_rev}-{n_idx}"
+                n_idx += 1
+
+        old_items = list(bom.items.all())
+        old_articles = list(bom.articles.all())
+
+        # Detach canonical Part link from archived BoM so the new active revision can own it
+        bom.name = arch_name
+        bom.assembly_number = arch_num
+        bom.is_archived = True
+        bom.is_frozen = True
+        bom.part = None
+        bom.save(update_fields=['name', 'assembly_number', 'is_archived', 'is_frozen', 'part', 'updated_at'])
+
+        # Create active new revision with canonical name & number
+        new_name = base_name
+        if BOM.objects.filter(name=new_name).exists():
+            new_name = f"{base_name} (Rev {new_rev})"
+        new_num = base_num or None
+        if new_num and BOM.objects.filter(assembly_number=new_num).exists():
+            new_num = None
+
+        new_bom = BOM.objects.create(
+            category=bom.category,
+            assembly_number=new_num,
+            name=new_name,
+            description=bom.description,
+            sale_price=bom.sale_price,
+            notes=bom.notes,
+            revision=new_rev,
+            is_frozen=False,
+            is_archived=False,
+        )
+
+        for item in old_items:
+            BOMItem.objects.create(
+                bom=new_bom,
+                part=item.part,
+                quantity=item.quantity,
+                reference=item.reference,
+                notes=item.notes,
+            )
+
+        if old_articles:
+            new_sys_tag = Tag.get_or_create_system_tag(new_bom)
+            for art in old_articles:
+                art.tags.add(new_sys_tag)
+                art.boms.add(new_bom)
+
+    messages.success(request, f"Created '{new_bom.name}' Rev {new_rev} and archived Rev {old_rev}.")
+    return redirect('bom_detail', pk=new_bom.pk)
+
+
+def bom_toggle_archive_action(request, pk):
+    """POST action to archive or unarchive a BoM directly from its detail page."""
     bom = get_object_or_404(BOM, pk=pk)
     if request.method == 'POST':
-        if bom.is_frozen:
-            bom.is_frozen = False
-            bom.revision = (bom.revision or 1) + 1
-            bom.save(update_fields=['is_frozen', 'revision', 'updated_at'])
-            messages.success(request, f"BoM '{bom.name}' unfrozen for Rev {bom.revision}.")
+        bom.is_archived = not bom.is_archived
+        bom.save(update_fields=['is_archived', 'updated_at'])
+        if bom.is_archived:
+            messages.success(request, f"BoM '{bom.name}' archived (hidden from main BoMs list unless 'Show Archived' is checked).")
+        else:
+            messages.success(request, f"BoM '{bom.name}' restored from archive.")
     return redirect('bom_detail', pk=bom.pk)
 
 
 def bom_pick_list(request, pk):
     """Printable pick list for pulling a kit from a BoM."""
     bom = get_object_or_404(BOM, pk=pk)
-    items = bom.items.select_related('part', 'part__location', 'part__company').all()
+    items = bom.items.select_related('part', 'part__location', 'part__company').order_by('part__part_number', 'id')
     return render(request, 'core/bom_pick_list.html', {'bom': bom, 'items': items})
 
 
@@ -2466,6 +2584,18 @@ class OrderCreateView(CreateView):
             return redirect('order_detail', pk=order.pk)
 
 
+def _cross_tag_article(article, obj):
+    """
+    Cross-tags an Article to related parent records automatically:
+    - Order document/receipt -> also tagged & linked to Order.supplier (Company)
+    """
+    if isinstance(obj, Order) and obj.supplier_id:
+        supplier = obj.supplier
+        supplier_tag = Tag.get_or_create_system_tag(supplier)
+        article.tags.add(supplier_tag)
+        article.companies.add(supplier)
+
+
 def _attach_entity_form_document(request, obj, m2m_field, default_type='other'):
     """
     Attaches an optional Article/Document dropped or entered on an entity's
@@ -2491,6 +2621,7 @@ def _attach_entity_form_document(request, obj, m2m_field, default_type='other'):
     )
     article.tags.add(sys_tag)
     getattr(article, m2m_field).add(obj)
+    _cross_tag_article(article, obj)
     return article
 
 
@@ -3935,6 +4066,34 @@ def bom_adjust_assembly_stock(request, pk):
 SALE_FILTER_KEYS = ['q', 'status', 'payment_method']
 
 
+def _get_allowed_serial_options(extra_serials=None):
+    """
+    Returns (options_list, allowed_set) of serial numbers from existing Kits and Assemblies.
+    Only serial numbers present on existing Kits or Assemblies (or blank) are allowed on Quotes/Invoices.
+    """
+    seen = {}
+    for asm in Assembly.objects.exclude(serial_number='').order_by('serial_number', 'assembly_number'):
+        sn = (asm.serial_number or '').strip()
+        if sn and sn not in seen:
+            seen[sn] = f"{sn} ({asm.assembly_number} — {asm.name})"
+    for kit in Kit.objects.exclude(serial_number='').select_related('bom').order_by('serial_number', 'kit_number'):
+        sn = (kit.serial_number or '').strip()
+        if sn and sn not in seen:
+            seen[sn] = f"{sn} ({kit.kit_number} — {kit.bom.name})"
+    if extra_serials:
+        for sn in extra_serials:
+            clean = (sn or '').strip()
+            if clean and clean not in seen:
+                seen[clean] = clean
+    options = [{'value': sn, 'label': label} for sn, label in sorted(seen.items(), key=lambda kv: kv[0].lower())]
+    return options, set(seen.keys())
+
+
+def _get_company_logo_file_uri():
+    logo_file = (Path(settings.BASE_DIR) / 'static' / 'images' / 'logo.jpeg').resolve()
+    return f"file://{logo_file}" if logo_file.exists() else ''
+
+
 def generate_and_save_invoice_pdf(sale, request=None):
     """
     Renders and saves the WeasyPrint PDF for an AssemblySale invoice into MEDIA_ROOT/invoices/.
@@ -3949,6 +4108,7 @@ def generate_and_save_invoice_pdf(sale, request=None):
         'company_address': AssemblySale.DEFAULT_COMPANY_ADDRESS,
         'company_phone': AssemblySale.DEFAULT_COMPANY_PHONE,
         'company_email': AssemblySale.DEFAULT_COMPANY_EMAIL,
+        'logo_path': _get_company_logo_file_uri(),
         'generated_at': timezone.now(),
         'request': request,
     }
@@ -4079,6 +4239,7 @@ class AssemblySaleCreateView(CreateView):
         ctx['assemblies'] = boms
         ctx['built_assemblies'] = built_assemblies
         ctx['customers'] = Customer.objects.order_by('name')
+        ctx['allowed_serial_options'], _ = _get_allowed_serial_options()
         ctx['next_invoice_number'] = AssemblySale.generate_next_invoice_number()
         preselected_bom_id = self.request.GET.get('bom')
         if preselected_bom_id and preselected_bom_id.isdigit():
@@ -4095,16 +4256,23 @@ class AssemblySaleCreateView(CreateView):
     def form_valid(self, form):
         bom_ids = self.request.POST.getlist('item_bom[]') or self.request.POST.getlist('item_bom')
         item_numbers = self.request.POST.getlist('item_number[]') or self.request.POST.getlist('item_number')
+        serial_numbers = self.request.POST.getlist('item_serial_number[]') or self.request.POST.getlist('item_serial_number')
         descriptions = self.request.POST.getlist('item_description[]') or self.request.POST.getlist('item_description')
         quantities = self.request.POST.getlist('item_quantity[]') or self.request.POST.getlist('item_quantity')
         unit_prices = self.request.POST.getlist('item_unit_price[]') or self.request.POST.getlist('item_unit_price')
 
+        _, allowed_serials = _get_allowed_serial_options()
         row_count = max(len(bom_ids), len(item_numbers), len(descriptions))
         parsed_rows = []
         for i in range(row_count):
             b_id_str = str(bom_ids[i]).strip() if i < len(bom_ids) and bom_ids[i] else ''
             i_num = str(item_numbers[i]).strip() if i < len(item_numbers) and item_numbers[i] else ''
+            i_serial = str(serial_numbers[i]).strip() if i < len(serial_numbers) and serial_numbers[i] else ''
             i_desc = str(descriptions[i]).strip() if i < len(descriptions) and descriptions[i] else ''
+
+            if i_serial and i_serial not in allowed_serials:
+                messages.error(self.request, f"Serial number '{i_serial}' does not exist on any Kit or Assembly. Please choose an existing serial number or leave it blank.")
+                return self.form_invalid(form)
 
             bom_obj = None
             if b_id_str.isdigit():
@@ -4141,6 +4309,7 @@ class AssemblySaleCreateView(CreateView):
             parsed_rows.append({
                 'bom': bom_obj,
                 'item_number': i_num or '900-001',
+                'serial_number': i_serial,
                 'description': i_desc or 'Built Assembly',
                 'quantity': qty,
                 'unit_price': u_price,
@@ -4173,6 +4342,7 @@ class AssemblySaleCreateView(CreateView):
                     sale=sale,
                     bom=bom_obj,
                     item_number=row['item_number'],
+                    serial_number=row['serial_number'],
                     description=row['description'],
                     quantity=qty,
                     unit_price=row['unit_price'],
@@ -4328,7 +4498,11 @@ class AssemblySaleUpdateView(UpdateView):
             .order_by('assembly_number')
         )
         ctx['customers'] = Customer.objects.order_by('name')
-        ctx['existing_items'] = list(self.object.items.select_related('bom').all())
+        existing_items = list(self.object.items.select_related('bom').all())
+        ctx['existing_items'] = existing_items
+        ctx['allowed_serial_options'], _ = _get_allowed_serial_options(
+            extra_serials=[it.serial_number for it in existing_items if it.serial_number]
+        )
         return ctx
 
     def form_valid(self, form):
@@ -4338,10 +4512,22 @@ class AssemblySaleUpdateView(UpdateView):
             old_revision = old_sale.revision or 1
             old_stock_deducted = old_sale.stock_deducted
             old_items_snapshot = [
-                (item.bom_id, item.item_number, item.description, item.quantity, item.unit_price)
+                (item.bom_id, item.item_number, item.serial_number, item.description, item.quantity, item.unit_price)
                 for item in old_sale.items.all()
             ]
             items_changed = False
+
+            # Validate serial numbers before mutating
+            if 'item_number[]' in self.request.POST or 'item_bom[]' in self.request.POST:
+                serial_numbers = self.request.POST.getlist('item_serial_number[]') or self.request.POST.getlist('item_serial_number')
+                _, allowed_serials = _get_allowed_serial_options(
+                    extra_serials=[it.serial_number for it in old_sale.items.all() if it.serial_number]
+                )
+                for sn in serial_numbers:
+                    clean_sn = (sn or '').strip()
+                    if clean_sn and clean_sn not in allowed_serials:
+                        messages.error(self.request, f"Serial number '{clean_sn}' does not exist on any Kit or Assembly. Please choose an existing serial number or leave it blank.")
+                        return self.form_invalid(form)
 
             sale = form.save()
             self.object = sale
@@ -4352,6 +4538,7 @@ class AssemblySaleUpdateView(UpdateView):
             if 'item_number[]' in self.request.POST or 'item_bom[]' in self.request.POST:
                 bom_ids = self.request.POST.getlist('item_bom[]') or self.request.POST.getlist('item_bom')
                 item_numbers = self.request.POST.getlist('item_number[]') or self.request.POST.getlist('item_number')
+                serial_numbers = self.request.POST.getlist('item_serial_number[]') or self.request.POST.getlist('item_serial_number')
                 descriptions = self.request.POST.getlist('item_description[]') or self.request.POST.getlist('item_description')
                 quantities = self.request.POST.getlist('item_quantity[]') or self.request.POST.getlist('item_quantity')
                 unit_prices = self.request.POST.getlist('item_unit_price[]') or self.request.POST.getlist('item_unit_price')
@@ -4361,6 +4548,7 @@ class AssemblySaleUpdateView(UpdateView):
                 for i in range(row_count):
                     b_id_str = str(bom_ids[i]).strip() if i < len(bom_ids) and bom_ids[i] else ''
                     i_num = str(item_numbers[i]).strip() if i < len(item_numbers) and item_numbers[i] else ''
+                    i_serial = str(serial_numbers[i]).strip() if i < len(serial_numbers) and serial_numbers[i] else ''
                     i_desc = str(descriptions[i]).strip() if i < len(descriptions) and descriptions[i] else ''
                     bom_obj = BOM.objects.filter(pk=int(b_id_str)).first() if b_id_str.isdigit() else None
                     if not bom_obj and not i_num and not i_desc:
@@ -4376,6 +4564,7 @@ class AssemblySaleUpdateView(UpdateView):
                     new_rows.append({
                         'bom': bom_obj,
                         'item_number': i_num or (bom_obj.assembly_number if bom_obj else '900-001'),
+                        'serial_number': i_serial,
                         'description': i_desc or (bom_obj.name if bom_obj else 'Assembly'),
                         'quantity': qty,
                         'unit_price': u_price,
@@ -4383,7 +4572,7 @@ class AssemblySaleUpdateView(UpdateView):
 
                 if new_rows:
                     new_items_snapshot = [
-                        (row['bom'].pk if row['bom'] else None, row['item_number'], row['description'], row['quantity'], row['unit_price'])
+                        (row['bom'].pk if row['bom'] else None, row['item_number'], row['serial_number'], row['description'], row['quantity'], row['unit_price'])
                         for row in new_rows
                     ]
                     items_changed = (old_items_snapshot != new_items_snapshot)
@@ -4401,6 +4590,7 @@ class AssemblySaleUpdateView(UpdateView):
                             sale=sale,
                             bom=row['bom'],
                             item_number=row['item_number'],
+                            serial_number=row['serial_number'],
                             description=row['description'],
                             quantity=row['quantity'],
                             unit_price=row['unit_price'],
@@ -4627,6 +4817,7 @@ def generate_and_save_quote_pdf(quote, request=None):
         'company_address': Quote.DEFAULT_COMPANY_ADDRESS,
         'company_phone': Quote.DEFAULT_COMPANY_PHONE,
         'company_email': Quote.DEFAULT_COMPANY_EMAIL,
+        'logo_path': _get_company_logo_file_uri(),
         'generated_at': timezone.now(),
         'request': request,
     }
@@ -4665,9 +4856,13 @@ class QuoteListView(ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        qs = Quote.objects.prefetch_related('items', 'invoice').order_by('-quote_date', '-id')
+        qs = Quote.objects.prefetch_related('items', 'invoice').order_by('is_archived', '-quote_date', '-id')
         q = self.request.GET.get('q', '').strip()
         status_filter = self.request.GET.get('status', '').strip()
+        show_archived = self.request.GET.get('show_archived') in ('1', 'true', 'on', 'yes')
+
+        if not show_archived:
+            qs = qs.filter(is_archived=False)
 
         if q:
             qs = qs.filter(
@@ -4692,6 +4887,8 @@ class QuoteListView(ListView):
         ctx['draft_quotes_count'] = sum(1 for q in all_quotes if q.status == 'DRAFT')
         ctx['sent_quotes_count'] = sum(1 for q in all_quotes if q.status == 'SENT')
         ctx['accepted_quotes_count'] = sum(1 for q in all_quotes if q.status == 'ACCEPTED')
+        ctx['archived_count'] = sum(1 for q in all_quotes if q.is_archived)
+        ctx['show_archived'] = self.request.GET.get('show_archived') in ('1', 'true', 'on', 'yes')
         ctx['total_quoted_amount'] = sum((q.total_amount for q in all_quotes), Decimal('0.00'))
         ctx['total_accepted_amount'] = sum((q.total_amount for q in all_quotes if q.status == 'ACCEPTED'), Decimal('0.00'))
 
@@ -4733,6 +4930,7 @@ class QuoteCreateView(CreateView):
         ctx['assemblies'] = boms
         ctx['built_assemblies'] = built_assemblies
         ctx['customers'] = Customer.objects.order_by('name')
+        ctx['allowed_serial_options'], _ = _get_allowed_serial_options()
         ctx['next_quote_number'] = Quote.generate_next_quote_number()
         preselected_bom_id = self.request.GET.get('bom')
         if preselected_bom_id and preselected_bom_id.isdigit():
@@ -4749,16 +4947,23 @@ class QuoteCreateView(CreateView):
     def form_valid(self, form):
         bom_ids = self.request.POST.getlist('item_bom[]') or self.request.POST.getlist('item_bom')
         item_numbers = self.request.POST.getlist('item_number[]') or self.request.POST.getlist('item_number')
+        serial_numbers = self.request.POST.getlist('item_serial_number[]') or self.request.POST.getlist('item_serial_number')
         descriptions = self.request.POST.getlist('item_description[]') or self.request.POST.getlist('item_description')
         quantities = self.request.POST.getlist('item_quantity[]') or self.request.POST.getlist('item_quantity')
         unit_prices = self.request.POST.getlist('item_unit_price[]') or self.request.POST.getlist('item_unit_price')
 
+        _, allowed_serials = _get_allowed_serial_options()
         row_count = max(len(bom_ids), len(item_numbers), len(descriptions))
         parsed_rows = []
         for i in range(row_count):
             b_id_str = str(bom_ids[i]).strip() if i < len(bom_ids) and bom_ids[i] else ''
             i_num = str(item_numbers[i]).strip() if i < len(item_numbers) and item_numbers[i] else ''
+            i_serial = str(serial_numbers[i]).strip() if i < len(serial_numbers) and serial_numbers[i] else ''
             i_desc = str(descriptions[i]).strip() if i < len(descriptions) and descriptions[i] else ''
+
+            if i_serial and i_serial not in allowed_serials:
+                messages.error(self.request, f"Serial number '{i_serial}' does not exist on any Kit or Assembly. Please choose an existing serial number or leave it blank.")
+                return self.form_invalid(form)
 
             bom_obj = None
             if b_id_str.isdigit():
@@ -4795,6 +5000,7 @@ class QuoteCreateView(CreateView):
             parsed_rows.append({
                 'bom': bom_obj,
                 'item_number': i_num or '900-001',
+                'serial_number': i_serial,
                 'description': i_desc or 'Custom Item',
                 'quantity': qty,
                 'unit_price': u_price,
@@ -4813,6 +5019,7 @@ class QuoteCreateView(CreateView):
                     quote=quote,
                     bom=row['bom'],
                     item_number=row['item_number'],
+                    serial_number=row['serial_number'],
                     description=row['description'],
                     quantity=row['quantity'],
                     unit_price=row['unit_price'],
@@ -4849,23 +5056,36 @@ class QuoteUpdateView(UpdateView):
             .order_by('assembly_number')
         )
         ctx['customers'] = Customer.objects.order_by('name')
-        ctx['existing_items'] = list(self.object.items.all())
+        existing_items = list(self.object.items.all())
+        ctx['existing_items'] = existing_items
+        ctx['allowed_serial_options'], _ = _get_allowed_serial_options(
+            extra_serials=[it.serial_number for it in existing_items if it.serial_number]
+        )
         ctx['next_quote_number'] = self.object.quote_number
         return ctx
 
     def form_valid(self, form):
         bom_ids = self.request.POST.getlist('item_bom[]') or self.request.POST.getlist('item_bom')
         item_numbers = self.request.POST.getlist('item_number[]') or self.request.POST.getlist('item_number')
+        serial_numbers = self.request.POST.getlist('item_serial_number[]') or self.request.POST.getlist('item_serial_number')
         descriptions = self.request.POST.getlist('item_description[]') or self.request.POST.getlist('item_description')
         quantities = self.request.POST.getlist('item_quantity[]') or self.request.POST.getlist('item_quantity')
         unit_prices = self.request.POST.getlist('item_unit_price[]') or self.request.POST.getlist('item_unit_price')
 
+        _, allowed_serials = _get_allowed_serial_options(
+            extra_serials=[it.serial_number for it in self.object.items.all() if it.serial_number]
+        )
         row_count = max(len(bom_ids), len(item_numbers), len(descriptions))
         parsed_rows = []
         for i in range(row_count):
             b_id_str = str(bom_ids[i]).strip() if i < len(bom_ids) and bom_ids[i] else ''
             i_num = str(item_numbers[i]).strip() if i < len(item_numbers) and item_numbers[i] else ''
+            i_serial = str(serial_numbers[i]).strip() if i < len(serial_numbers) and serial_numbers[i] else ''
             i_desc = str(descriptions[i]).strip() if i < len(descriptions) and descriptions[i] else ''
+
+            if i_serial and i_serial not in allowed_serials:
+                messages.error(self.request, f"Serial number '{i_serial}' does not exist on any Kit or Assembly. Please choose an existing serial number or leave it blank.")
+                return self.form_invalid(form)
 
             bom_obj = None
             if b_id_str.isdigit():
@@ -4902,6 +5122,7 @@ class QuoteUpdateView(UpdateView):
             parsed_rows.append({
                 'bom': bom_obj,
                 'item_number': i_num or '900-001',
+                'serial_number': i_serial,
                 'description': i_desc or 'Custom Item',
                 'quantity': qty,
                 'unit_price': u_price,
@@ -4916,11 +5137,11 @@ class QuoteUpdateView(UpdateView):
             old_status = old_quote.status
             old_revision = old_quote.revision or 1
             old_items_snapshot = [
-                (item.bom_id, item.item_number, item.description, item.quantity, item.unit_price)
+                (item.bom_id, item.item_number, item.serial_number, item.description, item.quantity, item.unit_price)
                 for item in old_quote.items.all()
             ]
             new_items_snapshot = [
-                (row['bom'].pk if row['bom'] else None, row['item_number'], row['description'], row['quantity'], row['unit_price'])
+                (row['bom'].pk if row['bom'] else None, row['item_number'], row['serial_number'], row['description'], row['quantity'], row['unit_price'])
                 for row in parsed_rows
             ]
             items_changed = (old_items_snapshot != new_items_snapshot)
@@ -4932,6 +5153,7 @@ class QuoteUpdateView(UpdateView):
                     quote=quote,
                     bom=row['bom'],
                     item_number=row['item_number'],
+                    serial_number=row['serial_number'],
                     description=row['description'],
                     quantity=row['quantity'],
                     unit_price=row['unit_price'],
@@ -5346,6 +5568,7 @@ def attach_article_to_entity(request, model_name, pk):
             article = get_object_or_404(Article, pk=int(existing_id))
             article.tags.add(sys_tag)
             getattr(article, m2m_field).add(obj)
+            _cross_tag_article(article, obj)
             messages.success(request, f"Linked '{article.title}' to this record.")
             return redirect(next_url)
 
@@ -5373,6 +5596,7 @@ def attach_article_to_entity(request, model_name, pk):
         )
         article.tags.add(sys_tag)
         getattr(article, m2m_field).add(obj)
+        _cross_tag_article(article, obj)
         messages.success(request, f"Attached '{article.title}'.")
 
     return redirect(next_url)
@@ -5412,20 +5636,58 @@ class KitListView(ListView):
     context_object_name = 'kits'
 
     def get_queryset(self):
-        qs = Kit.objects.select_related('bom', 'part').all()
+        qs = Kit.objects.select_related('bom', 'part', 'category').prefetch_related('kit_items', 'bom__items').all()
         status = (self.request.GET.get('status') or '').strip()
         if status:
             qs = qs.filter(status=status)
         q = (self.request.GET.get('q') or '').strip()
         if q:
-            qs = qs.filter(Q(kit_number__icontains=q) | Q(bom__name__icontains=q) | Q(bom__assembly_number__icontains=q))
+            qs = qs.filter(
+                Q(kit_number__icontains=q) |
+                Q(serial_number__icontains=q) |
+                Q(bom__name__icontains=q) |
+                Q(bom__assembly_number__icontains=q)
+            )
         return qs.order_by('-created_at', 'kit_number')
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['current_status'] = (self.request.GET.get('status') or '').strip()
         ctx['current_q'] = (self.request.GET.get('q') or '').strip()
-        ctx['boms'] = BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name')
+        boms = list(BOM.objects.prefetch_related('items__part__location').order_by('assembly_number', 'name'))
+        ctx['boms'] = boms
+        boms_data = {}
+        for b in boms:
+            boms_data[str(b.pk)] = [
+                {
+                    'bom_item_id': bi.pk,
+                    'part_id': bi.part_id,
+                    'part_number': bi.part.part_number,
+                    'part_name': bi.part.name or bi.part.description or bi.part.part_number,
+                    'reference': bi.reference or '',
+                    'location': bi.part.location.name if bi.part.location else '—',
+                    'required': bi.quantity or 1,
+                    'on_hand': bi.part.quantity_on_hand or 0,
+                    'available': max(0, (bi.part.quantity_on_hand or 0) - (bi.part.quantity_committed or 0)),
+                }
+                for bi in b.items.all()
+            ]
+        ctx['boms_json'] = json.dumps(boms_data)
+        catalog_parts = list(
+            Part.objects.select_related('location', 'category')
+            .exclude(category__prefix__startswith='92')
+            .order_by('part_number', 'name')
+        )
+        ctx['all_parts_json'] = json.dumps([
+            {
+                'part_id': p.pk,
+                'part_number': p.part_number,
+                'part_name': p.name or p.description or p.part_number,
+                'location': p.location.name if p.location else '—',
+                'available': max(0, (p.quantity_on_hand or 0) - (p.quantity_committed or 0)),
+            }
+            for p in catalog_parts
+        ])
         ctx['kit_categories'] = Category.objects.filter(prefix__startswith='92').order_by('prefix', 'name')
         ctx['next_kit_number'] = Kit.generate_next_kit_number()
         pre_bom = self.request.GET.get('bom')
@@ -5441,14 +5703,36 @@ class KitDetailView(ArticleContextMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['items'] = self.object.bom.items.select_related('part', 'part__location', 'part__company').all()
+        kit_items = list(self.object.kit_items.select_related('part', 'part__location', 'part__company').all())
+        if not kit_items:
+            # Backfill KitItem rows for legacy kits created before partial-picking support
+            for bi in self.object.bom.items.select_related('part', 'part__location', 'part__company').all():
+                ki = KitItem.objects.create(
+                    kit=self.object,
+                    part=bi.part,
+                    quantity_required=bi.quantity or 1,
+                    quantity_picked=bi.quantity or 1,
+                    reference=bi.reference or '',
+                )
+                kit_items.append(ki)
+        for ki in kit_items:
+            ki.part_bin_available = max(0, (ki.part.quantity_on_hand or 0) - (ki.part.quantity_committed or 0))
+        ctx['kit_items'] = kit_items
+        ctx['items'] = kit_items
+        ctx['catalog_parts'] = list(
+            Part.objects.select_related('location', 'category')
+            .exclude(category__prefix__startswith='92')
+            .order_by('part_number', 'name')
+        )
         return ctx
 
 
 def kit_pick_create(request):
     """
-    POST action to pick a new Kit (920-xxx) from a BoM recipe, committing
-    1 set of the BoM's components into `quantity_committed`.
+    POST action to pick a new Kit (920-xxx) from a BoM recipe.
+    Supports interactive partial picking — including adding extra parts,
+    removing BoM parts, and substituting parts — while strictly capping every
+    picked quantity to uncommitted on-hand stock (0 if none available).
     """
     if request.method != 'POST':
         return redirect('kit_list')
@@ -5459,8 +5743,8 @@ def kit_pick_create(request):
         return redirect('kit_list')
 
     bom = get_object_or_404(BOM, pk=int(bom_id))
-    items = list(bom.items.select_related('part').all())
-    if not items:
+    bom_items = list(bom.items.select_related('part').all())
+    if not bom_items:
         messages.error(request, f"BoM '{bom.name}' has no component parts.")
         return redirect('kit_list')
 
@@ -5478,14 +5762,48 @@ def kit_pick_create(request):
         messages.error(request, f"Kit number '{kit_number}' already exists.")
         return redirect('kit_list')
 
-    with transaction.atomic():
-        for item in items:
-            part = item.part
-            req = item.quantity or 1
-            part.quantity_committed = (part.quantity_committed or 0) + req
-            part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
-            part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+    interactive_mode = (request.POST.get('interactive_pick') == '1') or bool(request.POST.getlist('item_part_id[]'))
 
+    rows_to_create = []
+    if interactive_mode:
+        part_ids = request.POST.getlist('item_part_id[]')
+        bi_ids = request.POST.getlist('item_bom_item_id[]')
+        req_qtys = request.POST.getlist('item_qty_required[]')
+        pick_qtys = request.POST.getlist('item_qty_picked[]')
+        refs = request.POST.getlist('item_reference[]')
+        bom_item_map = {bi.pk: bi for bi in bom_items}
+
+        for idx, pid_str in enumerate(part_ids):
+            if not str(pid_str).strip().isdigit():
+                continue
+            part = Part.objects.filter(pk=int(str(pid_str).strip())).first()
+            if not part:
+                continue
+            bi_obj = None
+            if idx < len(bi_ids) and str(bi_ids[idx]).strip().isdigit():
+                bi_obj = bom_item_map.get(int(str(bi_ids[idx]).strip()))
+
+            if idx < len(req_qtys) and str(req_qtys[idx]).strip() != '':
+                try:
+                    req = max(1, int(str(req_qtys[idx]).strip()))
+                except (ValueError, TypeError):
+                    req = (bi_obj.quantity if bi_obj else 1) or 1
+            else:
+                req = (bi_obj.quantity if bi_obj else 1) or 1
+
+            try:
+                requested = max(0, int(str(pick_qtys[idx]).strip())) if idx < len(pick_qtys) and str(pick_qtys[idx]).strip() != '' else 0
+            except (ValueError, TypeError):
+                requested = 0
+
+            ref = (refs[idx].strip() if idx < len(refs) and refs[idx] is not None else (bi_obj.reference if bi_obj else '')) or ''
+            rows_to_create.append((part, req, requested, ref))
+    else:
+        for bi in bom_items:
+            req = bi.quantity or 1
+            rows_to_create.append((bi.part, req, req, bi.reference or ''))
+
+    with transaction.atomic():
         kit = Kit.objects.create(
             kit_number=kit_number,
             bom=bom,
@@ -5493,29 +5811,204 @@ def kit_pick_create(request):
             category=kit_category,
             status='PICKED',
         )
+
+        total_req = 0
+        total_picked = 0
+        for part, req, requested, ref in rows_to_create:
+            part.refresh_from_db(fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible'])
+            available = max(0, (part.quantity_on_hand or 0) - (part.quantity_committed or 0))
+            picked = min(max(0, requested), available)
+
+            KitItem.objects.create(
+                kit=kit,
+                part=part,
+                quantity_required=req,
+                quantity_picked=picked,
+                reference=ref,
+            )
+            total_req += req
+            total_picked += picked
+
+            if picked > 0:
+                part.quantity_committed = (part.quantity_committed or 0) + picked
+                part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+
         _attach_entity_form_document(request, kit, 'kits', default_type='sop')
 
-    messages.success(request, f"Picked Kit {kit.kit_number} from '{bom.name}' (Rev {bom.revision}) and committed component parts.")
+    if total_picked < total_req:
+        messages.warning(
+            request,
+            f"Picked Kit {kit.kit_number} with available stock only ({total_picked}/{total_req} picked). "
+            f"Short parts were set to 0 and can be updated on this page as they arrive."
+        )
+    else:
+        messages.success(
+            request,
+            f"Picked Kit {kit.kit_number} from '{bom.name}' (Rev {bom.revision}) and committed component parts."
+        )
+    return redirect('kit_detail', pk=kit.pk)
+
+
+def kit_update_items(request, pk):
+    """
+    POST action on KitDetailView to update a Picked Kit's items:
+    - Adjust picked quantities (capped strictly to uncommitted on-hand stock)
+    - Substitute a part for another catalog part (releasing old commitment, committing new)
+    - Remove a part from the kit (releasing its commitment)
+    - Add a new part to the kit
+    """
+    kit = get_object_or_404(Kit.objects.prefetch_related('kit_items__part'), pk=pk)
+    if request.method != 'POST':
+        return redirect('kit_detail', pk=kit.pk)
+
+    if kit.status != 'PICKED':
+        messages.error(request, f"Kit {kit.kit_number} is {kit.get_status_display()} and cannot be modified.")
+        return redirect('kit_detail', pk=kit.pk)
+
+    with transaction.atomic():
+        for ki in kit.kit_items.select_related('part').all():
+            # 1. Remove part from kit
+            if request.POST.get(f'remove_{ki.pk}') == '1':
+                old_picked = ki.quantity_picked or 0
+                if old_picked > 0:
+                    old_part = ki.part
+                    old_part.refresh_from_db(fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible'])
+                    old_c = old_part.quantity_committed or 0
+                    old_part.quantity_committed = max(0, old_c - min(old_c, old_picked))
+                    old_part.quantity_availible = max(0, (old_part.quantity_on_hand or 0) - old_part.quantity_committed)
+                    old_part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+                ki.delete()
+                continue
+
+            # Optional updated required qty
+            raw_req = request.POST.get(f'required_{ki.pk}')
+            if raw_req is not None and str(raw_req).strip() != '':
+                try:
+                    ki.quantity_required = max(1, int(str(raw_req).strip()))
+                except (ValueError, TypeError):
+                    pass
+
+            # Requested picked qty
+            raw_qty = request.POST.get(f'picked_{ki.pk}')
+            if raw_qty is not None and str(raw_qty).strip() != '':
+                try:
+                    requested_picked = max(0, int(str(raw_qty).strip()))
+                except (ValueError, TypeError):
+                    requested_picked = ki.quantity_picked or 0
+            else:
+                requested_picked = ki.quantity_picked or 0
+
+            # 2. Substitute part if changed
+            raw_part_id = (request.POST.get(f'part_{ki.pk}') or '').strip()
+            new_part = None
+            if raw_part_id.isdigit() and int(raw_part_id) != ki.part_id:
+                new_part = Part.objects.filter(pk=int(raw_part_id)).first()
+
+            if new_part:
+                old_part = ki.part
+                old_picked = ki.quantity_picked or 0
+                if old_picked > 0:
+                    old_part.refresh_from_db(fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible'])
+                    old_c = old_part.quantity_committed or 0
+                    old_part.quantity_committed = max(0, old_c - min(old_c, old_picked))
+                    old_part.quantity_availible = max(0, (old_part.quantity_on_hand or 0) - old_part.quantity_committed)
+                    old_part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+
+                new_part.refresh_from_db(fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible'])
+                new_avail = max(0, (new_part.quantity_on_hand or 0) - (new_part.quantity_committed or 0))
+                new_picked = min(requested_picked, new_avail)
+                if new_picked > 0:
+                    new_part.quantity_committed = (new_part.quantity_committed or 0) + new_picked
+                    new_part.quantity_availible = max(0, (new_part.quantity_on_hand or 0) - new_part.quantity_committed)
+                    new_part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+
+                ki.part = new_part
+                ki.quantity_picked = new_picked
+                ki.save(update_fields=['part', 'quantity_required', 'quantity_picked'])
+            else:
+                part = ki.part
+                part.refresh_from_db(fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible'])
+                old_picked = ki.quantity_picked or 0
+                available = max(0, (part.quantity_on_hand or 0) - (part.quantity_committed or 0))
+                max_allowed = old_picked + available
+                new_picked = min(requested_picked, max_allowed)
+                delta = new_picked - old_picked
+                if delta != 0:
+                    part.quantity_committed = max(0, (part.quantity_committed or 0) + delta)
+                    part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                    part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+                    ki.quantity_picked = new_picked
+                ki.save(update_fields=['quantity_required', 'quantity_picked'])
+
+        # 3. Add any new part(s) submitted
+        add_part_ids = request.POST.getlist('add_part_id[]')
+        add_reqs = request.POST.getlist('add_qty_required[]')
+        add_picks = request.POST.getlist('add_qty_picked[]')
+        add_refs = request.POST.getlist('add_reference[]')
+        for idx, pid_str in enumerate(add_part_ids):
+            if not str(pid_str).strip().isdigit():
+                continue
+            add_part = Part.objects.filter(pk=int(str(pid_str).strip())).first()
+            if not add_part:
+                continue
+            try:
+                req = max(1, int(str(add_reqs[idx]).strip())) if idx < len(add_reqs) and str(add_reqs[idx]).strip() else 1
+            except (ValueError, TypeError):
+                req = 1
+            try:
+                req_pick = max(0, int(str(add_picks[idx]).strip())) if idx < len(add_picks) and str(add_picks[idx]).strip() else 0
+            except (ValueError, TypeError):
+                req_pick = 0
+            ref = (add_refs[idx].strip() if idx < len(add_refs) and add_refs[idx] else '')
+
+            add_part.refresh_from_db(fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible'])
+            avail = max(0, (add_part.quantity_on_hand or 0) - (add_part.quantity_committed or 0))
+            picked = min(req_pick, avail)
+            KitItem.objects.create(
+                kit=kit,
+                part=add_part,
+                quantity_required=req,
+                quantity_picked=picked,
+                reference=ref,
+            )
+            if picked > 0:
+                add_part.quantity_committed = (add_part.quantity_committed or 0) + picked
+                add_part.quantity_availible = max(0, (add_part.quantity_on_hand or 0) - add_part.quantity_committed)
+                add_part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+
+    messages.success(request, f"Updated Kit {kit.kit_number} parts and picked quantities.")
     return redirect('kit_detail', pk=kit.pk)
 
 
 def kit_cancel_action(request, pk):
     """
-    POST action to cancel/return a Picked Kit back to uncommitted stock.
+    POST action to cancel/return a Picked Kit's actually picked parts back to uncommitted stock.
     """
-    kit = get_object_or_404(Kit.objects.select_related('bom'), pk=pk)
+    kit = get_object_or_404(Kit.objects.select_related('bom').prefetch_related('kit_items__part'), pk=pk)
     if request.method == 'POST' and kit.status == 'PICKED':
         with transaction.atomic():
-            for item in kit.bom.items.select_related('part').all():
-                part = item.part
-                req = item.quantity or 1
-                old_c = part.quantity_committed or 0
-                part.quantity_committed = max(0, old_c - min(old_c, req))
-                part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
-                part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+            kitems = list(kit.kit_items.select_related('part').all())
+            if kitems:
+                for ki in kitems:
+                    part = ki.part
+                    picked = ki.quantity_picked or 0
+                    if picked > 0:
+                        old_c = part.quantity_committed or 0
+                        part.quantity_committed = max(0, old_c - min(old_c, picked))
+                        part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                        part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+            else:
+                for item in kit.bom.items.select_related('part').all():
+                    part = item.part
+                    req = item.quantity or 1
+                    old_c = part.quantity_committed or 0
+                    part.quantity_committed = max(0, old_c - min(old_c, req))
+                    part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                    part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
             kit.status = 'CANCELLED'
             kit.save(update_fields=['status', 'updated_at'])
-        messages.success(request, f"Kit {kit.kit_number} cancelled and component parts returned to available stock.")
+        messages.success(request, f"Kit {kit.kit_number} cancelled and picked component parts returned to available stock.")
     return redirect('kit_detail', pk=kit.pk)
 
 
@@ -5630,16 +6123,39 @@ def assembly_build_from_kit(request):
     elif kit.bom.sale_price is not None:
         sale_price = kit.bom.sale_price
 
+    # Serial number applies to GranaryWatch Products assemblies (941 / 951, or from a 921 kit)
+    cat_prefix = asm_category.prefix if (asm_category and asm_category.prefix) else ''
+    kit_cat_prefix = kit.category.prefix if (kit.category and kit.category.prefix) else ''
+    if cat_prefix in ('941', '951') or kit_cat_prefix == '921':
+        serial_number = (request.POST.get('serial_number') or '').strip()
+    else:
+        serial_number = ''
+    shortages = []
     with transaction.atomic():
-        for item in kit.bom.items.select_related('part').all():
-            part = item.part
-            req = item.quantity or 1
-            old_oh = part.quantity_on_hand or 0
-            old_comm = part.quantity_committed or 0
-            part.quantity_on_hand = max(0, old_oh - req)
-            part.quantity_committed = max(0, old_comm - min(old_comm, req))
-            part.quantity_availible = max(0, part.quantity_on_hand - part.quantity_committed)
-            part.save(update_fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible', 'updated_at'])
+        kitems = list(kit.kit_items.select_related('part').all())
+        if kitems:
+            for ki in kitems:
+                part = ki.part
+                picked = ki.quantity_picked or 0
+                if picked < (ki.quantity_required or 0):
+                    shortages.append(f"{part.part_number} ({picked}/{ki.quantity_required})")
+                if picked > 0:
+                    old_oh = part.quantity_on_hand or 0
+                    old_comm = part.quantity_committed or 0
+                    part.quantity_on_hand = max(0, old_oh - picked)
+                    part.quantity_committed = max(0, old_comm - min(old_comm, picked))
+                    part.quantity_availible = max(0, part.quantity_on_hand - part.quantity_committed)
+                    part.save(update_fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible', 'updated_at'])
+        else:
+            for item in kit.bom.items.select_related('part').all():
+                part = item.part
+                req = item.quantity or 1
+                old_oh = part.quantity_on_hand or 0
+                old_comm = part.quantity_committed or 0
+                part.quantity_on_hand = max(0, old_oh - req)
+                part.quantity_committed = max(0, old_comm - min(old_comm, req))
+                part.quantity_availible = max(0, part.quantity_on_hand - part.quantity_committed)
+                part.save(update_fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible', 'updated_at'])
 
         kit.status = 'BUILT'
         kit.save(update_fields=['status', 'updated_at'])
@@ -5648,6 +6164,7 @@ def assembly_build_from_kit(request):
             assembly_type=assembly_type,
             category=asm_category,
             assembly_number=assembly_number,
+            serial_number=serial_number,
             name=name,
             kit=kit,
             bom=kit.bom,
@@ -5655,10 +6172,17 @@ def assembly_build_from_kit(request):
             status='BUILT',
         )
 
-    messages.success(
-        request,
-        f"Converted Kit {kit.kit_number} into {assembly.assembly_number} ({assembly.name}) and deducted parts from inventory."
-    )
+    if shortages:
+        messages.warning(
+            request,
+            f"Converted Kit {kit.kit_number} into {assembly.assembly_number} ({assembly.name}). "
+            f"Note: kit had partial picks for {', '.join(shortages)}."
+        )
+    else:
+        messages.success(
+            request,
+            f"Converted Kit {kit.kit_number} into {assembly.assembly_number} ({assembly.name}) and deducted parts from inventory."
+        )
     return redirect('assembly_detail', pk=assembly.pk)
 
 

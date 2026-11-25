@@ -1,12 +1,3 @@
 agent dialog.txt
 
-
-So I have been thinking about part numbering.  I think that parts should be 000 to 899.  
-900 should be assemblies, kits and boms.
-910 should be BoMs
-920 should be kits 
-930 should be sub-assemblies
-940 should be assemblies
-950 should be full systems.
-
-CAn you change the part numbers, and the assemblies, kits and bom pages that interact with them?
+once a quote has been rolled into a invoice, then the quote needs to be archived and the smae as boms, there needs to be a show archied button with no as the default.

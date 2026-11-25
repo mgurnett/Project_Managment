@@ -289,22 +289,24 @@
                     <span>Receipts</span>
                 </a>
 
-                <div class="sidebar-heading">Setup &amp; Directory</div>
+                <div class="sidebar-heading">Customers</div>
 
-                <a href="{% url 'setup_directory' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'setup_directory' or 'categories' in request.path or 'companies' in request.path or 'manufacturers' in request.path or 'customers' in request.path or 'locations' in request.path %}active{% endif %}" title="Categories, Suppliers, Manufacturers, Customers &amp; Locations">
+                <a href="{% url 'customer_list' %}" class="nav-link-custom {% if '/customers/' in request.path %}active{% endif %}" title="Customer Directory">
+                    <i class="bi bi-people"></i>
+                    <span>Customers</span>
+                </a>
+
+                <div class="sidebar-heading">Setup</div>
+
+                <a href="{% url 'setup_directory' %}" class="nav-link-custom {% if request.resolver_match.url_name == 'setup_directory' or 'categories' in request.path or 'companies' in request.path or 'manufacturers' in request.path or 'locations' in request.path %}active{% endif %}" title="Categories, Suppliers, Manufacturers &amp; Locations">
                     <i class="bi bi-folder2-open"></i>
-                    <span>Setup &amp; Directory</span>
+                    <span>Setup</span>
                 </a>
 
                 <a href="{% url 'admin:index' %}" class="nav-link-custom" target="_blank" rel="noopener">
                     <i class="bi bi-shield-lock"></i>
                     <span>Django Admin</span>
                     <i class="bi bi-box-arrow-up-right ms-auto small text-muted"></i>
-                </a>
-
-                <a href="{% url 'home' %}#settings" class="nav-link-custom">
-                    <i class="bi bi-gear"></i>
-                    <span>Settings</span>
                 </a>
 
             </div>

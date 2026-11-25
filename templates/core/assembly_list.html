@@ -38,13 +38,17 @@
                     <label class="form-label small fw-semibold mb-1">Category (930 / 940 / 950)</label>
                     <select name="category" class="form-select form-select-sm" id="asmCategorySelect">
                         {% for cat in assembly_categories %}
-                            <option value="{{ cat.pk }}" {% if cat.prefix == '940' %}selected{% endif %}>[{{ cat.prefix }}] {{ cat.name }}</option>
+                            <option value="{{ cat.pk }}" data-prefix="{{ cat.prefix }}" {% if cat.prefix == '940' %}selected{% endif %}>[{{ cat.prefix }}] {{ cat.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="col-6 col-md-2">
                     <label class="form-label small fw-semibold mb-1">Assembly Part #</label>
                     <input type="text" name="assembly_number" id="asmNumInput" class="form-control form-control-sm font-monospace" placeholder="Auto">
+                </div>
+                <div class="col-6 col-md-2 d-none" id="asmSerialWrapper">
+                    <label class="form-label small fw-semibold mb-1">Serial Number (Products)</label>
+                    <input type="text" name="serial_number" id="asmSerialInput" class="form-control form-control-sm font-monospace" placeholder="e.g. SN-001">
                 </div>
                 <div class="col-6 col-md-1">
                     <label class="form-label small fw-semibold mb-1">Price ($)</label>
@@ -146,4 +150,29 @@
     </div>
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const catSel = document.getElementById('asmCategorySelect');
+    const snWrap = document.getElementById('asmSerialWrapper');
+    const snInput = document.getElementById('asmSerialInput');
+    function toggleSerial() {
+        if (!catSel || !snWrap) return;
+        const opt = catSel.options[catSel.selectedIndex];
+        const prefix = opt ? (opt.getAttribute('data-prefix') || '') : '';
+        if (prefix === '941' || prefix === '951') {
+            snWrap.classList.remove('d-none');
+        } else {
+            snWrap.classList.add('d-none');
+            if (snInput) snInput.value = '';
+        }
+    }
+    if (catSel) {
+        catSel.addEventListener('change', toggleSerial);
+        toggleSerial();
+    }
+});
+</script>
 {% endblock %}
