@@ -9,15 +9,26 @@
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4 pb-2">
         <div>
             <h1 class="h3 fw-bold mb-1">Assemblies (930 / 940 / 950 Series)</h1>
-            <p class="text-muted small mb-0">Convert a picked Kit (<code>920-xxx</code>) into a built Sub-Assembly (<code>930</code>), Assembly (<code>940</code>), or Full System (<code>950</code>), deducting parts from inventory.</p>
+            <p class="text-muted small mb-0">Create a <code>930+</code> Assembly Part first, tie a BoM to it, pick Kits, and build them to increase stock and assign serial numbers.</p>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <a href="{% url 'bom_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-diagram-3 me-1"></i>BoMs
+            </a>
+            <a href="{% url 'kit_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-box-seam me-1"></i>Kits
+            </a>
+            <a href="{% url 'part_create' %}" class="btn btn-custom btn-sm fw-semibold shadow-sm">
+                <i class="bi bi-plus-circle me-1"></i>New Assembly Part (930+)
+            </a>
         </div>
     </div>
 
-    <!-- Convert Picked Kit to Assembly -->
+    <!-- Convert Picked Kit to Built Assembly -->
     <div class="card border-0 shadow-sm rounded-3 bg-body mb-4">
         <div class="card-header bg-transparent border-0 pt-3 px-4 pb-1">
             <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
-                <i class="bi bi-tools me-2 text-custom"></i>Convert Picked Kit to Built Assembly
+                <i class="bi bi-tools me-2 text-custom"></i>Build Picked Kit into Assembly
             </h2>
         </div>
         <div class="card-body p-4 pt-2">
@@ -34,8 +45,8 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-6 col-md-3">
-                    <label class="form-label small fw-semibold mb-1">Category (930 / 940 / 950)</label>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small fw-semibold mb-1">Category (930+)</label>
                     <select name="category" class="form-select form-select-sm" id="asmCategorySelect">
                         {% for cat in assembly_categories %}
                             <option value="{{ cat.pk }}" data-prefix="{{ cat.prefix }}" {% if cat.prefix == '940' %}selected{% endif %}>[{{ cat.prefix }}] {{ cat.name }}</option>
@@ -46,13 +57,9 @@
                     <label class="form-label small fw-semibold mb-1">Assembly Part #</label>
                     <input type="text" name="assembly_number" id="asmNumInput" class="form-control form-control-sm font-monospace" placeholder="Auto">
                 </div>
-                <div class="col-6 col-md-2 d-none" id="asmSerialWrapper">
-                    <label class="form-label small fw-semibold mb-1">Serial Number (Products)</label>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small fw-semibold mb-1">Serial # (Optional)</label>
                     <input type="text" name="serial_number" id="asmSerialInput" class="form-control form-control-sm font-monospace" placeholder="e.g. SN-001">
-                </div>
-                <div class="col-6 col-md-1">
-                    <label class="form-label small fw-semibold mb-1">Price ($)</label>
-                    <input type="number" step="0.01" name="sale_price" class="form-control form-control-sm" placeholder="0.00">
                 </div>
                 <div class="col-6 col-md-2">
                     <button type="submit" class="btn btn-custom btn-sm w-100 fw-semibold">
@@ -68,7 +75,7 @@
         <div class="card-body p-3">
             <form method="get" class="row g-2 align-items-center">
                 <div class="col-12 col-md-4">
-                    <input type="text" name="q" class="form-control form-control-sm" placeholder="Search assembly #, name, or kit #..." value="{{ current_q }}">
+                    <input type="text" name="q" class="form-control form-control-sm" placeholder="Search assembly part #, name, or description..." value="{{ current_q }}">
                 </div>
                 <div class="col-6 col-md-3">
                     <select name="type" class="form-select form-select-sm">
@@ -88,8 +95,14 @@
         </div>
     </div>
 
-    <!-- Assemblies Table -->
-    <div class="card border-0 shadow-sm rounded-3 bg-body overflow-hidden">
+    <!-- Primary Assemblies Table (930 / 940 / 950 Parts) -->
+    <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
+        <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center">
+            <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                <i class="bi bi-boxes me-2 text-custom"></i>Assembly Parts Catalog (930 / 940 / 950)
+            </h2>
+            <span class="badge bg-light text-muted border">{{ assembly_parts|length }} assembl{{ assembly_parts|length|pluralize:"y,ies" }}</span>
+        </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light border-bottom small text-uppercase text-muted">
@@ -97,57 +110,81 @@
                         <th class="ps-4 py-3">Part #</th>
                         <th class="py-3">Assembly Name</th>
                         <th class="py-3">Category</th>
-                        <th class="py-3">Source Kit / BoM</th>
-                        <th class="text-center py-3">Status</th>
-                        <th class="text-end py-3">Sale Price</th>
+                        <th class="text-center py-3">Built On Hand</th>
+                        <th class="text-end py-3">Sell Price</th>
+                        <th class="py-3">Linked BoM</th>
+                        <th class="text-center py-3">Active Kits</th>
                         <th class="text-end pe-4 py-3">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for asm in assemblies %}
+                    {% for ap in assembly_parts %}
                     <tr>
                         <td class="ps-4 py-3 font-monospace fw-bold">
-                            <a href="{% url 'assembly_detail' asm.pk %}" class="badge bg-primary-subtle text-primary border border-primary-subtle text-decoration-none px-2.5 py-1">
-                                {{ asm.assembly_number }}
+                            <a href="{% url 'part_detail' ap.pk %}" class="badge bg-primary-subtle text-primary border border-primary-subtle text-decoration-none px-2.5 py-1">
+                                {{ ap.part_number }}
                             </a>
-                            {% if asm.serial_number %}
-                                <div class="small text-muted mt-1" style="font-size: 0.72rem;">SN: {{ asm.serial_number }}</div>
+                        </td>
+                        <td class="py-3">
+                            <a href="{% url 'part_detail' ap.pk %}" class="fw-bold text-decoration-none text-custom">{{ ap.name|default:ap.description }}</a>
+                            {% if ap.built_units_list %}
+                                <div class="small text-muted mt-1">
+                                    {% for u in ap.built_units_list|slice:":3" %}
+                                        {% if u.serial_number %}
+                                            <span class="badge bg-light text-body border font-monospace me-1" style="font-size: 0.7rem;">SN: {{ u.serial_number }}</span>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
                             {% endif %}
                         </td>
-                        <td class="py-3 fw-semibold">
-                            <a href="{% url 'assembly_detail' asm.pk %}" class="text-decoration-none text-custom">{{ asm.name }}</a>
-                        </td>
-                        <td class="py-3 small">{{ asm.get_assembly_type_display }}</td>
                         <td class="py-3 small">
-                            {% if asm.kit %}
-                                <a href="{% url 'kit_detail' asm.kit.pk %}" class="font-monospace text-decoration-none">{{ asm.kit.kit_number }}</a>
+                            {% if ap.category %}
+                                <span class="badge bg-secondary-subtle text-secondary border">[{{ ap.category.prefix }}] {{ ap.category.name }}</span>
+                            {% else %}
+                                &mdash;
                             {% endif %}
-                            {% if asm.bom %}
-                                <span class="text-muted">({{ asm.bom.assembly_number }})</span>
+                        </td>
+                        <td class="text-center py-3 font-monospace fw-bold">
+                            <span class="badge {% if ap.quantity_on_hand > 0 %}bg-success-subtle text-success border border-success-subtle{% else %}bg-secondary-subtle text-secondary border{% endif %} px-2.5 py-1">
+                                {{ ap.quantity_on_hand }}
+                            </span>
+                        </td>
+                        <td class="text-end py-3 font-monospace fw-bold text-success">
+                            {% if ap.effective_sell_price is not None %}${{ ap.effective_sell_price|floatformat:2 }}{% else %}<span class="text-muted fw-normal">&mdash;</span>{% endif %}
+                        </td>
+                        <td class="py-3 small">
+                            {% if ap.linked_bom %}
+                                <a href="{% url 'bom_detail' ap.linked_bom.pk %}" class="font-monospace fw-semibold text-decoration-none">
+                                    {{ ap.linked_bom.assembly_number }}
+                                </a>
+                                <span class="text-muted">(Rev {{ ap.linked_bom.revision }})</span>
+                            {% else %}
+                                <a href="{% url 'bom_create' %}?target_part={{ ap.pk }}" class="btn btn-sm btn-outline-primary py-0 px-2 fw-semibold">
+                                    <i class="bi bi-plus-circle me-1"></i>Create BoM
+                                </a>
                             {% endif %}
                         </td>
                         <td class="text-center py-3">
-                            {% if asm.status == 'BUILT' %}
-                                <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1">Built / In Stock</span>
-                            {% elif asm.status == 'CONSUMED' %}
-                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2.5 py-1">Converted to Part</span>
-                            {% elif asm.status == 'PROMOTED' %}
-                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1">Promoted</span>
+                            {% if ap.active_kits_count %}
+                                <span class="badge bg-warning-subtle text-dark border border-warning-subtle font-monospace">{{ ap.active_kits_count }} Picked</span>
                             {% else %}
-                                <span class="badge bg-secondary-subtle text-secondary border px-2.5 py-1">Sold</span>
+                                <span class="text-muted small">0</span>
                             {% endif %}
                         </td>
-                        <td class="text-end py-3 font-monospace fw-bold text-success">
-                            {% if asm.sale_price is not None %}${{ asm.sale_price|floatformat:2 }}{% else %}&mdash;{% endif %}
-                        </td>
                         <td class="text-end pe-4 py-3">
-                            <a href="{% url 'assembly_detail' asm.pk %}" class="btn btn-sm btn-outline-secondary">View</a>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{% url 'part_detail' ap.pk %}" class="btn btn-outline-secondary" title="View Assembly, Serial #s &amp; History">View</a>
+                                {% if ap.linked_bom %}
+                                    <a href="{% url 'kit_list' %}?bom={{ ap.linked_bom.pk }}" class="btn btn-outline-primary" title="Pick Kit from BoM">Pick Kit</a>
+                                {% endif %}
+                                <a href="{% url 'quote_create' %}?part={{ ap.pk }}" class="btn btn-outline-success" title="Create Quote">Quote</a>
+                            </div>
                         </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="7" class="text-center py-5 text-muted">
-                            No assemblies built yet. Pick a Kit first, then convert it into an Assembly above.
+                        <td colspan="8" class="text-center py-5 text-muted">
+                            No 930/940/950 Assembly Parts yet. Click <strong>New Assembly Part (930+)</strong> above to create your first assembly!
                         </td>
                     </tr>
                     {% endfor %}
@@ -155,6 +192,68 @@
             </table>
         </div>
     </div>
+
+    <!-- Built Units & Serial Numbers Log -->
+    {% if assemblies %}
+    <div class="card border-0 shadow-sm rounded-3 bg-body overflow-hidden">
+        <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center">
+            <h2 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                <i class="bi bi-upc-scan me-2 text-custom"></i>Built Units &amp; Serial Number Log ({{ assemblies|length }})
+            </h2>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light border-bottom small text-uppercase text-muted">
+                    <tr>
+                        <th class="ps-4 py-2.5">Assembly Part #</th>
+                        <th class="py-2.5">Serial #</th>
+                        <th class="py-2.5">Name</th>
+                        <th class="py-2.5">Source Kit / BoM</th>
+                        <th class="text-center py-2.5">Status</th>
+                        <th class="text-end pe-4 py-2.5">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for asm in assemblies %}
+                    <tr>
+                        <td class="ps-4 py-2.5 font-monospace fw-bold">
+                            <a href="{% url 'assembly_detail' asm.pk %}" class="badge bg-primary-subtle text-primary border border-primary-subtle text-decoration-none px-2 py-1">
+                                {{ asm.assembly_number }}
+                            </a>
+                        </td>
+                        <td class="py-2.5 font-monospace small">
+                            {% if asm.serial_number %}{{ asm.serial_number }}{% else %}<span class="text-muted">&mdash;</span>{% endif %}
+                        </td>
+                        <td class="py-2.5 fw-semibold">
+                            <a href="{% url 'assembly_detail' asm.pk %}" class="text-decoration-none text-custom">{{ asm.name }}</a>
+                        </td>
+                        <td class="py-2.5 small">
+                            {% if asm.kit %}
+                                <a href="{% url 'kit_detail' asm.kit.pk %}" class="font-monospace text-decoration-none">{{ asm.kit.kit_number }}</a>
+                            {% endif %}
+                            {% if asm.bom %}
+                                <span class="text-muted">({{ asm.bom.assembly_number }})</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center py-2.5">
+                            {% if asm.status == 'BUILT' %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle">Built / In Stock</span>
+                            {% elif asm.status == 'CONSUMED' %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">Converted to Part</span>
+                            {% else %}
+                                <span class="badge bg-secondary-subtle text-secondary border">{{ asm.get_status_display }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end pe-4 py-2.5">
+                            <a href="{% url 'assembly_detail' asm.pk %}" class="btn btn-sm btn-outline-secondary py-0 px-2">View</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
 
 </div>
 {% endblock %}
@@ -165,19 +264,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const kitSel = document.getElementById('asmKitSelect');
     const catSel = document.getElementById('asmCategorySelect');
     const numInput = document.getElementById('asmNumInput');
-    const snWrap = document.getElementById('asmSerialWrapper');
-    const snInput = document.getElementById('asmSerialInput');
-    function toggleSerial() {
-        if (!catSel || !snWrap) return;
-        const opt = catSel.options[catSel.selectedIndex];
-        const prefix = opt ? (opt.getAttribute('data-prefix') || '') : '';
-        if (prefix === '941' || prefix === '951') {
-            snWrap.classList.remove('d-none');
-        } else {
-            snWrap.classList.add('d-none');
-            if (snInput) snInput.value = '';
-        }
-    }
     function syncFromKit() {
         if (!kitSel) return;
         const opt = kitSel.options[kitSel.selectedIndex];
@@ -194,20 +280,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         }
-        toggleSerial();
-    }
-    if (catSel) {
-        catSel.addEventListener('change', toggleSerial);
     }
     if (kitSel) {
         kitSel.addEventListener('change', syncFromKit);
-        if (kitSel.value) {
-            syncFromKit();
-        } else {
-            toggleSerial();
-        }
-    } else {
-        toggleSerial();
+        if (kitSel.value) syncFromKit();
     }
 });
 </script>

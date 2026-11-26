@@ -37,6 +37,31 @@
         </div>
 
         <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if part.is_assembly_part %}
+                {% if active_target_bom %}
+                    <a href="{% url 'bom_detail' active_target_bom.pk %}" class="btn btn-primary btn-sm d-flex align-items-center gap-1 shadow-sm">
+                        <i class="bi bi-diagram-3"></i>
+                        <span>View BoM ({{ active_target_bom.assembly_number }})</span>
+                    </a>
+                    <a href="{% url 'kit_list' %}?bom={{ active_target_bom.pk }}" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 shadow-sm">
+                        <i class="bi bi-box-seam"></i>
+                        <span>Pick Kit</span>
+                    </a>
+                {% else %}
+                    <a href="{% url 'bom_create' %}?target_part={{ part.pk }}" class="btn btn-primary btn-sm d-flex align-items-center gap-1 shadow-sm fw-semibold">
+                        <i class="bi bi-diagram-3"></i>
+                        <span>Create BoM</span>
+                    </a>
+                {% endif %}
+                <a href="{% url 'quote_create' %}?part={{ part.pk }}" class="btn btn-outline-success btn-sm d-flex align-items-center gap-1">
+                    <i class="bi bi-file-earmark-text"></i>
+                    <span>Quote</span>
+                </a>
+                <a href="{% url 'sale_create' %}?part={{ part.pk }}" class="btn btn-outline-success btn-sm d-flex align-items-center gap-1">
+                    <i class="bi bi-receipt"></i>
+                    <span>Invoice</span>
+                </a>
+            {% endif %}
             {% if part.document %}
                 <a href="{{ part.document.url }}" target="_blank" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 shadow-sm" title="Open Datasheet / Document">
                     <i class="bi bi-file-earmark-arrow-down"></i>
@@ -128,6 +153,113 @@
                     {% endif %}
                 </div>
             </div>
+
+            {% if part.is_assembly_part %}
+            <!-- Assembly BoM, Kits & Built Serial Numbers Card -->
+            <div class="card border-0 shadow-sm rounded-3 bg-body mb-4 overflow-hidden">
+                <div class="card-header bg-transparent border-bottom pt-3 px-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <h3 class="h6 fw-bold text-uppercase text-muted mb-0" style="letter-spacing: 0.05em; font-size: 0.75rem;">
+                            <i class="bi bi-tools me-2 text-custom"></i>Assembly BoM, Kits &amp; Built Units
+                        </h3>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        {% if part.sale_price is not None %}
+                            <span class="badge bg-success-subtle text-success border border-success-subtle font-monospace px-2.5 py-1">
+                                Sell Price: ${{ part.sale_price|floatformat:2 }}
+                            </span>
+                        {% else %}
+                            <a href="{% url 'part_update' part.pk %}" class="badge bg-light text-muted border text-decoration-none px-2.5 py-1">
+                                + Set Sell Price
+                            </a>
+                        {% endif %}
+                        {% if not active_target_bom %}
+                            <a href="{% url 'bom_create' %}?target_part={{ part.pk }}" class="btn btn-sm btn-primary py-0 px-2 fw-semibold">
+                                <i class="bi bi-plus-circle me-1"></i>Create BoM
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body p-4 pt-3">
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-md-6">
+                            <div class="p-3 rounded-3 bg-body-tertiary border h-100">
+                                <div class="small text-muted text-uppercase fw-semibold mb-1" style="font-size: 0.7rem;">Linked BoM Recipe</div>
+                                {% if active_target_bom %}
+                                    <a href="{% url 'bom_detail' active_target_bom.pk %}" class="fw-bold text-decoration-none text-custom font-monospace">
+                                        {{ active_target_bom.assembly_number }}
+                                    </a>
+                                    <span class="small text-muted">&mdash; {{ active_target_bom.name }} (Rev {{ active_target_bom.revision }})</span>
+                                    <div class="mt-2">
+                                        <a href="{% url 'kit_list' %}?bom={{ active_target_bom.pk }}" class="btn btn-xs btn-outline-primary btn-sm py-0 px-2">
+                                            <i class="bi bi-box-seam me-1"></i>Pick New Kit
+                                        </a>
+                                    </div>
+                                {% else %}
+                                    <div class="small text-muted">No BoM linked yet. Click <strong>Create BoM</strong> to define its components.</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <div class="p-3 rounded-3 bg-body-tertiary border h-100">
+                                <div class="small text-muted text-uppercase fw-semibold mb-1" style="font-size: 0.7rem;">Active Picked Kits ({{ active_kits|length }})</div>
+                                {% if active_kits %}
+                                    <div class="d-flex flex-wrap gap-1.5 mt-1">
+                                        {% for ak in active_kits %}
+                                            <a href="{% url 'kit_detail' ak.pk %}" class="badge bg-warning-subtle text-dark border border-warning-subtle font-monospace text-decoration-none px-2 py-1">
+                                                {{ ak.kit_number }}
+                                            </a>
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <div class="small text-muted">No kits currently picked.</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="small text-muted text-uppercase fw-semibold mb-2" style="font-size: 0.72rem;">
+                        Built Units &amp; Serial Numbers ({{ built_units|length }})
+                    </div>
+                    {% if built_units %}
+                        <div class="table-responsive border rounded-3">
+                            <table class="table table-sm table-hover align-middle mb-0">
+                                <thead class="table-light small text-uppercase text-muted">
+                                    <tr>
+                                        <th class="ps-3 py-2">Serial #</th>
+                                        <th class="py-2">Source Kit</th>
+                                        <th class="py-2">Status</th>
+                                        <th class="py-2">Built On</th>
+                                        <th class="text-end pe-3 py-2">View</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for u in built_units %}
+                                    <tr>
+                                        <td class="ps-3 py-2 font-monospace fw-semibold">
+                                            {% if u.serial_number %}{{ u.serial_number }}{% else %}<span class="text-muted fw-normal">(No Serial #)</span>{% endif %}
+                                        </td>
+                                        <td class="py-2 font-monospace small">
+                                            {% if u.kit %}<a href="{% url 'kit_detail' u.kit.pk %}" class="text-decoration-none">{{ u.kit.kit_number }}</a>{% else %}&mdash;{% endif %}
+                                        </td>
+                                        <td class="py-2 small">
+                                            <span class="badge {% if u.status == 'BUILT' %}bg-success-subtle text-success{% else %}bg-secondary-subtle text-secondary{% endif %}">{{ u.get_status_display }}</span>
+                                        </td>
+                                        <td class="py-2 small text-muted">{{ u.created_at|date:"M d, Y" }}</td>
+                                        <td class="text-end pe-3 py-2">
+                                            <a href="{% url 'assembly_detail' u.pk %}" class="btn btn-sm btn-outline-secondary py-0 px-2">Details</a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="small text-muted">No units built yet. Pick a kit from the linked BoM and build it to increase stock and assign serial numbers.</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
 
             <!-- Technical Notes (Only shown when notes exist) -->
             {% if part.notes %}

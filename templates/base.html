@@ -259,19 +259,19 @@
                     <span>Orders</span>
                 </a>
 
-                <a href="{% url 'bom_list' %}" class="nav-link-custom {% if 'boms' in request.path and 'kit' not in request.path %}active{% endif %}" title="Bills of Materials (BoMs) Pick Recipes">
+                <a href="{% url 'assembly_list' %}" class="nav-link-custom {% if 'assemblies' in request.path %}active{% endif %}" title="Assemblies (930 / 940 / 950 Series)">
+                    <i class="bi bi-tools"></i>
+                    <span>Assemblies</span>
+                </a>
+
+                <a href="{% url 'bom_list' %}" class="nav-link-custom nav-sub-link {% if 'boms' in request.path and 'kit' not in request.path %}active{% endif %}" title="Bills of Materials (BoMs) Pick Recipes">
                     <i class="bi bi-diagram-3"></i>
                     <span>BoMs</span>
                 </a>
 
-                <a href="{% url 'kit_list' %}" class="nav-link-custom {% if 'kits' in request.path %}active{% endif %}" title="Serialized Kits (920 Series)">
+                <a href="{% url 'kit_list' %}" class="nav-link-custom nav-sub-link {% if 'kits' in request.path %}active{% endif %}" title="Serialized Kits (920 Series)">
                     <i class="bi bi-box-seam"></i>
                     <span>Kits</span>
-                </a>
-
-                <a href="{% url 'assembly_list' %}" class="nav-link-custom {% if 'assemblies' in request.path %}active{% endif %}" title="Built Assemblies (930 / 940 / 950 Series)">
-                    <i class="bi bi-tools"></i>
-                    <span>Assemblies</span>
                 </a>
 
                 <a href="{% url 'quote_list' %}" class="nav-link-custom {% if '/quotes/' in request.path %}active{% endif %}" title="Customer Quotes &amp; Estimates">

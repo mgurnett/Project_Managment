@@ -55,24 +55,29 @@
             </div>
             <div class="card-body p-4">
                 <div class="row g-3">
-                    <div class="col-12 col-md-3">
+                    <div class="col-12 col-md-4">
                         <label class="form-label small fw-semibold">BoM Category (910 Series)</label>
                         {{ form.category }}
                         <div class="form-text small">Only 910-series BoM categories.</div>
                     </div>
-                    <div class="col-12 col-md-3">
+                    <div class="col-12 col-md-4">
                         <label class="form-label small fw-semibold">910-Series BoM #</label>
                         {{ form.assembly_number }}
                         <div class="form-text small">Auto-assigned if blank.</div>
                     </div>
-                    <div class="col-12 col-md-3">
-                        <label class="form-label small fw-semibold">Target Assembly Part #</label>
-                        {{ form.target_assembly_number }}
-                        <div class="form-text small">Auto-generated (e.g. 941-001). Follows Kits &amp; Assemblies.</div>
-                    </div>
-                    <div class="col-12 col-md-3">
+                    <div class="col-12 col-md-4">
                         <label class="form-label small fw-semibold">BoM Name <span class="text-danger">*</span></label>
                         {{ form.name }}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold text-success">Target Assembly Part (930 / 940 / 950)</label>
+                        {{ form.target_assembly_part }}
+                        <div class="form-text small">Link this BoM to the 930+ Assembly Part it builds. Building kits will increment that part's On-Hand stock.</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Target Assembly Part #</label>
+                        {{ form.target_assembly_number }}
+                        <div class="form-text small">Auto-filled from the selected Assembly Part above (or auto-generated if none selected).</div>
                     </div>
                     <div class="col-12">
                         <label class="form-label small fw-semibold">Description</label>

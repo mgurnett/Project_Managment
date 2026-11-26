@@ -489,6 +489,14 @@ class Part(models.Model):
         verbose_name="Price",
         help_text="Total price (quantity × price per)"
     )
+    sale_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Sell Price ($)",
+        help_text="Selling price for 930+ assemblies and finished products (editable anytime)"
+    )
     confirmed = models.BooleanField(
         default=False, 
         verbose_name="Confirmed",
@@ -563,6 +571,19 @@ class Part(models.Model):
         if self.part_number:
             return f"{self.part_number} - {label}"
         return label
+
+    @property
+    def is_assembly_part(self):
+        if not self.category_id or not self.category:
+            return False
+        prefix = (self.category.get_prefix() or '').strip()
+        return prefix.isdigit() and int(prefix) >= 930
+
+    @property
+    def effective_sell_price(self):
+        if self.sale_price is not None:
+            return self.sale_price
+        return self.price_per
 
     @classmethod
     def generate_next_part_number(cls, category):
@@ -960,6 +981,15 @@ class BOM(models.Model):
         verbose_name="Target Assembly Part #",
         help_text="Canonical Assembly Part # (e.g. 941-001) generated for this BoM and carried through Kits into built Assemblies."
     )
+    target_assembly_part = models.ForeignKey(
+        'Part',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='target_boms',
+        verbose_name="Target Assembly Part (930+)",
+        help_text="The 930/940/950-series Assembly Part that this BoM builds."
+    )
     name = models.CharField(max_length=150, unique=True, verbose_name="BOM / Assembly Name")
     category = models.ForeignKey(
         Category,
@@ -1177,13 +1207,22 @@ class BOM(models.Model):
         else:
             self.assembly_number = self.generate_next_assembly_number(exclude_pk=self.pk)
 
-        if not (self.target_assembly_number or '').strip():
+        if self.target_assembly_part_id:
+            try:
+                if self.target_assembly_part and self.target_assembly_part.part_number:
+                    self.target_assembly_number = self.target_assembly_part.part_number.strip()
+            except Part.DoesNotExist:
+                pass
+        elif not (self.target_assembly_number or '').strip():
             target_prefix = "940"
             if self.category_id and self.category and self.category.prefix and self.category.prefix.startswith('91') and len(self.category.prefix) == 3:
                 target_prefix = '94' + self.category.prefix[2]
             self.target_assembly_number = self.generate_next_target_assembly_number(prefix=target_prefix, exclude_pk=self.pk)
         else:
             self.target_assembly_number = self.target_assembly_number.strip()
+            matched_target = Part.objects.filter(part_number=self.target_assembly_number).first()
+            if matched_target:
+                self.target_assembly_part = matched_target
 
         super().save(*args, **kwargs)
         try:
@@ -1941,7 +1980,7 @@ class Assembly(models.Model):
             candidate = f"{prefix}{next_num:03d}"
         return candidate
 
-    def sync_part(self):
+    def sync_part(self, qty_delta=0, old_part=None):
         cat_names = {
             '930': ('Sub-Assemblies', 'Sub-assemblies (930 series)'),
             '940': ('Assemblies', 'Finished assemblies (940 series)'),
@@ -1957,29 +1996,29 @@ class Assembly(models.Model):
         if not self.assembly_number:
             self.assembly_number = self.generate_next_number(self.assembly_type)
 
-        # If this assembly's number changed (e.g. promoted 941-001 -> 951-001),
-        # handle the previous catalog Part cleanly.
-        old_part = self.part
         part = Part.objects.filter(part_number=self.assembly_number).first()
-        if not part and old_part and old_part.part_number != self.assembly_number:
+        if old_part and old_part.part_number != self.assembly_number:
             other_on_old = Assembly.objects.exclude(pk=self.pk).filter(assembly_number=old_part.part_number).exists()
-            if not other_on_old:
+            if not part and not other_on_old and (old_part.quantity_on_hand or 0) <= 1:
                 part = old_part
             else:
-                old_built = Assembly.objects.filter(assembly_number=old_part.part_number, status='BUILT').count()
-                old_part.quantity_on_hand = old_built
-                old_part.quantity_availible = max(0, old_built - (old_part.quantity_committed or 0))
+                new_old_oh = max(0, (old_part.quantity_on_hand or 0) - 1)
+                old_part.quantity_on_hand = new_old_oh
+                old_part.quantity_availible = max(0, new_old_oh - (old_part.quantity_committed or 0))
                 old_part.save(update_fields=['quantity_on_hand', 'quantity_availible', 'updated_at'])
+                if self.status == 'BUILT':
+                    qty_delta = 1
 
-        qty_on_hand = Assembly.objects.filter(assembly_number=self.assembly_number, status='BUILT').count()
         if not part:
+            initial_oh = max(0, qty_delta) if qty_delta else (1 if self.status == 'BUILT' else 0)
             part = Part.objects.create(
                 part_number=self.assembly_number,
                 name=self.name[:150],
                 description=f"Built {self.get_assembly_type_display()}",
                 category=category,
-                quantity_on_hand=qty_on_hand,
-                quantity_availible=qty_on_hand,
+                quantity_on_hand=initial_oh,
+                quantity_availible=initial_oh,
+                sale_price=self.sale_price,
                 price_per=self.sale_price,
                 confirmed=True,
             )
@@ -1990,39 +2029,52 @@ class Assembly(models.Model):
             if part.part_number != self.assembly_number:
                 part.part_number = self.assembly_number
                 update_fields.append('part_number')
-            if part.name != self.name[:150]:
-                part.name = self.name[:150]
-                update_fields.append('name')
-            if part.category_id != category.pk:
+            if part.category_id != category.pk and (not part.category or not part.is_assembly_part):
                 part.category = category
                 update_fields.append('category')
-            qty_avail = max(0, qty_on_hand - (part.quantity_committed or 0))
-            if part.quantity_on_hand != qty_on_hand or part.quantity_availible != qty_avail:
-                part.quantity_on_hand = qty_on_hand
-                part.quantity_availible = qty_avail
-                update_fields.extend(['quantity_on_hand', 'quantity_availible'])
-            if self.sale_price is not None and part.price_per != self.sale_price:
-                part.price_per = self.sale_price
-                update_fields.append('price_per')
+            if qty_delta:
+                new_oh = max(0, (part.quantity_on_hand or 0) + qty_delta)
+                qty_avail = max(0, new_oh - (part.quantity_committed or 0))
+                if part.quantity_on_hand != new_oh or part.quantity_availible != qty_avail:
+                    part.quantity_on_hand = new_oh
+                    part.quantity_availible = qty_avail
+                    update_fields.extend(['quantity_on_hand', 'quantity_availible'])
+            if self.sale_price is not None and part.sale_price != self.sale_price:
+                part.sale_price = self.sale_price
+                update_fields.append('sale_price')
             if update_fields:
                 update_fields.append('updated_at')
                 part.save(update_fields=update_fields)
             if self.part_id != part.pk:
                 self.part = part
                 Assembly.objects.filter(pk=self.pk).update(part=part)
-            if old_part and old_part.pk != part.pk:
-                old_built = Assembly.objects.filter(assembly_number=old_part.part_number, status='BUILT').count()
-                old_part.quantity_on_hand = old_built
-                old_part.quantity_availible = max(0, old_built - (old_part.quantity_committed or 0))
-                old_part.save(update_fields=['quantity_on_hand', 'quantity_availible', 'updated_at'])
         return part
 
     def save(self, *args, **kwargs):
-        if not self.assembly_number:
+        is_new = self.pk is None
+        old_status = None
+        old_part = None
+        if not is_new:
+            prev = Assembly.objects.select_related('part').filter(pk=self.pk).first()
+            if prev:
+                old_status = prev.status
+                old_part = prev.part
+        if not self.assembly_number or not self.assembly_number.strip():
             self.assembly_number = self.generate_next_number(self.assembly_type)
+        else:
+            self.assembly_number = self.assembly_number.strip()
         super().save(*args, **kwargs)
+
+        qty_delta = 0
+        if is_new and self.status == 'BUILT':
+            qty_delta = 1
+        elif not is_new:
+            if old_status == 'BUILT' and self.status != 'BUILT':
+                qty_delta = -1
+            elif old_status != 'BUILT' and self.status == 'BUILT':
+                qty_delta = 1
         try:
-            self.sync_part()
+            self.sync_part(qty_delta=qty_delta, old_part=old_part)
         except Exception:
             pass
 
@@ -2294,6 +2346,20 @@ class AssemblySale(models.Model):
         ('Other', 'Other'),
     ]
 
+    PAYMENT_TERMS_CHOICES = [
+        ('NET_30', 'Net 30'),
+        ('DUE_ON_SHIPMENT', 'Due on Shipment'),
+        ('NET_15', 'Net 15'),
+        ('DUE_ON_RECEIPT', 'Due on Receipt'),
+        ('PREPAID', 'Prepaid'),
+    ]
+
+    SHIPPING_STATUS_CHOICES = [
+        ('NOT_SHIPPED', 'Not Shipped'),
+        ('SHIPPED', 'Shipped'),
+        ('DELIVERED', 'Delivered'),
+    ]
+
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
@@ -2354,10 +2420,48 @@ class AssemblySale(models.Model):
         blank=True,
         verbose_name="Payment Method"
     )
+    payment_terms = models.CharField(
+        max_length=20,
+        choices=PAYMENT_TERMS_CHOICES,
+        default='NET_30',
+        blank=True,
+        verbose_name="Payment Terms"
+    )
+    due_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Payment Due Date",
+        help_text="Auto-calculated from payment terms & invoice/shipped date if left blank."
+    )
     payment_date = models.DateField(
         null=True,
         blank=True,
         verbose_name="Payment Date"
+    )
+    shipping_status = models.CharField(
+        max_length=20,
+        choices=SHIPPING_STATUS_CHOICES,
+        default='NOT_SHIPPED',
+        blank=True,
+        verbose_name="Shipping Status"
+    )
+    shipping_method = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name="Shipping Method / Carrier",
+        help_text="e.g. Canada Post, Purolator, UPS, Local Delivery, Pickup"
+    )
+    tracking_number = models.CharField(
+        max_length=120,
+        blank=True,
+        default='',
+        verbose_name="Tracking Number"
+    )
+    shipped_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Shipped Date"
     )
     notes = CKEditor5Field(
         'Invoice Notes',
@@ -2406,15 +2510,86 @@ class AssemblySale(models.Model):
         return candidate
 
     def save(self, *args, **kwargs):
+        from datetime import timedelta
         if not self.invoice_number or not self.invoice_number.strip():
             self.invoice_number = self.generate_next_invoice_number()
         else:
             self.invoice_number = self.invoice_number.strip()
+        if not self.due_date:
+            base_date = self.shipped_date or self.invoice_date
+            if hasattr(base_date, 'date'):
+                base_date = base_date.date()
+            if self.payment_terms == 'NET_30' and base_date:
+                self.due_date = base_date + timedelta(days=30)
+            elif self.payment_terms == 'NET_15' and base_date:
+                self.due_date = base_date + timedelta(days=15)
+            elif self.payment_terms == 'DUE_ON_SHIPMENT':
+                if self.shipped_date:
+                    self.due_date = self.shipped_date.date() if hasattr(self.shipped_date, 'date') else self.shipped_date
+            elif self.payment_terms in ('DUE_ON_RECEIPT', 'PREPAID') and self.invoice_date:
+                self.due_date = self.invoice_date.date() if hasattr(self.invoice_date, 'date') else self.invoice_date
         super().save(*args, **kwargs)
 
     @property
     def is_paid(self):
         return self.status == 'PAID' or bool(self.payment_date and self.status != 'UNPAID')
+
+    @property
+    def is_outstanding(self):
+        return not self.is_paid
+
+    @property
+    def effective_due_date(self):
+        from datetime import timedelta
+        if self.due_date:
+            return self.due_date
+        base_date = self.shipped_date or self.invoice_date
+        if hasattr(base_date, 'date'):
+            base_date = base_date.date()
+        if self.payment_terms == 'NET_30' and base_date:
+            return base_date + timedelta(days=30)
+        if self.payment_terms == 'NET_15' and base_date:
+            return base_date + timedelta(days=15)
+        if self.payment_terms == 'DUE_ON_SHIPMENT':
+            return self.shipped_date
+        return base_date
+
+    @property
+    def days_overdue(self):
+        if self.is_paid:
+            return 0
+        due = self.effective_due_date
+        if not due:
+            return 0
+        today = timezone.localdate()
+        return max(0, (today - due).days)
+
+    @property
+    def is_late(self):
+        return self.is_outstanding and self.days_overdue > 0
+
+    @property
+    def is_due(self):
+        from datetime import timedelta
+        if not self.is_outstanding or self.is_late:
+            return False
+        if self.payment_terms == 'DUE_ON_SHIPMENT' and self.shipping_status in ('SHIPPED', 'DELIVERED'):
+            return True
+        due = self.effective_due_date
+        if not due:
+            return False
+        today = timezone.localdate()
+        return due <= today + timedelta(days=7)
+
+    @property
+    def aging_status(self):
+        if self.is_paid:
+            return 'PAID'
+        if self.is_late:
+            return 'LATE'
+        if self.is_due:
+            return 'DUE'
+        return 'OUTSTANDING'
 
     @property
     def total_amount(self):
@@ -2445,6 +2620,14 @@ class AssemblySaleItem(models.Model):
         blank=True,
         related_name='sale_items',
         verbose_name="Assembly (BoM)"
+    )
+    part = models.ForeignKey(
+        Part,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sale_items',
+        verbose_name="Assembly Part (930+)"
     )
     item_number = models.CharField(
         max_length=50,

@@ -2991,6 +2991,122 @@ class AssemblyBuildFromKitTestCase(TestCase):
         self.assertEqual(rev2.revision, 2)
         self.assertEqual(rev2.target_assembly_number, expected_asm_num)
 
+    def test_part_first_multilevel_bom_and_invoice_shipping_aging(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from core.models import AssemblySale
+
+        cat_930 = Category.objects.get(prefix='930')
+        cat_941 = Category.objects.get(prefix='941')
+        cat_951 = Category.objects.get(prefix='951')
+
+        # 1. Create a 930 Sub-Assembly Part (Kit 2: Antenna + Hardware) with a Sell Price
+        sub_part = Part.objects.create(
+            part_number='930-050',
+            name='Antenna Hardware Kit',
+            category=cat_930,
+            quantity_on_hand=0,
+            quantity_availible=0,
+            sale_price=Decimal('45.00'),
+        )
+        self.assertTrue(sub_part.is_assembly_part)
+
+        # Verify ?target_part= pre-populates BOMCreateView
+        res_bom_form = self.client.get(reverse('bom_create') + f'?target_part={sub_part.pk}')
+        self.assertEqual(res_bom_form.status_code, 200)
+        self.assertContains(res_bom_form, '930-050')
+
+        # Create BoM linked to 930-050
+        sub_bom = BOM.objects.create(
+            name='Antenna Hardware Kit BoM',
+            target_assembly_part=sub_part,
+        )
+        BOMItem.objects.create(bom=sub_bom, part=self.part, quantity=2)
+        self.assertEqual(sub_bom.target_assembly_number, '930-050')
+
+        # Pick & build 2 units of 930-050 with serial numbers
+        for sn in ('ANT-001', 'ANT-002'):
+            self.client.post(reverse('kit_pick'), {'bom': sub_bom.pk}, follow=True)
+            k = Kit.objects.filter(bom=sub_bom, status='PICKED').first()
+            self.client.post(
+                reverse('assembly_build'),
+                {'kit': k.pk, 'serial_number': sn},
+                follow=True,
+            )
+        sub_part.refresh_from_db()
+        self.assertEqual(sub_part.quantity_on_hand, 2)
+
+        # 2. Multi-level Assembly: 941 Bin Assembly uses 1x 930-050
+        bin_part = Part.objects.create(
+            part_number='941-050',
+            name='Bin Assembly',
+            category=cat_941,
+            quantity_on_hand=0,
+            quantity_availible=0,
+            sale_price=Decimal('320.00'),
+        )
+        bin_bom = BOM.objects.create(name='Bin Assembly BoM', target_assembly_part=bin_part)
+        BOMItem.objects.create(bom=bin_bom, part=sub_part, quantity=1)
+        self.client.post(reverse('kit_pick'), {'bom': bin_bom.pk}, follow=True)
+        bin_kit = Kit.objects.get(bom=bin_bom, status='PICKED')
+        self.client.post(reverse('assembly_build'), {'kit': bin_kit.pk, 'serial_number': 'BIN-001'}, follow=True)
+
+        sub_part.refresh_from_db()
+        bin_part.refresh_from_db()
+        self.assertEqual(sub_part.quantity_on_hand, 1)
+        self.assertEqual(bin_part.quantity_on_hand, 1)
+
+        # Building a 3rd 930-050 increments from 1 -> 2 (not 3!)
+        self.client.post(reverse('kit_pick'), {'bom': sub_bom.pk}, follow=True)
+        k3 = Kit.objects.get(bom=sub_bom, status='PICKED')
+        self.client.post(reverse('assembly_build'), {'kit': k3.pk, 'serial_number': 'ANT-003'}, follow=True)
+        sub_part.refresh_from_db()
+        self.assertEqual(sub_part.quantity_on_hand, 2)
+
+        # 3. Unbuilt 951 Full System can be quoted & invoiced with Shipping + Net 30 + Aging status
+        sys_part = Part.objects.create(
+            part_number='951-050',
+            name='Basic System',
+            category=cat_951,
+            quantity_on_hand=0,
+            quantity_availible=0,
+            sale_price=Decimal('1200.00'),
+        )
+        res_quote_page = self.client.get(reverse('quote_create') + f'?part={sys_part.pk}')
+        self.assertEqual(res_quote_page.status_code, 200)
+        self.assertContains(res_quote_page, '951-050')
+
+        today = timezone.localdate()
+        late_sale = AssemblySale.objects.create(
+            invoice_date=today - timedelta(days=45),
+            status='UNPAID',
+            payment_terms='NET_30',
+            shipping_status='SHIPPED',
+            shipping_method='Purolator',
+            tracking_number='PUR-123456',
+            shipped_date=today - timedelta(days=40),
+            customer_name='Prairie Farms Ltd.',
+        )
+        self.assertTrue(late_sale.is_outstanding)
+        self.assertTrue(late_sale.is_late)
+        self.assertEqual(late_sale.aging_status, 'LATE')
+
+        due_sale = AssemblySale.objects.create(
+            invoice_date=today - timedelta(days=2),
+            status='UNPAID',
+            payment_terms='DUE_ON_SHIPMENT',
+            shipping_status='SHIPPED',
+            shipped_date=today,
+            customer_name='North Grain Co.',
+        )
+        self.assertTrue(due_sale.is_due)
+        self.assertEqual(due_sale.aging_status, 'DUE')
+
+        res_late = self.client.get(reverse('sale_list') + '?aging=late')
+        self.assertEqual(res_late.status_code, 200)
+        self.assertContains(res_late, late_sale.invoice_number)
+        self.assertNotContains(res_late, due_sale.invoice_number)
+
 
 @unittest.skip("Archived for workflow reset")
 class KitPullSheetStockStatusTestCase(TestCase):

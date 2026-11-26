@@ -380,6 +380,15 @@ class PartDetailView(ArticleContextMixin, DetailView):
         if hasattr(self.object, 'assembly_bom') and self.object.assembly_bom:
             ctx['assembly_bom'] = self.object.assembly_bom
             ctx['assembly_documents'] = self.object.assembly_bom.documents.all()
+        target_boms = list(self.object.target_boms.order_by('is_archived', '-revision', 'assembly_number'))
+        ctx['target_boms'] = target_boms
+        ctx['active_target_bom'] = next((b for b in target_boms if not b.is_archived), None)
+        ctx['built_units'] = list(
+            self.object.built_assembly_records.select_related('kit', 'bom').order_by('-created_at')
+        )
+        ctx['active_kits'] = list(
+            Kit.objects.filter(bom__in=target_boms, status='PICKED').select_related('bom').order_by('kit_number')
+        ) if target_boms else []
         ctx['order_items'] = (
             self.object.order_items
             .select_related('order', 'order__supplier')
@@ -1437,9 +1446,24 @@ class BOMCreateView(CreateView):
     def get_initial(self):
         initial = super().get_initial()
         cat_910 = Category.objects.filter(prefix='910').first()
-        if cat_910:
-            initial['category'] = cat_910.pk
-        initial['assembly_number'] = BOM.generate_next_assembly_number()
+        target_part_id = (self.request.GET.get('target_part') or '').strip()
+        matched_cat = cat_910
+        if target_part_id.isdigit():
+            target_part = Part.objects.select_related('category').filter(pk=int(target_part_id)).first()
+            if target_part:
+                initial['target_assembly_part'] = target_part.pk
+                initial['target_assembly_number'] = target_part.part_number
+                initial['name'] = target_part.name or target_part.part_number
+                if target_part.description:
+                    initial['description'] = target_part.description
+                tp_prefix = target_part.category.get_prefix() if target_part.category else ''
+                if len(tp_prefix) == 3 and tp_prefix[:2] in ('94', '95'):
+                    matched_cat = Category.objects.filter(prefix='91' + tp_prefix[2]).first() or cat_910
+        if matched_cat:
+            initial['category'] = matched_cat.pk
+            initial['assembly_number'] = BOM.generate_next_assembly_number(prefix=matched_cat.prefix)
+        else:
+            initial['assembly_number'] = BOM.generate_next_assembly_number()
         return initial
 
     def get_context_data(self, **kwargs):
@@ -1586,6 +1610,7 @@ def bom_new_revision_action(request, pk):
         new_bom = BOM.objects.create(
             category=bom.category,
             assembly_number=new_num,
+            target_assembly_part=bom.target_assembly_part,
             target_assembly_number=bom.target_assembly_number,
             name=new_name,
             description=bom.description,
@@ -4136,10 +4161,28 @@ def generate_and_save_invoice_pdf(sale, request=None):
     return rel_path, pdf_bytes
 
 
+def _get_quotable_assembly_parts():
+    """Returns all 930/940/950 Assembly Parts (built or not built yet) with their active BoM attached."""
+    parts = list(
+        Part.objects.select_related('category')
+        .prefetch_related('target_boms')
+        .filter(
+            Q(category__prefix__startswith='93') |
+            Q(category__prefix__startswith='94') |
+            Q(category__prefix__startswith='95')
+        )
+        .order_by('part_number')
+    )
+    for p in parts:
+        boms = [b for b in p.target_boms.all() if not b.is_archived]
+        p.active_bom = boms[0] if boms else None
+    return parts
+
+
 class AssemblySaleListView(ListView):
     """
-    Lists all 1000-series built Assemblies available for sale AND the history of all
-    Sales / Invoices with sequential invoice numbers and status filters (Unpaid vs Paid).
+    Lists all 930+ Assemblies and the history of all Sales / Invoices with
+    sequential invoice numbers, shipping details, payment terms, and Outstanding / Due / Late filters.
     """
     model = AssemblySale
     template_name = 'core/sale_list.html'
@@ -4154,7 +4197,7 @@ class AssemblySaleListView(ListView):
 
     def get_queryset(self):
         filters = resolve_persistent_filters(self.request, 'sale_list_filters', SALE_FILTER_KEYS)
-        qs = AssemblySale.objects.prefetch_related('items', 'items__bom').all()
+        qs = AssemblySale.objects.prefetch_related('items', 'items__bom', 'items__part').all()
         q = filters['q']
         if q:
             qs = qs.filter(
@@ -4162,6 +4205,7 @@ class AssemblySaleListView(ListView):
                 Q(customer_name__icontains=q) |
                 Q(customer_email__icontains=q) |
                 Q(customer_phone__icontains=q) |
+                Q(tracking_number__icontains=q) |
                 Q(items__item_number__icontains=q) |
                 Q(items__description__icontains=q)
             ).distinct()
@@ -4171,7 +4215,20 @@ class AssemblySaleListView(ListView):
         payment_method = filters['payment_method']
         if payment_method:
             qs = qs.filter(payment_method=payment_method)
-        return qs.order_by('-invoice_date', '-created_at')
+        qs = qs.order_by('-invoice_date', '-created_at')
+
+        aging = (self.request.GET.get('aging') or '').strip().lower()
+        if aging in ('outstanding', 'due', 'late', 'paid'):
+            all_list = list(qs)
+            if aging == 'outstanding':
+                return [s for s in all_list if s.is_outstanding]
+            if aging == 'due':
+                return [s for s in all_list if s.is_due]
+            if aging == 'late':
+                return [s for s in all_list if s.is_late]
+            if aging == 'paid':
+                return [s for s in all_list if s.is_paid]
+        return qs
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -4180,25 +4237,32 @@ class AssemblySaleListView(ListView):
         for bom in boms:
             _compute_bom_kit_metrics(bom)
         ctx['assemblies'] = boms
+        ctx['assembly_parts'] = _get_quotable_assembly_parts()
         ctx['built_assemblies'] = list(
             Assembly.objects.filter(status='BUILT')
             .select_related('category', 'bom', 'kit')
             .order_by('assembly_number')
         )
-        ctx['built_assemblies_count'] = len(ctx['built_assemblies']) or sum(1 for b in boms if (b.quantity_on_hand or 0) > 0)
-        ctx['total_built_units'] = len(ctx['built_assemblies']) or sum((b.quantity_on_hand or 0) for b in boms)
+        ctx['built_assemblies_count'] = sum(1 for p in ctx['assembly_parts'] if (p.quantity_on_hand or 0) > 0)
+        ctx['total_built_units'] = sum((p.quantity_on_hand or 0) for p in ctx['assembly_parts'])
 
         all_sales = list(AssemblySale.objects.prefetch_related('items').all())
         ctx['total_invoices_count'] = len(all_sales)
-        ctx['unpaid_invoices_count'] = sum(1 for s in all_sales if s.status == 'UNPAID')
-        ctx['paid_invoices_count'] = sum(1 for s in all_sales if s.status == 'PAID')
-        ctx['total_revenue'] = sum((s.total_amount for s in all_sales if s.status == 'PAID'), Decimal('0.00'))
+        ctx['unpaid_invoices_count'] = sum(1 for s in all_sales if s.is_outstanding)
+        ctx['paid_invoices_count'] = sum(1 for s in all_sales if s.is_paid)
+        ctx['outstanding_total'] = sum((s.total_amount for s in all_sales if s.is_outstanding), Decimal('0.00'))
+        ctx['due_invoices_count'] = sum(1 for s in all_sales if s.is_due)
+        ctx['due_total'] = sum((s.total_amount for s in all_sales if s.is_due), Decimal('0.00'))
+        ctx['late_invoices_count'] = sum(1 for s in all_sales if s.is_late)
+        ctx['late_total'] = sum((s.total_amount for s in all_sales if s.is_late), Decimal('0.00'))
+        ctx['total_revenue'] = sum((s.total_amount for s in all_sales if s.is_paid), Decimal('0.00'))
         ctx['total_invoiced_amount'] = sum((s.total_amount for s in all_sales), Decimal('0.00'))
-        ctx['total_units_sold'] = sum(s.total_quantity for s in all_sales if s.status == 'PAID')
+        ctx['total_units_sold'] = sum(s.total_quantity for s in all_sales if s.is_paid)
 
         ctx['current_q'] = filters['q']
         ctx['current_status'] = filters['status']
         ctx['current_payment_method'] = filters['payment_method']
+        ctx['current_aging'] = (self.request.GET.get('aging') or '').strip().lower()
         ctx['status_choices'] = AssemblySale.STATUS_CHOICES
         ctx['payment_method_choices'] = AssemblySale.PAYMENT_METHOD_CHOICES
         ctx['next_invoice_number'] = AssemblySale.generate_next_invoice_number()
@@ -4238,10 +4302,16 @@ class AssemblySaleCreateView(CreateView):
             .order_by('assembly_number')
         )
         ctx['assemblies'] = boms
+        ctx['assembly_parts'] = _get_quotable_assembly_parts()
         ctx['built_assemblies'] = built_assemblies
         ctx['customers'] = Customer.objects.order_by('name')
         ctx['allowed_serial_options'], _ = _get_allowed_serial_options()
         ctx['next_invoice_number'] = AssemblySale.generate_next_invoice_number()
+        preselected_part_id = self.request.GET.get('part')
+        if preselected_part_id and preselected_part_id.isdigit():
+            ctx['preselected_part'] = next((p for p in ctx['assembly_parts'] if p.pk == int(preselected_part_id)), None)
+        else:
+            ctx['preselected_part'] = None
         preselected_bom_id = self.request.GET.get('bom')
         if preselected_bom_id and preselected_bom_id.isdigit():
             ctx['preselected_bom'] = next((b for b in boms if b.pk == int(preselected_bom_id)), None)
@@ -4493,6 +4563,7 @@ class AssemblySaleUpdateView(UpdateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['assemblies'] = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
+        ctx['assembly_parts'] = _get_quotable_assembly_parts()
         ctx['built_assemblies'] = list(
             Assembly.objects.filter(status='BUILT')
             .select_related('category', 'bom')
@@ -4929,10 +5000,16 @@ class QuoteCreateView(CreateView):
             .order_by('assembly_number')
         )
         ctx['assemblies'] = boms
+        ctx['assembly_parts'] = _get_quotable_assembly_parts()
         ctx['built_assemblies'] = built_assemblies
         ctx['customers'] = Customer.objects.order_by('name')
         ctx['allowed_serial_options'], _ = _get_allowed_serial_options()
         ctx['next_quote_number'] = Quote.generate_next_quote_number()
+        preselected_part_id = self.request.GET.get('part')
+        if preselected_part_id and preselected_part_id.isdigit():
+            ctx['preselected_part'] = next((p for p in ctx['assembly_parts'] if p.pk == int(preselected_part_id)), None)
+        else:
+            ctx['preselected_part'] = None
         preselected_bom_id = self.request.GET.get('bom')
         if preselected_bom_id and preselected_bom_id.isdigit():
             ctx['preselected_bom'] = next((b for b in boms if b.pk == int(preselected_bom_id)), None)
@@ -5051,6 +5128,7 @@ class QuoteUpdateView(UpdateView):
         ctx = super().get_context_data(**kwargs)
         boms = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
         ctx['assemblies'] = boms
+        ctx['assembly_parts'] = _get_quotable_assembly_parts()
         ctx['built_assemblies'] = list(
             Assembly.objects.filter(status='BUILT')
             .select_related('category', 'bom')
@@ -6038,9 +6116,46 @@ class AssemblyListView(ListView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['current_type'] = (self.request.GET.get('type') or '').strip()
-        ctx['current_q'] = (self.request.GET.get('q') or '').strip()
-        ctx['picked_kits'] = Kit.objects.filter(status='PICKED').select_related('bom', 'category').order_by('kit_number')
+        atype = (self.request.GET.get('type') or '').strip()
+        q = (self.request.GET.get('q') or '').strip()
+        ctx['current_type'] = atype
+        ctx['current_q'] = q
+
+        # Primary Assemblies Hub list: all 930 / 940 / 950 Assembly Parts
+        ap_qs = (
+            Part.objects.select_related('category')
+            .prefetch_related('target_boms', 'built_assembly_records')
+            .filter(
+                Q(category__prefix__startswith='93') |
+                Q(category__prefix__startswith='94') |
+                Q(category__prefix__startswith='95')
+            )
+        )
+        if atype in ('930', '940', '950'):
+            ap_qs = ap_qs.filter(category__prefix__startswith=atype[:2])
+        if q:
+            ap_qs = ap_qs.filter(
+                Q(part_number__icontains=q) |
+                Q(name__icontains=q) |
+                Q(description__icontains=q)
+            )
+        assembly_parts = list(ap_qs.order_by('part_number'))
+        bom_ids = []
+        for p in assembly_parts:
+            active_boms = [b for b in p.target_boms.all() if not b.is_archived]
+            p.linked_bom = active_boms[0] if active_boms else None
+            if p.linked_bom:
+                bom_ids.append(p.linked_bom.pk)
+            p.built_units_list = [u for u in p.built_assembly_records.all() if u.status == 'BUILT']
+        picked_counts = {}
+        if bom_ids:
+            for row in Kit.objects.filter(bom_id__in=bom_ids, status='PICKED').values('bom_id').annotate(c=Count('id')):
+                picked_counts[row['bom_id']] = row['c']
+        for p in assembly_parts:
+            p.active_kits_count = picked_counts.get(p.linked_bom.pk, 0) if p.linked_bom else 0
+        ctx['assembly_parts'] = assembly_parts
+
+        ctx['picked_kits'] = Kit.objects.filter(status='PICKED').select_related('bom', 'bom__target_assembly_part', 'category').order_by('kit_number')
         ctx['assembly_types'] = Assembly.ASSEMBLY_TYPE_CHOICES
         ctx['assembly_categories'] = Category.objects.filter(
             Q(prefix__startswith='93') | Q(prefix__startswith='94') | Q(prefix__startswith='95')
@@ -6091,7 +6206,7 @@ def assembly_build_from_kit(request):
         messages.error(request, "Please select a picked Kit to convert into an Assembly.")
         return redirect('assembly_list')
 
-    kit = get_object_or_404(Kit.objects.select_related('bom', 'category'), pk=int(kit_id))
+    kit = get_object_or_404(Kit.objects.select_related('bom', 'bom__target_assembly_part', 'bom__target_assembly_part__category', 'category'), pk=int(kit_id))
     if kit.status != 'PICKED':
         messages.error(request, f"Kit {kit.kit_number} is {kit.get_status_display()} and cannot be built.")
         return redirect('assembly_list')
@@ -6100,11 +6215,15 @@ def assembly_build_from_kit(request):
     asm_category = Category.objects.filter(pk=int(cat_id)).first() if cat_id.isdigit() else None
     raw_assembly_type = (request.POST.get('assembly_type') or '').strip()
     assembly_type = raw_assembly_type or '940'
-    target_asm_num = (kit.bom.target_assembly_number or '').strip()
+    target_part = kit.bom.target_assembly_part
+    target_asm_num = (target_part.part_number if target_part else (kit.bom.target_assembly_number or '')).strip()
     target_prefix = target_asm_num.split('-')[0] if '-' in target_asm_num else ''
 
-    if not asm_category and (not raw_assembly_type or raw_assembly_type == '940') and target_prefix and target_prefix[:2] in ('93', '94', '95'):
-        asm_category = Category.objects.filter(prefix=target_prefix).first()
+    if not asm_category and (not raw_assembly_type or raw_assembly_type == '940'):
+        if target_part and target_part.category:
+            asm_category = target_part.category
+        elif target_prefix and target_prefix[:2] in ('93', '94', '95'):
+            asm_category = Category.objects.filter(prefix=target_prefix).first()
 
     if asm_category and asm_category.prefix:
         num_prefix = asm_category.prefix
@@ -6128,24 +6247,21 @@ def assembly_build_from_kit(request):
     else:
         assembly_number = Assembly.generate_next_number(num_prefix)
 
-    name = (request.POST.get('name') or '').strip() or kit.bom.name
+    name = (request.POST.get('name') or '').strip() or (target_part.name if target_part else kit.bom.name)
     raw_price = (request.POST.get('sale_price') or '').strip()
     sale_price = None
     if raw_price:
         try:
             sale_price = Decimal(raw_price)
         except (InvalidOperation, ValueError):
-            sale_price = kit.bom.sale_price
+            sale_price = target_part.sale_price if (target_part and target_part.sale_price is not None) else kit.bom.sale_price
+    elif target_part and target_part.sale_price is not None:
+        sale_price = target_part.sale_price
     elif kit.bom.sale_price is not None:
         sale_price = kit.bom.sale_price
 
-    # Serial number applies to GranaryWatch Products assemblies (941 / 951, or from a 921 kit)
-    cat_prefix = asm_category.prefix if (asm_category and asm_category.prefix) else ''
-    kit_cat_prefix = kit.category.prefix if (kit.category and kit.category.prefix) else ''
-    if cat_prefix in ('941', '951') or kit_cat_prefix == '921':
-        serial_number = (request.POST.get('serial_number') or '').strip()
-    else:
-        serial_number = ''
+    # Any built assembly can be assigned an optional serial number at build time
+    serial_number = (request.POST.get('serial_number') or '').strip()
     shortages = []
     with transaction.atomic():
         kitems = list(kit.kit_items.select_related('part').all())

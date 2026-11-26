@@ -92,6 +92,7 @@ class PartForm(TagInputMixin):
             'quantity',
             'price_per',
             'price',
+            'sale_price',
             'confirmed',
             'link',
             'document',
@@ -114,6 +115,7 @@ class PartForm(TagInputMixin):
             'quantity': forms.NumberInput(attrs={'class': 'form-control', 'min': 0}),
             'price_per': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '0.00'}),
             'price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '0.00'}),
+            'sale_price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '0.00 (for 930+ assemblies)'}),
             'confirmed': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'link': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://...'}),
             'document': forms.FileInput(attrs={'class': 'form-control', 'accept': '.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv'}),
@@ -330,16 +332,17 @@ class PartDocumentForm(forms.ModelForm):
 class BOMForm(forms.ModelForm):
     class Meta:
         model = BOM
-        fields = ['category', 'assembly_number', 'target_assembly_number', 'name', 'description', 'notes']
+        fields = ['category', 'assembly_number', 'target_assembly_part', 'target_assembly_number', 'name', 'description', 'notes']
         widgets = {
             'category': forms.Select(attrs={'class': 'form-select', 'id': 'id_bom_category'}),
             'assembly_number': forms.TextInput(attrs={
                 'class': 'form-control font-monospace',
                 'placeholder': 'e.g. 910-001 (leave blank to auto-assign next 910-series #)'
             }),
+            'target_assembly_part': forms.Select(attrs={'class': 'form-select', 'id': 'id_target_assembly_part'}),
             'target_assembly_number': forms.TextInput(attrs={
                 'class': 'form-control font-monospace',
-                'placeholder': 'Auto-generated (e.g. 941-001) — follows BoM -> Kit -> Assembly'
+                'placeholder': 'Auto-filled from Target Assembly Part (or auto-generated)'
             }),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. String BoM, Sensor Node BoM, Base Station BoM'}),
             'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Brief description of this BoM recipe'}),
@@ -350,6 +353,18 @@ class BOMForm(forms.ModelForm):
         if 'category' in self.fields:
             self.fields['category'].queryset = Category.objects.filter(prefix__startswith='91').order_by('prefix', 'name')
             self.fields['category'].empty_label = "-- Select 910-Series BoM Category --"
+        if 'target_assembly_part' in self.fields:
+            from django.db.models import Q
+            self.fields['target_assembly_part'].queryset = (
+                Part.objects.select_related('category')
+                .filter(
+                    Q(category__prefix__startswith='93') |
+                    Q(category__prefix__startswith='94') |
+                    Q(category__prefix__startswith='95')
+                )
+                .order_by('part_number')
+            )
+            self.fields['target_assembly_part'].empty_label = "-- Link to 930/940/950 Assembly Part (optional) --"
 
 
 class BOMItemForm(forms.ModelForm):
@@ -533,8 +548,14 @@ class AssemblySaleForm(forms.ModelForm):
             'customer_address',
             'customer_phone',
             'customer_email',
+            'payment_terms',
+            'due_date',
             'payment_method',
             'payment_date',
+            'shipping_status',
+            'shipping_method',
+            'tracking_number',
+            'shipped_date',
             'notes',
         ]
         widgets = {
@@ -547,8 +568,14 @@ class AssemblySaleForm(forms.ModelForm):
             'customer_address': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Street, City, Province/State, Postal Code'}),
             'customer_phone': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '780.901.9315'}),
             'customer_email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'customer@example.com'}),
+            'payment_terms': forms.Select(attrs={'class': 'form-select'}),
+            'due_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'payment_method': forms.Select(attrs={'class': 'form-select'}),
             'payment_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'shipping_status': forms.Select(attrs={'class': 'form-select'}),
+            'shipping_method': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Canada Post, Purolator, Local Delivery'}),
+            'tracking_number': forms.TextInput(attrs={'class': 'form-control font-monospace', 'placeholder': 'Tracking #'}),
+            'shipped_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
         }
 
     def clean_status(self):

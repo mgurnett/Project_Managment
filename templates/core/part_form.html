@@ -166,20 +166,25 @@
             </div>
             <div class="card-body p-4 pt-3">
                 <div class="row g-3 align-items-center">
-                    <div class="col-12 col-md-4">
+                    <div class="col-12 col-md-3">
                         <label class="form-label small fw-semibold">Purchased Quantity</label>
                         {{ form.quantity }}
                         <div class="form-text small">{{ form.quantity.help_text }}</div>
                     </div>
-                    <div class="col-12 col-md-4">
-                        <label class="form-label small fw-semibold">Unit Price ($ Price Per)</label>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small fw-semibold">Unit Cost ($ Price Per)</label>
                         {{ form.price_per }}
                         <div class="form-text small">{{ form.price_per.help_text }}</div>
                     </div>
-                    <div class="col-12 col-md-4">
-                        <label class="form-label small fw-semibold">Total Price ($)</label>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small fw-semibold">Total Cost ($)</label>
                         {{ form.price }}
                         <div class="form-text small">{{ form.price.help_text }}</div>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small fw-semibold text-success">Sell Price ($)</label>
+                        {{ form.sale_price }}
+                        <div class="form-text small">For 930+ assemblies &amp; products.</div>
                     </div>
                     <div class="col-12 mt-3">
                         <div class="form-check form-switch">

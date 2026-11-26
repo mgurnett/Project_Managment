@@ -262,6 +262,16 @@
                 <span class="kv-val">{{ sale.invoice_date|date:"Y-m-d" }}</span>
             </div>
             <div class="kv-row">
+                <span class="kv-label">Payment Terms:</span>
+                <span class="kv-val">{{ sale.get_payment_terms_display }}</span>
+            </div>
+            {% if sale.effective_due_date %}
+            <div class="kv-row">
+                <span class="kv-label">Due Date:</span>
+                <span class="kv-val">{{ sale.effective_due_date|date:"Y-m-d" }}</span>
+            </div>
+            {% endif %}
+            <div class="kv-row">
                 <span class="kv-label">Payment Method:</span>
                 <span class="kv-val">{{ sale.get_payment_method_display }}</span>
             </div>
@@ -269,6 +279,16 @@
                 <span class="kv-label">Payment Date:</span>
                 <span class="kv-val">{% if sale.payment_date %}{{ sale.payment_date|date:"Y-m-d" }}{% else %}Pending{% endif %}</span>
             </div>
+            <div class="kv-row">
+                <span class="kv-label">Shipping:</span>
+                <span class="kv-val">{{ sale.get_shipping_status_display }}{% if sale.shipping_method %} ({{ sale.shipping_method }}){% endif %}</span>
+            </div>
+            {% if sale.tracking_number %}
+            <div class="kv-row">
+                <span class="kv-label">Tracking #:</span>
+                <span class="kv-val mono">{{ sale.tracking_number }}</span>
+            </div>
+            {% endif %}
         </div>
     </div>
 

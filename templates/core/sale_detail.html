@@ -314,6 +314,34 @@
                         <strong>{{ sale.invoice_date|date:"Y-m-d" }}</strong>
                     </div>
                     <div class="d-flex justify-content-between small mb-1">
+                        <span class="text-muted">Payment Terms:</span>
+                        <strong>{{ sale.get_payment_terms_display }}</strong>
+                    </div>
+                    {% if sale.effective_due_date %}
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span class="text-muted">Due Date:</span>
+                        <strong class="{% if sale.is_late %}text-danger{% endif %}">
+                            {{ sale.effective_due_date|date:"Y-m-d" }}{% if sale.is_late %} ({{ sale.days_overdue }}d late){% endif %}
+                        </strong>
+                    </div>
+                    {% endif %}
+                    <div class="d-flex justify-content-between small mb-1 pt-1 mt-1 border-top">
+                        <span class="text-muted">Shipping:</span>
+                        <strong>{{ sale.get_shipping_status_display }}{% if sale.shipped_date %} ({{ sale.shipped_date|date:"Y-m-d" }}){% endif %}</strong>
+                    </div>
+                    {% if sale.shipping_method %}
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span class="text-muted">Carrier / Method:</span>
+                        <strong>{{ sale.shipping_method }}</strong>
+                    </div>
+                    {% endif %}
+                    {% if sale.tracking_number %}
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span class="text-muted">Tracking #:</span>
+                        <strong class="font-monospace">{{ sale.tracking_number }}</strong>
+                    </div>
+                    {% endif %}
+                    <div class="d-flex justify-content-between small mb-1">
                         <span class="text-muted">Payment Method:</span>
                         <strong>{{ sale.get_payment_method_display }}</strong>
                     </div>

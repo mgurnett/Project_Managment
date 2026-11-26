@@ -30,66 +30,71 @@
         </div>
     </div>
 
-    <!-- Summary KPI Cards -->
+    <!-- Summary KPI Cards (Clickable Aging Filters) -->
     <div class="row g-3 mb-4">
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
-                <div class="d-flex align-items-center justify-content-between">
-                    <div>
-                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Built Assemblies On-Hand</span>
-                        <h3 class="fw-bold mb-0 mt-1 text-success">{{ total_built_units|default:0 }}</h3>
-                        <div class="small text-muted mt-1">Across {{ built_assemblies_count }} of {{ assemblies|length }} 900-series models</div>
-                    </div>
-                    <div class="rounded-circle p-3 bg-success-subtle text-success">
-                        <i class="bi bi-boxes fs-4"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
-                <div class="d-flex align-items-center justify-content-between">
-                    <div>
-                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Total Invoices Issued</span>
-                        <h3 class="fw-bold mb-0 mt-1 text-primary">{{ total_invoices_count|default:0 }}</h3>
-                        <div class="small mt-1">
-                            <span class="badge bg-warning-subtle text-dark border border-warning-subtle me-1">{{ unpaid_invoices_count|default:0 }} Open</span>
-                            <span class="badge bg-success-subtle text-success border border-success-subtle">{{ paid_invoices_count|default:0 }} Paid</span>
+            <a href="{% url 'sale_list' %}?aging=outstanding" class="text-decoration-none">
+                <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100 {% if current_aging == 'outstanding' %}border border-2 border-primary{% endif %}">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Outstanding (Unpaid)</span>
+                            <h3 class="fw-bold mb-0 mt-1 text-primary">${{ outstanding_total|floatformat:2 }}</h3>
+                            <div class="small text-muted mt-1">{{ unpaid_invoices_count|default:0 }} open invoice{{ unpaid_invoices_count|pluralize }}</div>
+                        </div>
+                        <div class="rounded-circle p-3 bg-primary-subtle text-primary">
+                            <i class="bi bi-hourglass-split fs-4"></i>
                         </div>
                     </div>
-                    <div class="rounded-circle p-3 bg-primary-subtle text-primary">
-                        <i class="bi bi-receipt-cutoff fs-4"></i>
-                    </div>
                 </div>
-            </div>
+            </a>
         </div>
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
-                <div class="d-flex align-items-center justify-content-between">
-                    <div>
-                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Total Assemblies Sold</span>
-                        <h3 class="fw-bold mb-0 mt-1 text-info">{{ total_units_sold|default:0 }}</h3>
-                        <div class="small text-muted mt-1">900-series units invoiced</div>
-                    </div>
-                    <div class="rounded-circle p-3 bg-info-subtle text-info">
-                        <i class="bi bi-bag-check fs-4"></i>
+            <a href="{% url 'sale_list' %}?aging=due" class="text-decoration-none">
+                <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100 {% if current_aging == 'due' %}border border-2 border-warning{% endif %}">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Due Now / Within 7 Days</span>
+                            <h3 class="fw-bold mb-0 mt-1 text-warning">${{ due_total|floatformat:2 }}</h3>
+                            <div class="small text-muted mt-1">{{ due_invoices_count|default:0 }} invoice{{ due_invoices_count|pluralize }} due</div>
+                        </div>
+                        <div class="rounded-circle p-3 bg-warning-subtle text-warning">
+                            <i class="bi bi-calendar-event fs-4"></i>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </a>
         </div>
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100">
-                <div class="d-flex align-items-center justify-content-between">
-                    <div>
-                        <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Total Invoiced Revenue</span>
-                        <h3 class="fw-bold mb-0 mt-1 text-custom">${{ total_revenue|floatformat:2 }}</h3>
-                        <div class="small text-muted mt-1">Cumulative assembly sales</div>
-                    </div>
-                    <div class="rounded-circle p-3 bg-warning-subtle text-warning">
-                        <i class="bi bi-currency-dollar fs-4"></i>
+            <a href="{% url 'sale_list' %}?aging=late" class="text-decoration-none">
+                <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100 {% if current_aging == 'late' %}border border-2 border-danger{% endif %}">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Late / Overdue</span>
+                            <h3 class="fw-bold mb-0 mt-1 text-danger">${{ late_total|floatformat:2 }}</h3>
+                            <div class="small text-muted mt-1">{{ late_invoices_count|default:0 }} past due date</div>
+                        </div>
+                        <div class="rounded-circle p-3 bg-danger-subtle text-danger">
+                            <i class="bi bi-exclamation-triangle-fill fs-4"></i>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </a>
+        </div>
+        <div class="col-12 col-sm-6 col-xl-3">
+            <a href="{% url 'sale_list' %}?aging=paid" class="text-decoration-none">
+                <div class="card border-0 shadow-sm rounded-3 bg-body p-3 h-100 {% if current_aging == 'paid' %}border border-2 border-success{% endif %}">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">Paid Revenue</span>
+                            <h3 class="fw-bold mb-0 mt-1 text-success">${{ total_revenue|floatformat:2 }}</h3>
+                            <div class="small text-muted mt-1">{{ paid_invoices_count|default:0 }} paid &bull; {{ total_built_units|default:0 }} built on hand</div>
+                        </div>
+                        <div class="rounded-circle p-3 bg-success-subtle text-success">
+                            <i class="bi bi-currency-dollar fs-4"></i>
+                        </div>
+                    </div>
+                </div>
+            </a>
         </div>
     </div>
 
@@ -202,9 +207,9 @@
                     {% endfor %}
                 </select>
                 <button type="submit" class="btn btn-sm btn-outline-custom">Filter</button>
-                {% if current_q or current_status or current_payment_method %}
-                    <a href="{% url 'sale_list' %}?clear=1" class="btn btn-sm btn-outline-secondary">Clear</a>
-                {% endif %}
+                    {% if current_q or current_status or current_payment_method or current_aging %}
+                        <a href="{% url 'sale_list' %}?clear=1" class="btn btn-sm btn-outline-secondary">Clear</a>
+                    {% endif %}
             </form>
         </div>
 
@@ -224,7 +229,7 @@
                 </thead>
                 <tbody>
                     {% for sale in sales %}
-                    <tr class="{% if sale.status == 'UNPAID' %}table-warning bg-opacity-10{% endif %}">
+                    <tr class="{% if sale.is_late %}table-danger bg-opacity-10{% elif sale.is_due %}table-warning bg-opacity-10{% elif sale.status == 'UNPAID' %}table-light{% endif %}">
                         <td class="ps-4 py-3 font-monospace fw-bold">
                             <a href="{% url 'sale_detail' sale.pk %}" class="text-decoration-none text-custom">
                                 {{ sale.invoice_number }}
@@ -232,22 +237,47 @@
                             <span class="badge bg-secondary-subtle text-secondary border font-monospace ms-1" style="font-size: 0.7rem;">Rev {{ sale.revision }}</span>
                         </td>
                         <td class="py-3">
-                            {% if sale.status == 'PAID' %}
+                            {% if sale.is_paid %}
                                 <span class="badge bg-success-subtle text-success border border-success-subtle fw-semibold">
                                     <i class="bi bi-check-circle-fill me-1"></i>PAID
                                 </span>
+                            {% elif sale.is_late %}
+                                <span class="badge bg-danger text-white fw-semibold">
+                                    <i class="bi bi-exclamation-triangle-fill me-1"></i>LATE ({{ sale.days_overdue }}d)
+                                </span>
+                            {% elif sale.is_due %}
+                                <span class="badge bg-warning text-dark fw-semibold">
+                                    <i class="bi bi-calendar-event me-1"></i>DUE
+                                </span>
                             {% else %}
-                                <span class="badge bg-warning-subtle text-dark border border-warning-subtle fw-semibold">
-                                    <i class="bi bi-clock-history me-1 text-warning"></i>UNPAID
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-semibold">
+                                    <i class="bi bi-hourglass-split me-1"></i>OUTSTANDING
                                 </span>
                             {% endif %}
+                            <div class="mt-1">
+                                {% if sale.shipping_status == 'DELIVERED' %}
+                                    <span class="badge bg-success-subtle text-success border" style="font-size: 0.68rem;"><i class="bi bi-truck me-1"></i>Delivered</span>
+                                {% elif sale.shipping_status == 'SHIPPED' %}
+                                    <span class="badge bg-info-subtle text-info border" style="font-size: 0.68rem;"><i class="bi bi-truck me-1"></i>Shipped</span>
+                                {% else %}
+                                    <span class="badge bg-light text-muted border" style="font-size: 0.68rem;">Not Shipped</span>
+                                {% endif %}
+                            </div>
                         </td>
                         <td class="py-3 small">
-                            {{ sale.invoice_date|date:"M d, Y" }}
+                            <div>{{ sale.invoice_date|date:"M d, Y" }}</div>
+                            {% if sale.effective_due_date %}
+                                <div class="text-muted" style="font-size: 0.75rem;">Due: {{ sale.effective_due_date|date:"M d, Y" }}</div>
+                            {% endif %}
                         </td>
                         <td class="py-3 small">
                             <div class="fw-bold text-body">{{ sale.customer_name }}</div>
                             <div class="text-muted">{{ sale.customer_phone }}{% if sale.customer_email %} &bull; {{ sale.customer_email }}{% endif %}</div>
+                            {% if sale.shipping_method or sale.tracking_number %}
+                                <div class="text-muted mt-1" style="font-size: 0.74rem;">
+                                    <i class="bi bi-truck me-1"></i>{{ sale.shipping_method }}{% if sale.tracking_number %} &bull; <span class="font-monospace">{{ sale.tracking_number }}</span>{% endif %}
+                                </div>
+                            {% endif %}
                         </td>
                         <td class="py-3 small">
                             {% for item in sale.items.all %}
@@ -259,11 +289,14 @@
                             {% endfor %}
                         </td>
                         <td class="py-3 small">
+                            <span class="badge bg-secondary-subtle text-secondary border">{{ sale.get_payment_terms_display }}</span>
                             <span class="badge bg-success-subtle text-success border border-success-subtle">{{ sale.get_payment_method_display }}</span>
                             {% if sale.payment_date %}
                                 <div class="text-muted mt-1" style="font-size: 0.75rem;">Paid: {{ sale.payment_date|date:"M d, Y" }}</div>
                             {% else %}
-                                <div class="text-warning mt-1 fw-semibold" style="font-size: 0.75rem;">Unpaid / Open</div>
+                                <div class="{% if sale.is_late %}text-danger{% else %}text-warning{% endif %} mt-1 fw-semibold" style="font-size: 0.75rem;">
+                                    {% if sale.is_late %}Overdue {{ sale.days_overdue }} day{{ sale.days_overdue|pluralize }}{% else %}Unpaid / Open{% endif %}
+                                </div>
                             {% endif %}
                         </td>
                         <td class="text-end py-3 font-monospace fw-bold text-body fs-6">

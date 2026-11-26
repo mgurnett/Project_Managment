@@ -75,12 +75,44 @@
                                 </div>
                             </div>
                             <div class="col-6">
+                                <label class="form-label small fw-semibold">Payment Terms</label>
+                                {{ form.payment_terms }}
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-semibold">Due Date</label>
+                                {{ form.due_date }}
+                                <div class="form-text small">Auto-calculated from terms if blank.</div>
+                            </div>
+                            <div class="col-6">
                                 <label class="form-label small fw-semibold">Payment Method <span class="text-danger">*</span></label>
                                 {{ form.payment_method }}
                             </div>
                             <div class="col-6">
                                 <label class="form-label small fw-semibold">Payment Date</label>
                                 {{ form.payment_date }}
+                            </div>
+                            <div class="col-12 pt-2 border-top">
+                                <div class="small fw-bold text-uppercase text-muted mb-2" style="letter-spacing: 0.05em; font-size: 0.72rem;">
+                                    <i class="bi bi-truck me-1 text-custom"></i>Shipping Information
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <label class="form-label small fw-semibold mb-1">Shipping Status</label>
+                                        {{ form.shipping_status }}
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small fw-semibold mb-1">Shipped Date</label>
+                                        {{ form.shipped_date }}
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small fw-semibold mb-1">Carrier / Method</label>
+                                        {{ form.shipping_method }}
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small fw-semibold mb-1">Tracking #</label>
+                                        {{ form.tracking_number }}
+                                    </div>
+                                </div>
                             </div>
                             <div class="col-12">
                                 <label class="form-label small fw-semibold">Invoice Notes / Terms (Optional)</label>
@@ -223,7 +255,20 @@
                                 <tr class="sale-item-row">
                                     <td class="ps-4 py-2">
                                         <select name="item_bom[]" class="form-select form-select-sm bom-select">
-                                            <option value="">-- Select 900-Series Assembly or BoM --</option>
+                                            <option value="">-- Select Assembly (Built or Build-to-Order) or BoM --</option>
+                                            {% if assembly_parts %}
+                                            <optgroup label="Assemblies (930 / 940 / 950 — Built or Build-to-Order)">
+                                                {% for ap in assembly_parts %}
+                                                    <option value="{{ ap.active_bom.pk|default:'' }}"
+                                                            data-number="{{ ap.part_number }}"
+                                                            data-desc="{{ ap.name|default:ap.description }}"
+                                                            data-price="{% if ap.effective_sell_price is not None %}{{ ap.effective_sell_price|floatformat:2 }}{% elif ap.active_bom %}{{ ap.active_bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}"
+                                                            {% if preselected_part and preselected_part.pk == ap.pk %}selected{% endif %}>
+                                                        {{ ap.part_number }} &mdash; {{ ap.name|default:ap.description }} ({% if ap.quantity_on_hand > 0 %}{{ ap.quantity_on_hand }} In Stock{% else %}Build to Order{% endif %})
+                                                    </option>
+                                                {% endfor %}
+                                            </optgroup>
+                                            {% endif %}
                                             {% if built_assemblies %}
                                             <optgroup label="Built Assemblies In Stock (940 / 950)">
                                                 {% for ba in built_assemblies %}
@@ -253,7 +298,7 @@
                                     </td>
                                     <td class="py-2">
                                         <input type="text" name="item_number[]" class="form-control form-control-sm font-monospace item-number-input"
-                                               value="{% if preselected_assembly %}{{ preselected_assembly.assembly_number }}{% elif preselected_bom %}{{ preselected_bom.assembly_number }}{% endif %}" placeholder="950-001" required>
+                                               value="{% if preselected_part %}{{ preselected_part.part_number }}{% elif preselected_assembly %}{{ preselected_assembly.assembly_number }}{% elif preselected_bom %}{{ preselected_bom.assembly_number }}{% endif %}" placeholder="941-001" required>
                                     </td>
                                     <td class="py-2">
                                         <select name="item_serial_number[]" class="form-select form-select-sm font-monospace item-serial-select">
@@ -265,14 +310,14 @@
                                     </td>
                                     <td class="py-2">
                                         <input type="text" name="item_description[]" class="form-control form-control-sm item-desc-input"
-                                               value="{% if preselected_assembly %}{{ preselected_assembly.name }}{% elif preselected_bom %}{{ preselected_bom.name }}{% if preselected_bom.description %} — {{ preselected_bom.description }}{% endif %}{% endif %}" placeholder="Assembly description..." required>
+                                               value="{% if preselected_part %}{{ preselected_part.name|default:preselected_part.description }}{% elif preselected_assembly %}{{ preselected_assembly.name }}{% elif preselected_bom %}{{ preselected_bom.name }}{% if preselected_bom.description %} — {{ preselected_bom.description }}{% endif %}{% endif %}" placeholder="Assembly description..." required>
                                     </td>
                                     <td class="py-2">
                                         <input type="number" name="item_quantity[]" class="form-control form-control-sm text-center font-monospace item-qty-input" value="1" min="1" required>
                                     </td>
                                     <td class="py-2">
                                         <input type="number" name="item_unit_price[]" step="0.01" min="0" class="form-control form-control-sm text-end font-monospace item-price-input"
-                                               value="{% if preselected_assembly %}{% if preselected_assembly.sale_price %}{{ preselected_assembly.sale_price|floatformat:2 }}{% elif preselected_assembly.bom %}{{ preselected_assembly.bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}{% elif preselected_bom %}{{ preselected_bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}" required>
+                                               value="{% if preselected_part %}{% if preselected_part.effective_sell_price is not None %}{{ preselected_part.effective_sell_price|floatformat:2 }}{% elif preselected_part.active_bom %}{{ preselected_part.active_bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}{% elif preselected_assembly %}{% if preselected_assembly.sale_price %}{{ preselected_assembly.sale_price|floatformat:2 }}{% elif preselected_assembly.bom %}{{ preselected_assembly.bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}{% elif preselected_bom %}{{ preselected_bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}" required>
                                     </td>
                                     <td class="py-2 text-end font-monospace fw-bold item-subtotal-display">
                                         $0.00
