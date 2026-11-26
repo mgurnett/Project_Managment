@@ -2900,13 +2900,15 @@ class AssemblyBuildFromKitTestCase(TestCase):
         )
         self.assertEqual(res_promote.status_code, 200)
         asm_for_sale.refresh_from_db()
-        self.assertEqual(asm_for_sale.status, 'PROMOTED')
-        self.assertEqual(asm_for_sale.part.quantity_on_hand, 0)
-        full_sys = Assembly.objects.get(source_assembly=asm_for_sale)
-        self.assertEqual(full_sys.assembly_number, '951-001')
-        self.assertEqual(full_sys.assembly_type, '950')
-        self.assertEqual(full_sys.category_id, cat_951.pk)
-        self.assertEqual(full_sys.part.quantity_on_hand, 1)
+        # Upgraded in-place: still 1 Assembly record, now 951-001 (950 Full System) with qty 1
+        self.assertEqual(Assembly.objects.count(), 1)
+        self.assertEqual(asm_for_sale.status, 'BUILT')
+        self.assertEqual(asm_for_sale.assembly_number, '951-001')
+        self.assertEqual(asm_for_sale.assembly_type, '950')
+        self.assertEqual(asm_for_sale.category_id, cat_951.pk)
+        self.assertEqual(asm_for_sale.sale_price, Decimal('299.00'))
+        self.assertEqual(asm_for_sale.part.part_number, '951-001')
+        self.assertEqual(asm_for_sale.part.quantity_on_hand, 1)
 
         # 2. Convert a 941 Assembly -> reusable 930 Sub-Assembly Part for use in another BoM
         asm_for_sub = Assembly.objects.create(
@@ -2934,6 +2936,60 @@ class AssemblyBuildFromKitTestCase(TestCase):
         parent_bom = BOM.objects.create(name='Full GranaryWatch System BoM')
         BOMItem.objects.create(bom=parent_bom, part=sub_part, quantity=1)
         self.assertEqual(parent_bom.items.count(), 1)
+
+    def test_bom_target_assembly_number_shared_across_multiple_kits_and_revisions(self):
+        cat_911, _ = Category.objects.get_or_create(
+            prefix='911',
+            defaults={'name': 'GranaryWatch Products BoMs'},
+        )
+        cat_941 = Category.objects.get(prefix='941')
+        node_bom = BOM.objects.create(
+            name='GranaryWatch Sensor Node',
+            category=cat_911,
+            sale_price=Decimal('250.00'),
+        )
+        BOMItem.objects.create(bom=node_bom, part=self.part, quantity=2)
+
+        # 1. BoM auto-generates a canonical 941-xxx Target Assembly Part #
+        self.assertTrue(node_bom.target_assembly_number.startswith('941-'))
+        expected_asm_num = node_bom.target_assembly_number
+
+        # 2. Pick 3 Kits from the same BoM; each Kit inherits the same Target Assembly Part #
+        kits = []
+        for _ in range(3):
+            res_pick = self.client.post(reverse('kit_pick'), {'bom': node_bom.pk}, follow=True)
+            self.assertEqual(res_pick.status_code, 200)
+        kits = list(Kit.objects.filter(bom=node_bom).order_by('id'))
+        self.assertEqual(len(kits), 3)
+        for k in kits:
+            self.assertEqual(k.target_assembly_number, expected_asm_num)
+
+        # 3. Convert all 3 Kits into built Assemblies -> all 3 share the SAME assembly_number and catalog Part!
+        assemblies = []
+        for idx, k in enumerate(kits, start=1):
+            res_build = self.client.post(
+                reverse('assembly_build'),
+                {'kit': k.pk, 'category': cat_941.pk, 'serial_number': f'GW-NODE-{idx:03d}'},
+                follow=True,
+            )
+            self.assertEqual(res_build.status_code, 200)
+            asm = Assembly.objects.get(kit=k)
+            self.assertEqual(asm.assembly_number, expected_asm_num)
+            self.assertEqual(asm.serial_number, f'GW-NODE-{idx:03d}')
+            assemblies.append(asm)
+
+        # All 3 built assemblies link to the exact same catalog Part with quantity_on_hand == 3
+        part_ids = {a.part_id for a in assemblies}
+        self.assertEqual(len(part_ids), 1)
+        shared_part = Part.objects.get(part_number=expected_asm_num)
+        self.assertEqual(shared_part.quantity_on_hand, 3)
+
+        # 4. Creating Rev 2 of the BoM preserves the exact same Target Assembly Part #
+        res_rev = self.client.post(reverse('bom_new_revision', args=[node_bom.pk]), follow=True)
+        self.assertEqual(res_rev.status_code, 200)
+        rev2 = BOM.objects.get(name='GranaryWatch Sensor Node', is_archived=False)
+        self.assertEqual(rev2.revision, 2)
+        self.assertEqual(rev2.target_assembly_number, expected_asm_num)
 
 
 @unittest.skip("Archived for workflow reset")

@@ -52,6 +52,7 @@
                 <thead class="table-light border-bottom small text-uppercase text-muted">
                     <tr>
                         <th scope="col" class="ps-4 py-3">BoM #</th>
+                        <th scope="col" class="py-3">Target Assembly #</th>
                         <th scope="col" class="py-3">BoM Name</th>
                         <th scope="col" class="py-3">Description</th>
                         <th scope="col" class="text-center py-3">Revision</th>
@@ -67,6 +68,13 @@
                             <a href="{% url 'bom_detail' b.pk %}" class="badge {% if b.is_archived %}bg-secondary-subtle text-secondary{% else %}bg-primary-subtle text-primary border-primary-subtle{% endif %} border text-decoration-none px-2.5 py-1">
                                 {{ b.assembly_number|default:"910-???" }}
                             </a>
+                        </td>
+                        <td class="py-3 font-monospace">
+                            {% if b.target_assembly_number %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">{{ b.target_assembly_number }}</span>
+                            {% else %}
+                                <span class="text-muted small">&mdash;</span>
+                            {% endif %}
                         </td>
                         <td class="py-3">
                             <a href="{% url 'bom_detail' b.pk %}" class="fw-bold text-decoration-none {% if b.is_archived %}text-muted{% else %}text-custom{% endif %}">
@@ -101,7 +109,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="7" class="text-center py-5 text-muted">
+                        <td colspan="8" class="text-center py-5 text-muted">
                             No Bills of Materials (BoMs) match the current filter.
                         </td>
                     </tr>

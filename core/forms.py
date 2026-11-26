@@ -330,12 +330,16 @@ class PartDocumentForm(forms.ModelForm):
 class BOMForm(forms.ModelForm):
     class Meta:
         model = BOM
-        fields = ['category', 'assembly_number', 'name', 'description', 'notes']
+        fields = ['category', 'assembly_number', 'target_assembly_number', 'name', 'description', 'notes']
         widgets = {
             'category': forms.Select(attrs={'class': 'form-select', 'id': 'id_bom_category'}),
             'assembly_number': forms.TextInput(attrs={
                 'class': 'form-control font-monospace',
                 'placeholder': 'e.g. 910-001 (leave blank to auto-assign next 910-series #)'
+            }),
+            'target_assembly_number': forms.TextInput(attrs={
+                'class': 'form-control font-monospace',
+                'placeholder': 'Auto-generated (e.g. 941-001) — follows BoM -> Kit -> Assembly'
             }),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. String BoM, Sensor Node BoM, Base Station BoM'}),
             'description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Brief description of this BoM recipe'}),

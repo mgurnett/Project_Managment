@@ -18,6 +18,11 @@
                 <span class="badge bg-primary text-white font-monospace fs-6 px-2.5 py-1">
                     {{ bom.assembly_number|default:"910-001" }}
                 </span>
+                {% if bom.target_assembly_number %}
+                <span class="badge bg-success-subtle text-success border border-success-subtle font-monospace px-2.5 py-1" title="Canonical Assembly Part # built from this BoM">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Builds {{ bom.target_assembly_number }}
+                </span>
+                {% endif %}
                 <h1 class="h3 fw-bold mb-0 text-custom">{{ bom.name }}</h1>
                 <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle font-monospace px-2.5 py-1">
                     Rev {{ bom.revision }}
@@ -102,7 +107,7 @@
                     <div>
                         <span class="text-muted small text-uppercase fw-semibold" style="letter-spacing: 0.05em; font-size: 0.7rem;">BoM Number &amp; Rev</span>
                         <h3 class="fw-bold mb-0 mt-1 text-primary font-monospace">{{ bom.assembly_number }}</h3>
-                        <div class="small text-muted mt-1">Rev {{ bom.revision }}{% if bom.is_archived %} &bull; Archived{% endif %}</div>
+                        <div class="small text-muted mt-1">Rev {{ bom.revision }}{% if bom.target_assembly_number %} &bull; Builds <strong class="font-monospace text-success">{{ bom.target_assembly_number }}</strong>{% endif %}{% if bom.is_archived %} &bull; Archived{% endif %}</div>
                     </div>
                     <div class="rounded-circle p-3 bg-primary-subtle text-primary">
                         <i class="bi bi-diagram-3 fs-4"></i>

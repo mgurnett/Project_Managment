@@ -25,11 +25,11 @@
                 {% csrf_token %}
                 <div class="col-12 col-md-4">
                     <label class="form-label small fw-semibold mb-1">Picked Kit (920) <span class="text-danger">*</span></label>
-                    <select name="kit" class="form-select form-select-sm" required>
+                    <select name="kit" id="asmKitSelect" class="form-select form-select-sm" required>
                         <option value="">-- Select Picked Kit --</option>
                         {% for k in picked_kits %}
-                            <option value="{{ k.pk }}" {% if preselected_kit_id == k.pk %}selected{% endif %}>
-                                {{ k.kit_number }} &mdash; {{ k.bom.name }} (Rev {{ k.bom_revision }})
+                            <option value="{{ k.pk }}" data-target-asm="{{ k.target_assembly_number|default:'' }}" {% if preselected_kit_id == k.pk %}selected{% endif %}>
+                                {{ k.kit_number }} &mdash; {{ k.bom.name }} (Rev {{ k.bom_revision }}){% if k.target_assembly_number %} &rarr; {{ k.target_assembly_number }}{% endif %}
                             </option>
                         {% endfor %}
                     </select>
@@ -110,6 +110,9 @@
                             <a href="{% url 'assembly_detail' asm.pk %}" class="badge bg-primary-subtle text-primary border border-primary-subtle text-decoration-none px-2.5 py-1">
                                 {{ asm.assembly_number }}
                             </a>
+                            {% if asm.serial_number %}
+                                <div class="small text-muted mt-1" style="font-size: 0.72rem;">SN: {{ asm.serial_number }}</div>
+                            {% endif %}
                         </td>
                         <td class="py-3 fw-semibold">
                             <a href="{% url 'assembly_detail' asm.pk %}" class="text-decoration-none text-custom">{{ asm.name }}</a>
@@ -126,6 +129,10 @@
                         <td class="text-center py-3">
                             {% if asm.status == 'BUILT' %}
                                 <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1">Built / In Stock</span>
+                            {% elif asm.status == 'CONSUMED' %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2.5 py-1">Converted to Part</span>
+                            {% elif asm.status == 'PROMOTED' %}
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1">Promoted</span>
                             {% else %}
                                 <span class="badge bg-secondary-subtle text-secondary border px-2.5 py-1">Sold</span>
                             {% endif %}
@@ -155,7 +162,9 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const kitSel = document.getElementById('asmKitSelect');
     const catSel = document.getElementById('asmCategorySelect');
+    const numInput = document.getElementById('asmNumInput');
     const snWrap = document.getElementById('asmSerialWrapper');
     const snInput = document.getElementById('asmSerialInput');
     function toggleSerial() {
@@ -169,8 +178,35 @@ document.addEventListener('DOMContentLoaded', function() {
             if (snInput) snInput.value = '';
         }
     }
+    function syncFromKit() {
+        if (!kitSel) return;
+        const opt = kitSel.options[kitSel.selectedIndex];
+        const targetAsm = opt ? (opt.getAttribute('data-target-asm') || '') : '';
+        if (targetAsm) {
+            if (numInput) numInput.value = targetAsm;
+            const prefix = targetAsm.split('-')[0];
+            if (catSel && prefix) {
+                for (let i = 0; i < catSel.options.length; i++) {
+                    if (catSel.options[i].getAttribute('data-prefix') === prefix) {
+                        catSel.selectedIndex = i;
+                        break;
+                    }
+                }
+            }
+        }
+        toggleSerial();
+    }
     if (catSel) {
         catSel.addEventListener('change', toggleSerial);
+    }
+    if (kitSel) {
+        kitSel.addEventListener('change', syncFromKit);
+        if (kitSel.value) {
+            syncFromKit();
+        } else {
+            toggleSerial();
+        }
+    } else {
         toggleSerial();
     }
 });

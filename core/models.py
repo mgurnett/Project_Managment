@@ -953,6 +953,13 @@ class BOM(models.Model):
         verbose_name="Assembly Number (900 Series)",
         help_text="900-series assembly number (e.g. 900-001). Leave blank to auto-assign."
     )
+    target_assembly_number = models.CharField(
+        max_length=50,
+        blank=True,
+        default='',
+        verbose_name="Target Assembly Part #",
+        help_text="Canonical Assembly Part # (e.g. 941-001) generated for this BoM and carried through Kits into built Assemblies."
+    )
     name = models.CharField(max_length=150, unique=True, verbose_name="BOM / Assembly Name")
     category = models.ForeignKey(
         Category,
@@ -1128,6 +1135,34 @@ class BOM(models.Model):
 
         return part
 
+    @classmethod
+    def generate_next_target_assembly_number(cls, prefix="940", exclude_pk=None):
+        """
+        Generates the next sequential canonical Assembly Part # (e.g. 941-001, 942-001)
+        for a BoM so all Kits and Assemblies built from it share the same Assembly Part #.
+        """
+        p = prefix.rstrip('-')
+        full_prefix = f"{p}-"
+        used = set()
+        bom_qs = cls.objects.filter(target_assembly_number__startswith=full_prefix)
+        if exclude_pk:
+            bom_qs = bom_qs.exclude(pk=exclude_pk)
+        used.update(bom_qs.values_list('target_assembly_number', flat=True))
+        used.update(Part.objects.filter(part_number__startswith=full_prefix).values_list('part_number', flat=True))
+        highest = 0
+        for code in used:
+            if not code:
+                continue
+            suffix = code[len(full_prefix):]
+            if suffix.isdigit():
+                highest = max(highest, int(suffix))
+        next_num = highest + 1
+        candidate = f"{full_prefix}{next_num:03d}"
+        while candidate in used:
+            next_num += 1
+            candidate = f"{full_prefix}{next_num:03d}"
+        return candidate
+
     def save(self, *args, **kwargs):
         if self.assembly_number:
             cleaned = self.assembly_number.strip()
@@ -1141,6 +1176,15 @@ class BOM(models.Model):
                 self.assembly_number = cleaned
         else:
             self.assembly_number = self.generate_next_assembly_number(exclude_pk=self.pk)
+
+        if not (self.target_assembly_number or '').strip():
+            target_prefix = "940"
+            if self.category_id and self.category and self.category.prefix and self.category.prefix.startswith('91') and len(self.category.prefix) == 3:
+                target_prefix = '94' + self.category.prefix[2]
+            self.target_assembly_number = self.generate_next_target_assembly_number(prefix=target_prefix, exclude_pk=self.pk)
+        else:
+            self.target_assembly_number = self.target_assembly_number.strip()
+
         super().save(*args, **kwargs)
         try:
             self.sync_part()
@@ -1682,6 +1726,10 @@ class Kit(models.Model):
             pass
 
     @property
+    def target_assembly_number(self):
+        return (self.bom.target_assembly_number if self.bom_id and self.bom else '') or ''
+
+    @property
     def total_required_qty(self):
         items = list(self.kit_items.all())
         if items:
@@ -1797,8 +1845,8 @@ class Assembly(models.Model):
     )
     assembly_number = models.CharField(
         max_length=50,
-        unique=True,
         blank=True,
+        db_index=True,
         verbose_name="Assembly Part # (930/940/950)"
     )
     serial_number = models.CharField(
@@ -1854,12 +1902,12 @@ class Assembly(models.Model):
         default='BUILT',
         verbose_name="Status"
     )
-    part = models.OneToOneField(
+    part = models.ForeignKey(
         Part,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='built_assembly_record',
+        related_name='built_assembly_records',
         verbose_name="Associated Catalog Part"
     )
     notes = CKEditor5Field('Assembly Notes', config_name='notes', blank=True, null=True)
@@ -1909,8 +1957,21 @@ class Assembly(models.Model):
         if not self.assembly_number:
             self.assembly_number = self.generate_next_number(self.assembly_type)
 
-        part = self.part or Part.objects.filter(part_number=self.assembly_number).first()
-        qty_on_hand = 1 if self.status == 'BUILT' else 0
+        # If this assembly's number changed (e.g. promoted 941-001 -> 951-001),
+        # handle the previous catalog Part cleanly.
+        old_part = self.part
+        part = Part.objects.filter(part_number=self.assembly_number).first()
+        if not part and old_part and old_part.part_number != self.assembly_number:
+            other_on_old = Assembly.objects.exclude(pk=self.pk).filter(assembly_number=old_part.part_number).exists()
+            if not other_on_old:
+                part = old_part
+            else:
+                old_built = Assembly.objects.filter(assembly_number=old_part.part_number, status='BUILT').count()
+                old_part.quantity_on_hand = old_built
+                old_part.quantity_availible = max(0, old_built - (old_part.quantity_committed or 0))
+                old_part.save(update_fields=['quantity_on_hand', 'quantity_availible', 'updated_at'])
+
+        qty_on_hand = Assembly.objects.filter(assembly_number=self.assembly_number, status='BUILT').count()
         if not part:
             part = Part.objects.create(
                 part_number=self.assembly_number,
@@ -1935,9 +1996,10 @@ class Assembly(models.Model):
             if part.category_id != category.pk:
                 part.category = category
                 update_fields.append('category')
-            if part.quantity_on_hand != qty_on_hand:
+            qty_avail = max(0, qty_on_hand - (part.quantity_committed or 0))
+            if part.quantity_on_hand != qty_on_hand or part.quantity_availible != qty_avail:
                 part.quantity_on_hand = qty_on_hand
-                part.quantity_availible = qty_on_hand
+                part.quantity_availible = qty_avail
                 update_fields.extend(['quantity_on_hand', 'quantity_availible'])
             if self.sale_price is not None and part.price_per != self.sale_price:
                 part.price_per = self.sale_price
@@ -1948,6 +2010,11 @@ class Assembly(models.Model):
             if self.part_id != part.pk:
                 self.part = part
                 Assembly.objects.filter(pk=self.pk).update(part=part)
+            if old_part and old_part.pk != part.pk:
+                old_built = Assembly.objects.filter(assembly_number=old_part.part_number, status='BUILT').count()
+                old_part.quantity_on_hand = old_built
+                old_part.quantity_availible = max(0, old_built - (old_part.quantity_committed or 0))
+                old_part.save(update_fields=['quantity_on_hand', 'quantity_availible', 'updated_at'])
         return part
 
     def save(self, *args, **kwargs):

@@ -32,7 +32,7 @@
                             <option value="">-- Select BoM Recipe --</option>
                             {% for b in boms %}
                                 <option value="{{ b.pk }}" {% if preselected_bom_id == b.pk %}selected{% endif %}>
-                                    {{ b.assembly_number }} &mdash; {{ b.name }} (Rev {{ b.revision }}{% if b.is_frozen %}, Frozen{% endif %})
+                                    {{ b.assembly_number }} &mdash; {{ b.name }} (Rev {{ b.revision }}{% if b.target_assembly_number %}, Builds {{ b.target_assembly_number }}{% endif %}{% if b.is_frozen %}, Frozen{% endif %})
                                 </option>
                             {% endfor %}
                         </select>
@@ -176,7 +176,12 @@
                         </td>
                         <td class="py-3">
                             <a href="{% url 'bom_detail' kit.bom.pk %}" class="fw-semibold text-decoration-none text-custom">{{ kit.bom.name }}</a>
-                            <div class="small text-muted font-monospace">{{ kit.bom.assembly_number }} &bull; Rev {{ kit.bom_revision }}</div>
+                            <div class="small text-muted font-monospace">
+                                {{ kit.bom.assembly_number }} &bull; Rev {{ kit.bom_revision }}
+                                {% if kit.target_assembly_number %}
+                                    &rarr; <span class="text-success fw-semibold">{{ kit.target_assembly_number }}</span>
+                                {% endif %}
+                            </div>
                         </td>
                         <td class="text-center py-3">
                             {% if kit.is_fully_picked %}

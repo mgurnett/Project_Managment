@@ -1586,6 +1586,7 @@ def bom_new_revision_action(request, pk):
         new_bom = BOM.objects.create(
             category=bom.category,
             assembly_number=new_num,
+            target_assembly_number=bom.target_assembly_number,
             name=new_name,
             description=bom.description,
             sale_price=bom.sale_price,
@@ -6097,7 +6098,14 @@ def assembly_build_from_kit(request):
 
     cat_id = (request.POST.get('category') or '').strip()
     asm_category = Category.objects.filter(pk=int(cat_id)).first() if cat_id.isdigit() else None
-    assembly_type = (request.POST.get('assembly_type') or '940').strip()
+    raw_assembly_type = (request.POST.get('assembly_type') or '').strip()
+    assembly_type = raw_assembly_type or '940'
+    target_asm_num = (kit.bom.target_assembly_number or '').strip()
+    target_prefix = target_asm_num.split('-')[0] if '-' in target_asm_num else ''
+
+    if not asm_category and (not raw_assembly_type or raw_assembly_type == '940') and target_prefix and target_prefix[:2] in ('93', '94', '95'):
+        asm_category = Category.objects.filter(prefix=target_prefix).first()
+
     if asm_category and asm_category.prefix:
         num_prefix = asm_category.prefix
         assembly_type = num_prefix[:2] + '0' if num_prefix[:2] in ('93', '94', '95') else '940'
@@ -6107,10 +6115,18 @@ def assembly_build_from_kit(request):
         num_prefix = assembly_type
         asm_category = Category.objects.filter(prefix=assembly_type).first()
 
-    assembly_number = (request.POST.get('assembly_number') or '').strip() or Assembly.generate_next_number(num_prefix)
-    if Assembly.objects.filter(assembly_number=assembly_number).exists():
-        messages.error(request, f"Assembly number '{assembly_number}' already exists.")
-        return redirect('assembly_list')
+    posted_asm_num = (request.POST.get('assembly_number') or '').strip()
+    if posted_asm_num:
+        assembly_number = posted_asm_num
+    elif target_asm_num and (not target_prefix or target_prefix == num_prefix or num_prefix == '940'):
+        assembly_number = target_asm_num
+        if target_prefix and (not asm_category or asm_category.prefix == '940'):
+            matched_cat = Category.objects.filter(prefix=target_prefix).first()
+            if matched_cat:
+                asm_category = matched_cat
+                assembly_type = target_prefix[:2] + '0' if target_prefix[:2] in ('93', '94', '95') else '940'
+    else:
+        assembly_number = Assembly.generate_next_number(num_prefix)
 
     name = (request.POST.get('name') or '').strip() or kit.bom.name
     raw_price = (request.POST.get('sale_price') or '').strip()
@@ -6188,55 +6204,51 @@ def assembly_build_from_kit(request):
 
 def assembly_promote_to_full_system(request, pk):
     """
-    POST action to promote a built 940-series Assembly into a 950-series Full System
-    (950/951/952/953/955) ready for sale.
+    POST action to promote a built 940-series Assembly in-place into a 950-series Full System
+    (950/951/952/953/955) ready for sale — keeping 1 Kit -> 1 Assembly with no duplicate row.
     """
-    source_asm = get_object_or_404(Assembly.objects.select_related('bom', 'category', 'part'), pk=pk)
-    if request.method != 'POST' or source_asm.status != 'BUILT':
-        return redirect('assembly_detail', pk=source_asm.pk)
+    asm = get_object_or_404(Assembly.objects.select_related('bom', 'category', 'part'), pk=pk)
+    if request.method != 'POST' or asm.status != 'BUILT':
+        return redirect('assembly_detail', pk=asm.pk)
 
     cat_id = (request.POST.get('category') or '').strip()
     target_cat = Category.objects.filter(pk=int(cat_id), prefix__startswith='95').first() if cat_id.isdigit() else None
-    if not target_cat and source_asm.category and source_asm.category.prefix and source_asm.category.prefix.startswith('94') and len(source_asm.category.prefix) == 3:
-        target_cat = Category.objects.filter(prefix='95' + source_asm.category.prefix[2]).first()
+    if not target_cat and asm.category and asm.category.prefix and asm.category.prefix.startswith('94') and len(asm.category.prefix) == 3:
+        target_cat = Category.objects.filter(prefix='95' + asm.category.prefix[2]).first()
     if not target_cat:
         target_cat = Category.objects.filter(prefix='950').first()
 
     num_prefix = target_cat.prefix if (target_cat and target_cat.prefix) else '950'
-    new_number = (request.POST.get('assembly_number') or '').strip() or Assembly.generate_next_number(num_prefix)
-    if Assembly.objects.filter(assembly_number=new_number).exists():
-        messages.error(request, f"Full System number '{new_number}' already exists.")
-        return redirect('assembly_detail', pk=source_asm.pk)
+    new_number = (request.POST.get('assembly_number') or '').strip()
+    if not new_number:
+        m = re.match(r'^\d{3}-(.+)$', asm.assembly_number or '')
+        new_number = f"{num_prefix}-{m.group(1)}" if m else Assembly.generate_next_number(num_prefix)
 
     raw_price = (request.POST.get('sale_price') or '').strip()
-    sale_price = source_asm.sale_price
+    sale_price = asm.sale_price
     if raw_price:
         try:
             sale_price = Decimal(raw_price)
         except (InvalidOperation, ValueError):
             pass
 
-    name = (request.POST.get('name') or '').strip() or source_asm.name
+    name = (request.POST.get('name') or '').strip() or asm.name
+    old_number = asm.assembly_number
 
     with transaction.atomic():
-        source_asm.status = 'PROMOTED'
-        source_asm.save()
-        full_system = Assembly.objects.create(
-            assembly_type='950',
-            category=target_cat,
-            assembly_number=new_number,
-            name=name,
-            bom=source_asm.bom,
-            source_assembly=source_asm,
-            sale_price=sale_price,
-            status='BUILT',
-        )
+        asm.assembly_type = '950'
+        asm.category = target_cat
+        asm.assembly_number = new_number
+        asm.name = name
+        asm.sale_price = sale_price
+        asm.status = 'BUILT'
+        asm.save()
 
     messages.success(
         request,
-        f"Promoted {source_asm.assembly_number} to Full System {full_system.assembly_number} (ready for sale)."
+        f"Promoted {old_number} in-place to Full System {asm.assembly_number} (ready for sale)."
     )
-    return redirect('assembly_detail', pk=full_system.pk)
+    return redirect('assembly_detail', pk=asm.pk)
 
 
 def assembly_convert_to_subassembly_part(request, pk):
