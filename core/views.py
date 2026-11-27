@@ -6391,8 +6391,9 @@ def assembly_build_from_kit(request):
                 part.quantity_availible = max(0, part.quantity_on_hand - part.quantity_committed)
                 part.save(update_fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible', 'updated_at'])
 
-        kit.status = 'BUILT'
-        kit.save(update_fields=['status', 'updated_at'])
+        kit_num = kit.kit_number
+        kit_part_id = kit.part_id
+        kit_bom = kit.bom
 
         assembly = Assembly.objects.create(
             assembly_type=assembly_type,
@@ -6400,22 +6401,36 @@ def assembly_build_from_kit(request):
             assembly_number=assembly_number,
             serial_number=serial_number,
             name=name,
-            kit=kit,
-            bom=kit.bom,
+            kit=None,
+            bom=kit_bom,
             sale_price=sale_price,
             status='BUILT',
         )
 
+        # Automatically delete the Kit once built into an Assembly and update/clean up its 92x catalog Part
+        kit.kit_items.all().delete()
+        kit.delete()
+        if kit_part_id:
+            remaining_kits = Kit.objects.filter(part_id=kit_part_id)
+            if remaining_kits.exists():
+                picked_cnt = remaining_kits.filter(status='PICKED').count()
+                Part.objects.filter(pk=kit_part_id).update(
+                    quantity_on_hand=picked_cnt,
+                    quantity_availible=picked_cnt,
+                )
+            elif not BOMItem.objects.filter(part_id=kit_part_id).exists():
+                Part.objects.filter(pk=kit_part_id).delete()
+
     if shortages:
         messages.warning(
             request,
-            f"Converted Kit {kit.kit_number} into {assembly.assembly_number} ({assembly.name}). "
+            f"Built Kit {kit_num} into {assembly.assembly_number} ({assembly.name}) and removed the kit. "
             f"Note: kit had partial picks for {', '.join(shortages)}."
         )
     else:
         messages.success(
             request,
-            f"Converted Kit {kit.kit_number} into {assembly.assembly_number} ({assembly.name}) and deducted parts from inventory."
+            f"Built Kit {kit_num} into {assembly.assembly_number} ({assembly.name}), deducted parts from inventory, and removed the kit."
         )
     return redirect('assembly_detail', pk=assembly.pk)
 

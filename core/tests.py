@@ -2839,7 +2839,7 @@ class AssemblyBuildFromKitTestCase(TestCase):
             follow=True,
         )
         self.assertEqual(res_build.status_code, 200)
-        asm = Assembly.objects.get(kit=kit)
+        asm = Assembly.objects.get(bom=self.bom, assembly_number="930-001")
         self.assertEqual(asm.assembly_number, "930-001")
         self.assertEqual(asm.assembly_type, "930")
         self.assertEqual(asm.status, "BUILT")
@@ -2848,9 +2848,9 @@ class AssemblyBuildFromKitTestCase(TestCase):
         self.assertEqual(asm.part.category.prefix, "930")
         self.assertEqual(asm.part.quantity_on_hand, 1)
 
-        kit.refresh_from_db()
+        # Kit is automatically deleted once built into an Assembly
+        self.assertFalse(Kit.objects.filter(pk=kit.pk).exists())
         self.part.refresh_from_db()
-        self.assertEqual(kit.status, "BUILT")
         self.assertEqual(self.part.quantity_on_hand, 7)
         self.assertEqual(self.part.quantity_committed, 0)
         self.assertEqual(self.part.quantity_availible, 7)
@@ -2973,9 +2973,10 @@ class AssemblyBuildFromKitTestCase(TestCase):
                 follow=True,
             )
             self.assertEqual(res_build.status_code, 200)
-            asm = Assembly.objects.get(kit=k)
+            asm = Assembly.objects.get(bom=node_bom, serial_number=f'GW-NODE-{idx:03d}')
             self.assertEqual(asm.assembly_number, expected_asm_num)
             self.assertEqual(asm.serial_number, f'GW-NODE-{idx:03d}')
+            self.assertFalse(Kit.objects.filter(pk=k.pk).exists())
             assemblies.append(asm)
 
         # All 3 built assemblies link to the exact same catalog Part with quantity_on_hand == 3
@@ -3232,26 +3233,19 @@ class AssemblyBuildFromKitTestCase(TestCase):
         self.assertContains(res_back, '942-099')
 
     def test_delete_kit_after_built_into_assembly(self):
-        # 1. Pick a kit -> cannot be deleted while PICKED
+        # 1. Pick a kit -> cannot be manually deleted while PICKED
         self.client.post(reverse('kit_pick'), {'bom': self.bom.pk}, follow=True)
         kit = Kit.objects.get(bom=self.bom)
         self.client.post(reverse('kit_delete', args=[kit.pk]), follow=True)
         self.assertTrue(Kit.objects.filter(pk=kit.pk).exists())
 
-        # 2. Build kit into an Assembly -> now kit CAN be deleted, leaving Assembly & stock intact
+        # 2. Build kit into an Assembly -> kit is automatically deleted, leaving Assembly & stock intact
         self.client.post(reverse('assembly_build'), {'kit': kit.pk}, follow=True)
-        kit.refresh_from_db()
-        self.assertEqual(kit.status, 'BUILT')
-        asm = Assembly.objects.get(kit=kit)
-        self.part.refresh_from_db()
-        oh_after_build = self.part.quantity_on_hand
-
-        res_del = self.client.post(reverse('kit_delete', args=[kit.pk]), follow=True)
-        self.assertEqual(res_del.status_code, 200)
         self.assertFalse(Kit.objects.filter(pk=kit.pk).exists())
-        self.assertTrue(Assembly.objects.filter(pk=asm.pk).exists())
+        asm = Assembly.objects.get(bom=self.bom)
+        self.assertEqual(asm.status, 'BUILT')
         self.part.refresh_from_db()
-        self.assertEqual(self.part.quantity_on_hand, oh_after_build)
+        self.assertEqual(self.part.quantity_on_hand, 7)
 
 
 @unittest.skip("Archived for workflow reset")
