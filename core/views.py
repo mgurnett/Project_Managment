@@ -4162,10 +4162,11 @@ def generate_and_save_invoice_pdf(sale, request=None):
 
 
 def _get_quotable_assembly_parts():
-    """Returns all 930/940/950 Assembly Parts (built or not built yet) with their active BoM attached."""
+    """Returns all active (non-archived) 930/940/950 Assembly Parts with their active BoM attached."""
     parts = list(
         Part.objects.select_related('category')
         .prefetch_related('target_boms')
+        .filter(is_archived=False)
         .filter(
             Q(category__prefix__startswith='93') |
             Q(category__prefix__startswith='94') |
@@ -4239,7 +4240,7 @@ class AssemblySaleListView(ListView):
         ctx['assemblies'] = boms
         ctx['assembly_parts'] = _get_quotable_assembly_parts()
         ctx['built_assemblies'] = list(
-            Assembly.objects.filter(status='BUILT')
+            Assembly.objects.filter(status='BUILT', is_archived=False)
             .select_related('category', 'bom', 'kit')
             .order_by('assembly_number')
         )
@@ -4297,7 +4298,7 @@ class AssemblySaleCreateView(CreateView):
         ctx = super().get_context_data(**kwargs)
         boms = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
         built_assemblies = list(
-            Assembly.objects.filter(status='BUILT')
+            Assembly.objects.filter(status='BUILT', is_archived=False)
             .select_related('category', 'bom')
             .order_by('assembly_number')
         )
@@ -4565,7 +4566,7 @@ class AssemblySaleUpdateView(UpdateView):
         ctx['assemblies'] = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
         ctx['assembly_parts'] = _get_quotable_assembly_parts()
         ctx['built_assemblies'] = list(
-            Assembly.objects.filter(status='BUILT')
+            Assembly.objects.filter(status='BUILT', is_archived=False)
             .select_related('category', 'bom')
             .order_by('assembly_number')
         )
@@ -4995,7 +4996,7 @@ class QuoteCreateView(CreateView):
         ctx = super().get_context_data(**kwargs)
         boms = list(BOM.objects.prefetch_related('items__part').order_by('assembly_number', 'name'))
         built_assemblies = list(
-            Assembly.objects.filter(status='BUILT')
+            Assembly.objects.filter(status='BUILT', is_archived=False)
             .select_related('category', 'bom')
             .order_by('assembly_number')
         )
@@ -5130,7 +5131,7 @@ class QuoteUpdateView(UpdateView):
         ctx['assemblies'] = boms
         ctx['assembly_parts'] = _get_quotable_assembly_parts()
         ctx['built_assemblies'] = list(
-            Assembly.objects.filter(status='BUILT')
+            Assembly.objects.filter(status='BUILT', is_archived=False)
             .select_related('category', 'bom')
             .order_by('assembly_number')
         )
@@ -6125,7 +6126,10 @@ class AssemblyListView(ListView):
     context_object_name = 'assemblies'
 
     def get_queryset(self):
+        show_archived = self.request.GET.get('show_archived') in ('1', 'true', 'on', 'yes')
         qs = Assembly.objects.select_related('kit', 'bom', 'part').all()
+        if not show_archived:
+            qs = qs.filter(is_archived=False)
         atype = (self.request.GET.get('type') or '').strip()
         if atype in ('930', '940', '950'):
             qs = qs.filter(assembly_type=atype)
@@ -6142,11 +6146,13 @@ class AssemblyListView(ListView):
         ctx = super().get_context_data(**kwargs)
         atype = (self.request.GET.get('type') or '').strip()
         q = (self.request.GET.get('q') or '').strip()
+        show_archived = self.request.GET.get('show_archived') in ('1', 'true', 'on', 'yes')
         ctx['current_type'] = atype
         ctx['current_q'] = q
+        ctx['show_archived'] = show_archived
 
         # Primary Assemblies Hub list: all 930 / 940 / 950 Assembly Parts
-        ap_qs = (
+        base_ap_qs = (
             Part.objects.select_related('category')
             .prefetch_related('target_boms', 'built_assembly_records')
             .filter(
@@ -6155,6 +6161,8 @@ class AssemblyListView(ListView):
                 Q(category__prefix__startswith='95')
             )
         )
+        ctx['archived_count'] = base_ap_qs.filter(is_archived=True).count()
+        ap_qs = base_ap_qs if show_archived else base_ap_qs.filter(is_archived=False)
         if atype in ('930', '940', '950'):
             ap_qs = ap_qs.filter(category__prefix__startswith=atype[:2])
         if q:
@@ -6163,7 +6171,7 @@ class AssemblyListView(ListView):
                 Q(name__icontains=q) |
                 Q(description__icontains=q)
             )
-        assembly_parts = list(ap_qs.order_by('part_number'))
+        assembly_parts = list(ap_qs.order_by('is_archived', 'part_number'))
         bom_ids = []
         for p in assembly_parts:
             active_boms = [b for b in p.target_boms.all() if not b.is_archived]
@@ -6214,6 +6222,39 @@ class AssemblyDetailView(ArticleContextMixin, DetailView):
             Q(category__prefix__startswith='93') | Q(category__prefix='945')
         ).order_by('part_number')
         return ctx
+
+
+def part_toggle_archive_action(request, pk):
+    """POST action to archive or unarchive an Assembly Part (930+) and its built unit records."""
+    part = get_object_or_404(Part, pk=pk)
+    if request.method == 'POST':
+        part.is_archived = not part.is_archived
+        part.save(update_fields=['is_archived', 'updated_at'])
+        part.built_assembly_records.update(is_archived=part.is_archived)
+        if part.is_archived:
+            messages.success(request, f"Assembly '{part.part_number} - {part.name}' archived (hidden unless 'Show Archived' is checked).")
+        else:
+            messages.success(request, f"Assembly '{part.part_number} - {part.name}' restored from archive.")
+    next_url = (request.POST.get('next') or '').strip()
+    if next_url:
+        return redirect(next_url)
+    return redirect('part_detail', pk=part.pk)
+
+
+def assembly_toggle_archive_action(request, pk):
+    """POST action to archive or unarchive a built Assembly record."""
+    asm = get_object_or_404(Assembly, pk=pk)
+    if request.method == 'POST':
+        asm.is_archived = not asm.is_archived
+        asm.save(update_fields=['is_archived', 'updated_at'])
+        if asm.is_archived:
+            messages.success(request, f"Built Assembly '{asm.assembly_number}' archived.")
+        else:
+            messages.success(request, f"Built Assembly '{asm.assembly_number}' restored from archive.")
+    next_url = (request.POST.get('next') or '').strip()
+    if next_url:
+        return redirect(next_url)
+    return redirect('assembly_detail', pk=asm.pk)
 
 
 def assembly_build_from_kit(request):

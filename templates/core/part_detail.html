@@ -61,6 +61,20 @@
                     <i class="bi bi-receipt"></i>
                     <span>Invoice</span>
                 </a>
+                <form method="post" action="{% url 'part_toggle_archive' part.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    {% if part.is_archived %}
+                        <button type="submit" class="btn btn-outline-success btn-sm d-flex align-items-center gap-1 fw-semibold">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                            <span>Unarchive</span>
+                        </button>
+                    {% else %}
+                        <button type="submit" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" onclick="return confirm('Archive {{ part.part_number }}? It will be hidden from active Assemblies and Quotes unless Show Archived is checked.');">
+                            <i class="bi bi-archive"></i>
+                            <span>Archive</span>
+                        </button>
+                    {% endif %}
+                </form>
             {% endif %}
             {% if part.document %}
                 <a href="{{ part.document.url }}" target="_blank" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 shadow-sm" title="Open Datasheet / Document">

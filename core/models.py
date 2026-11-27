@@ -502,6 +502,11 @@ class Part(models.Model):
         verbose_name="Confirmed",
         help_text="Has this part order/spec been confirmed?"
     )
+    is_archived = models.BooleanField(
+        default=False,
+        verbose_name="Archived",
+        help_text="Archived one-off assemblies/parts are hidden from active lists unless 'Show Archived' is checked."
+    )
     link = models.URLField(
         max_length=500, 
         blank=True, 
@@ -1982,6 +1987,11 @@ class Assembly(models.Model):
         choices=STATUS_CHOICES,
         default='BUILT',
         verbose_name="Status"
+    )
+    is_archived = models.BooleanField(
+        default=False,
+        verbose_name="Archived",
+        help_text="Archived one-off assemblies are hidden from active lists unless 'Show Archived' is checked."
     )
     part = models.ForeignKey(
         Part,

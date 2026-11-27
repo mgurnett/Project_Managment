@@ -85,9 +85,17 @@
                         {% endfor %}
                     </select>
                 </div>
+                <div class="col-auto">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" role="switch" id="showArchivedAssemblies" name="show_archived" value="1" {% if show_archived %}checked{% endif %} onchange="this.form.submit()">
+                        <label class="form-check-label small fw-semibold" for="showArchivedAssemblies">
+                            Show Archived{% if archived_count %} ({{ archived_count }}){% endif %}
+                        </label>
+                    </div>
+                </div>
                 <div class="col-auto d-flex gap-1">
                     <button type="submit" class="btn btn-sm btn-outline-custom">Filter</button>
-                    {% if current_q or current_type %}
+                    {% if current_q or current_type or show_archived %}
                         <a href="{% url 'assembly_list' %}" class="btn btn-sm btn-outline-secondary">Clear</a>
                     {% endif %}
                 </div>
@@ -119,14 +127,17 @@
                 </thead>
                 <tbody>
                     {% for ap in assembly_parts %}
-                    <tr>
+                    <tr class="{% if ap.is_archived %}table-secondary bg-opacity-25 text-muted{% endif %}">
                         <td class="ps-4 py-3 font-monospace fw-bold">
-                            <a href="{% url 'part_detail' ap.pk %}" class="badge bg-primary-subtle text-primary border border-primary-subtle text-decoration-none px-2.5 py-1">
+                            <a href="{% url 'part_detail' ap.pk %}" class="badge {% if ap.is_archived %}bg-secondary-subtle text-secondary{% else %}bg-primary-subtle text-primary border-primary-subtle{% endif %} border text-decoration-none px-2.5 py-1">
                                 {{ ap.part_number }}
                             </a>
                         </td>
                         <td class="py-3">
-                            <a href="{% url 'part_detail' ap.pk %}" class="fw-bold text-decoration-none text-custom">{{ ap.name|default:ap.description }}</a>
+                            <a href="{% url 'part_detail' ap.pk %}" class="fw-bold text-decoration-none {% if ap.is_archived %}text-muted{% else %}text-custom{% endif %}">{{ ap.name|default:ap.description }}</a>
+                            {% if ap.is_archived %}
+                                <span class="badge bg-secondary-subtle text-secondary border ms-1 small">Archived</span>
+                            {% endif %}
                             {% if ap.built_units_list %}
                                 <div class="small text-muted mt-1">
                                     {% for u in ap.built_units_list|slice:":3" %}
@@ -172,12 +183,29 @@
                             {% endif %}
                         </td>
                         <td class="text-end pe-4 py-3">
-                            <div class="btn-group btn-group-sm">
-                                <a href="{% url 'part_detail' ap.pk %}" class="btn btn-outline-secondary" title="View Assembly, Serial #s &amp; History">View</a>
-                                {% if ap.linked_bom %}
-                                    <a href="{% url 'kit_list' %}?bom={{ ap.linked_bom.pk }}" class="btn btn-outline-primary" title="Pick Kit from BoM">Pick Kit</a>
-                                {% endif %}
-                                <a href="{% url 'quote_create' %}?part={{ ap.pk }}" class="btn btn-outline-success" title="Create Quote">Quote</a>
+                            <div class="d-inline-flex align-items-center gap-1">
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{% url 'part_detail' ap.pk %}" class="btn btn-outline-secondary" title="View Assembly, Serial #s &amp; History">View</a>
+                                    {% if not ap.is_archived %}
+                                        {% if ap.linked_bom %}
+                                            <a href="{% url 'kit_list' %}?bom={{ ap.linked_bom.pk }}" class="btn btn-outline-primary" title="Pick Kit from BoM">Pick Kit</a>
+                                        {% endif %}
+                                        <a href="{% url 'quote_create' %}?part={{ ap.pk }}" class="btn btn-outline-success" title="Create Quote">Quote</a>
+                                    {% endif %}
+                                </div>
+                                <form method="post" action="{% url 'part_toggle_archive' ap.pk %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    {% if ap.is_archived %}
+                                        <button type="submit" class="btn btn-sm btn-outline-success" title="Restore from archive">
+                                            <i class="bi bi-arrow-counterclockwise"></i>
+                                        </button>
+                                    {% else %}
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Archive one-off assembly" onclick="return confirm('Archive {{ ap.part_number }} ({{ ap.name|escapejs }})? It will be hidden unless Show Archived is checked.');">
+                                            <i class="bi bi-archive"></i>
+                                        </button>
+                                    {% endif %}
+                                </form>
                             </div>
                         </td>
                     </tr>

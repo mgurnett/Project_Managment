@@ -3195,6 +3195,42 @@ class AssemblyBuildFromKitTestCase(TestCase):
         self.assertIsNone(closeout.due_date)
         self.assertEqual(closeout.shipping_status, '')
 
+    def test_archive_and_unarchive_oneoff_assembly(self):
+        cat_942 = Category.objects.get(prefix='942')
+        oneoff_part = Part.objects.create(
+            part_number='942-099',
+            name='One-Off Test Jig',
+            category=cat_942,
+            quantity_on_hand=1,
+            quantity_availible=1,
+        )
+        # Visible on /assemblies/ by default
+        res1 = self.client.get(reverse('assembly_list'))
+        self.assertContains(res1, '942-099')
+
+        # Archive it
+        res_arch = self.client.post(
+            reverse('part_toggle_archive', args=[oneoff_part.pk]),
+            {'next': reverse('assembly_list')},
+            follow=True,
+        )
+        self.assertEqual(res_arch.status_code, 200)
+        oneoff_part.refresh_from_db()
+        self.assertTrue(oneoff_part.is_archived)
+
+        # Hidden by default on /assemblies/, visible with ?show_archived=1
+        res_hidden = self.client.get(reverse('assembly_list'))
+        self.assertNotContains(res_hidden, '942-099')
+        res_shown = self.client.get(reverse('assembly_list') + '?show_archived=1')
+        self.assertContains(res_shown, '942-099')
+
+        # Unarchive restores it to active list
+        self.client.post(reverse('part_toggle_archive', args=[oneoff_part.pk]), follow=True)
+        oneoff_part.refresh_from_db()
+        self.assertFalse(oneoff_part.is_archived)
+        res_back = self.client.get(reverse('assembly_list'))
+        self.assertContains(res_back, '942-099')
+
 
 @unittest.skip("Archived for workflow reset")
 class KitPullSheetStockStatusTestCase(TestCase):

@@ -30,6 +30,11 @@
                 {% else %}
                     <span class="badge bg-secondary-subtle text-secondary border px-2.5 py-1">Sold</span>
                 {% endif %}
+                {% if assembly.is_archived %}
+                    <span class="badge bg-secondary text-white px-2.5 py-1">
+                        <i class="bi bi-archive me-1"></i>Archived
+                    </span>
+                {% endif %}
             </div>
             <p class="text-muted small mb-0">
                 {% if assembly.kit %}Built from Kit <a href="{% url 'kit_detail' assembly.kit.pk %}" class="font-monospace text-decoration-none">{{ assembly.kit.kit_number }}</a> &bull; {% endif %}
@@ -57,6 +62,18 @@
                     <i class="bi bi-cpu me-1"></i>Catalog Part ({{ assembly.part.part_number }})
                 </a>
             {% endif %}
+            <form method="post" action="{% url 'assembly_toggle_archive' assembly.pk %}" class="d-inline">
+                {% csrf_token %}
+                {% if assembly.is_archived %}
+                    <button type="submit" class="btn btn-outline-success btn-sm fw-semibold">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Unarchive
+                    </button>
+                {% else %}
+                    <button type="submit" class="btn btn-outline-secondary btn-sm" onclick="return confirm('Archive {{ assembly.assembly_number }}?');">
+                        <i class="bi bi-archive me-1"></i>Archive
+                    </button>
+                {% endif %}
+            </form>
         </div>
     </div>
 

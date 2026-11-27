@@ -10,6 +10,7 @@ urlpatterns = [
     path('parts/export/csv/', views.part_export_csv, name='part_export_csv'),
     path('parts/add/', views.PartCreateView.as_view(), name='part_create'),
     path('parts/<int:pk>/', views.PartDetailView.as_view(), name='part_detail'),
+    path('parts/<int:pk>/toggle-archive/', views.part_toggle_archive_action, name='part_toggle_archive'),
     path('parts/<int:pk>/duplicate/', views.PartDuplicateView.as_view(), name='part_duplicate'),
     path('parts/<int:pk>/edit/', views.PartUpdateView.as_view(), name='part_update'),
     path('parts/<int:pk>/delete/', views.PartDeleteView.as_view(), name='part_delete'),
@@ -114,6 +115,7 @@ urlpatterns = [
     path('assemblies/', views.AssemblyListView.as_view(), name='assembly_list'),
     path('assemblies/build/', views.assembly_build_from_kit, name='assembly_build'),
     path('assemblies/<int:pk>/', views.AssemblyDetailView.as_view(), name='assembly_detail'),
+    path('assemblies/<int:pk>/toggle-archive/', views.assembly_toggle_archive_action, name='assembly_toggle_archive'),
     path('assemblies/<int:pk>/promote-full-system/', views.assembly_promote_to_full_system, name='assembly_promote_full_system'),
     path('assemblies/<int:pk>/convert-subassembly/', views.assembly_convert_to_subassembly_part, name='assembly_convert_subassembly'),
 
