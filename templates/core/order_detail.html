@@ -81,9 +81,15 @@
                                 <span class="text-muted fs-6">Not specified</span>
                             {% endif %}
                         </h5>
-                        {% if order.tracking_number %}
-                            <div class="mt-2 small font-monospace text-muted text-truncate" style="max-width: 170px;" title="{{ order.tracking_number }}">
-                                <i class="bi bi-upc-scan me-1"></i>{{ order.tracking_number }}
+                        {% if order.tracking_number or order.tracking_link %}
+                            <div class="mt-2 small font-monospace text-muted text-truncate" style="max-width: 190px;" title="{{ order.tracking_number|default:order.tracking_link }}">
+                                {% if order.tracking_link %}
+                                    <a href="{{ order.tracking_link }}" target="_blank" rel="noopener" class="text-decoration-none text-primary fw-semibold">
+                                        <i class="bi bi-box-arrow-up-right me-1"></i>{{ order.tracking_number|default:"Track Package" }}
+                                    </a>
+                                {% else %}
+                                    <i class="bi bi-upc-scan me-1"></i>{{ order.tracking_number }}
+                                {% endif %}
                             </div>
                         {% endif %}
                     </div>
@@ -347,7 +353,7 @@
                     <i class="bi bi-card-text text-custom"></i>
                     <span>Order Notes & Delivery Information</span>
                 </h5>
-                {% if order.carrier or order.tracking_number %}
+                {% if order.carrier or order.tracking_number or order.tracking_link %}
                 <div class="row g-3 mb-3">
                     {% if order.carrier %}
                     <div class="col-12 col-md-4">
@@ -356,9 +362,17 @@
                     </div>
                     {% endif %}
                     {% if order.tracking_number %}
-                    <div class="col-12 col-md-8">
+                    <div class="col-12 col-md-4">
                         <span class="text-muted small text-uppercase fw-semibold d-block">Tracking Number</span>
                         <span class="font-monospace fw-semibold text-body">{{ order.tracking_number }}</span>
+                    </div>
+                    {% endif %}
+                    {% if order.tracking_link %}
+                    <div class="col-12 col-md-4">
+                        <span class="text-muted small text-uppercase fw-semibold d-block">Tracking Link</span>
+                        <a href="{{ order.tracking_link }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary mt-1">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Track Shipment
+                        </a>
                     </div>
                     {% endif %}
                 </div>
@@ -368,7 +382,7 @@
                 <div class="article-content border-top pt-3">
                     {{ order.notes|safe }}
                 </div>
-                {% elif not order.carrier and not order.tracking_number %}
+                {% elif not order.carrier and not order.tracking_number and not order.tracking_link %}
                 <div class="text-muted small">No special delivery instructions or notes provided for this order.</div>
                 {% endif %}
             </div>

@@ -2135,6 +2135,13 @@ class Order(models.Model):
         verbose_name="Tracking Number",
         help_text="Shipping carrier tracking or waybill number"
     )
+    tracking_link = models.URLField(
+        max_length=500,
+        blank=True,
+        default='',
+        verbose_name="Tracking Link",
+        help_text="Direct carrier tracking URL (e.g. https://...)"
+    )
     carrier = models.CharField(
         max_length=100,
         blank=True,

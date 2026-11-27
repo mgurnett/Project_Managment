@@ -5836,10 +5836,20 @@ def kit_pick_create(request):
         kit_category = Category.objects.filter(prefix='920').first()
 
     kit_prefix = f"{kit_category.prefix}-" if (kit_category and kit_category.prefix) else "920-"
-    kit_number = (request.POST.get('kit_number') or '').strip() or Kit.generate_next_kit_number(prefix=kit_prefix)
-    if Kit.objects.filter(kit_number=kit_number).exists():
-        messages.error(request, f"Kit number '{kit_number}' already exists.")
-        return redirect('kit_list')
+    try:
+        kit_quantity = int((request.POST.get('kit_quantity') or '1').strip())
+    except (ValueError, TypeError):
+        kit_quantity = 1
+    kit_quantity = max(1, min(50, kit_quantity))
+
+    posted_kit_number = (request.POST.get('kit_number') or '').strip()
+    if kit_quantity == 1:
+        kit_number = posted_kit_number or Kit.generate_next_kit_number(prefix=kit_prefix)
+        if Kit.objects.filter(kit_number=kit_number).exists():
+            messages.error(request, f"Kit number '{kit_number}' already exists.")
+            return redirect('kit_list')
+    else:
+        kit_number = None
 
     interactive_mode = (request.POST.get('interactive_pick') == '1') or bool(request.POST.getlist('item_part_id[]'))
 
@@ -5882,51 +5892,72 @@ def kit_pick_create(request):
             req = bi.quantity or 1
             rows_to_create.append((bi.part, req, req, bi.reference or ''))
 
+    created_kits = []
+    grand_req = 0
+    grand_picked = 0
     with transaction.atomic():
-        kit = Kit.objects.create(
-            kit_number=kit_number,
-            bom=bom,
-            bom_revision=bom.revision,
-            category=kit_category,
-            status='PICKED',
-        )
-
-        total_req = 0
-        total_picked = 0
-        for part, req, requested, ref in rows_to_create:
-            part.refresh_from_db(fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible'])
-            available = max(0, (part.quantity_on_hand or 0) - (part.quantity_committed or 0))
-            picked = min(max(0, requested), available)
-
-            KitItem.objects.create(
-                kit=kit,
-                part=part,
-                quantity_required=req,
-                quantity_picked=picked,
-                reference=ref,
+        for i in range(kit_quantity):
+            this_kit_num = kit_number if (kit_quantity == 1 and kit_number) else Kit.generate_next_kit_number(prefix=kit_prefix)
+            kit = Kit.objects.create(
+                kit_number=this_kit_num,
+                bom=bom,
+                bom_revision=bom.revision,
+                category=kit_category,
+                status='PICKED',
             )
-            total_req += req
-            total_picked += picked
+            created_kits.append(kit)
 
-            if picked > 0:
-                part.quantity_committed = (part.quantity_committed or 0) + picked
-                part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
-                part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+            for part, req, requested, ref in rows_to_create:
+                part.refresh_from_db(fields=['quantity_on_hand', 'quantity_committed', 'quantity_availible'])
+                available = max(0, (part.quantity_on_hand or 0) - (part.quantity_committed or 0))
+                picked = min(max(0, requested), available)
 
-        _attach_entity_form_document(request, kit, 'kits', default_type='sop')
+                KitItem.objects.create(
+                    kit=kit,
+                    part=part,
+                    quantity_required=req,
+                    quantity_picked=picked,
+                    reference=ref,
+                )
+                grand_req += req
+                grand_picked += picked
 
-    if total_picked < total_req:
+                if picked > 0:
+                    part.quantity_committed = (part.quantity_committed or 0) + picked
+                    part.quantity_availible = max(0, (part.quantity_on_hand or 0) - part.quantity_committed)
+                    part.save(update_fields=['quantity_committed', 'quantity_availible', 'updated_at'])
+
+            if i == 0:
+                _attach_entity_form_document(request, kit, 'kits', default_type='sop')
+
+    if len(created_kits) == 1:
+        kit = created_kits[0]
+        if grand_picked < grand_req:
+            messages.warning(
+                request,
+                f"Picked Kit {kit.kit_number} with available stock only ({grand_picked}/{grand_req} picked). "
+                f"Short parts were set to 0 and can be updated on this page as they arrive."
+            )
+        else:
+            messages.success(
+                request,
+                f"Picked Kit {kit.kit_number} from '{bom.name}' (Rev {bom.revision}) and committed component parts."
+            )
+        return redirect('kit_detail', pk=kit.pk)
+
+    kit_nums_str = ", ".join(k.kit_number for k in created_kits)
+    if grand_picked < grand_req:
         messages.warning(
             request,
-            f"Picked Kit {kit.kit_number} with available stock only ({total_picked}/{total_req} picked). "
-            f"Short parts were set to 0 and can be updated on this page as they arrive."
+            f"Picked {len(created_kits)} kits ({kit_nums_str}) from '{bom.name}' with available stock only "
+            f"({grand_picked}/{grand_req} total parts picked). Short parts can be updated on each kit as stock arrives."
         )
     else:
         messages.success(
             request,
-            f"Picked Kit {kit.kit_number} from '{bom.name}' (Rev {bom.revision}) and committed component parts."
+            f"Picked {len(created_kits)} kits ({kit_nums_str}) from '{bom.name}' (Rev {bom.revision}) and committed component parts."
         )
-    return redirect('kit_detail', pk=kit.pk)
+    return redirect('kit_list')
 
 
 def kit_update_items(request, pk):

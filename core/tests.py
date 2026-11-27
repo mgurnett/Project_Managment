@@ -3107,6 +3107,42 @@ class AssemblyBuildFromKitTestCase(TestCase):
         self.assertContains(res_late, late_sale.invoice_number)
         self.assertNotContains(res_late, due_sale.invoice_number)
 
+    def test_customer_form_no_tags_order_tracking_link_and_multi_kit_pick(self):
+        # 1. /customers/add/ has no Tags (comma-separated) field
+        res_cust = self.client.get(reverse('customer_create'))
+        self.assertEqual(res_cust.status_code, 200)
+        self.assertNotContains(res_cust, 'Tags (comma-separated)')
+
+        # 2. Order supports tracking_link and renders it on order_detail and order_list
+        supplier = Company.objects.create(name='DigiKey Test')
+        order = Order.objects.create(
+            supplier=supplier,
+            tracking_number='1Z999AA10123456784',
+            tracking_link='https://www.ups.com/track?tracknum=1Z999AA10123456784',
+            carrier='UPS',
+        )
+        res_od = self.client.get(reverse('order_detail', args=[order.pk]))
+        self.assertEqual(res_od.status_code, 200)
+        self.assertContains(res_od, 'https://www.ups.com/track?tracknum=1Z999AA10123456784')
+        res_ol = self.client.get(reverse('order_list'))
+        self.assertEqual(res_ol.status_code, 200)
+        self.assertContains(res_ol, 'https://www.ups.com/track?tracknum=1Z999AA10123456784')
+
+        # 3. Picking kit_quantity=2 creates 2 sequential kits and commits 2x components
+        # self.part has 10 on hand; self.bom requires 3 per kit -> 2 kits commit 6 total (4 available)
+        res_pick2 = self.client.post(
+            reverse('kit_pick'),
+            {'bom': self.bom.pk, 'kit_quantity': '2'},
+            follow=True,
+        )
+        self.assertEqual(res_pick2.status_code, 200)
+        picked_kits = list(Kit.objects.filter(bom=self.bom, status='PICKED').order_by('kit_number'))
+        self.assertEqual(len(picked_kits), 2)
+        self.assertNotEqual(picked_kits[0].kit_number, picked_kits[1].kit_number)
+        self.part.refresh_from_db()
+        self.assertEqual(self.part.quantity_committed, 6)
+        self.assertEqual(self.part.quantity_availible, 4)
+
 
 @unittest.skip("Archived for workflow reset")
 class KitPullSheetStockStatusTestCase(TestCase):

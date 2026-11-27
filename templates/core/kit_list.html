@@ -37,7 +37,7 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <div class="col-6 col-md-3">
+                    <div class="col-6 col-md-2">
                         <label class="form-label small fw-semibold mb-1">Kit Category (920s)</label>
                         <select name="category" class="form-select form-select-sm">
                             <option value="">Auto-match (92x)</option>
@@ -46,12 +46,16 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <div class="col-6 col-md-3">
+                    <div class="col-6 col-md-2">
                         <label class="form-label small fw-semibold mb-1">Kit Part #</label>
-                        <input type="text" name="kit_number" class="form-control form-control-sm font-monospace" placeholder="Auto ({{ next_kit_number }})">
+                        <input type="text" name="kit_number" id="kitNumberInput" class="form-control form-control-sm font-monospace" placeholder="Auto ({{ next_kit_number }})">
                     </div>
-                    <div class="col-12 col-md-2">
-                        <button type="submit" class="btn btn-custom btn-sm w-100 fw-semibold">
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small fw-semibold mb-1">Qty of Kits</label>
+                        <input type="number" name="kit_quantity" id="kitQuantityInput" class="form-control form-control-sm font-monospace text-center" value="1" min="1" max="50" required>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <button type="submit" id="pickKitSubmitBtn" class="btn btn-custom btn-sm w-100 fw-semibold">
                             <i class="bi bi-plus-circle me-1"></i>Pick Kit
                         </button>
                     </div>
@@ -250,7 +254,17 @@ document.addEventListener('DOMContentLoaded', function() {
         return html;
     }
 
+    const kitQtyInput = document.getElementById('kitQuantityInput');
+    const kitNumInput = document.getElementById('kitNumberInput');
+    const pickSubmitBtn = document.getElementById('pickKitSubmitBtn');
+
+    function getKitQty() {
+        const v = parseInt(kitQtyInput?.value || '1', 10);
+        return isNaN(v) || v < 1 ? 1 : Math.min(50, v);
+    }
+
     function updateSummary() {
+        const kQty = getKitQty();
         let totalReq = 0;
         let totalPick = 0;
         tbody.querySelectorAll('tr').forEach(tr => {
@@ -260,8 +274,30 @@ document.addEventListener('DOMContentLoaded', function() {
             totalPick += val;
         });
         if (summaryEl) {
-            summaryEl.textContent = `Picking ${totalPick} of ${totalReq} required parts`;
+            if (kQty > 1) {
+                summaryEl.textContent = `Picking ${totalPick} of ${totalReq} parts/kit (${kQty} kits = ${totalPick * kQty} of ${totalReq * kQty} total)`;
+            } else {
+                summaryEl.textContent = `Picking ${totalPick} of ${totalReq} required parts`;
+            }
         }
+        if (pickSubmitBtn) {
+            pickSubmitBtn.innerHTML = kQty > 1
+                ? `<i class="bi bi-plus-circle me-1"></i>Pick ${kQty} Kits`
+                : `<i class="bi bi-plus-circle me-1"></i>Pick Kit`;
+        }
+        if (kitNumInput) {
+            kitNumInput.disabled = (kQty > 1);
+            if (kQty > 1) {
+                kitNumInput.value = '';
+                kitNumInput.placeholder = `Auto (${kQty} sequential #s)`;
+            } else {
+                kitNumInput.placeholder = 'Auto ({{ next_kit_number }})';
+            }
+        }
+    }
+    if (kitQtyInput) {
+        kitQtyInput.addEventListener('input', updateSummary);
+        kitQtyInput.addEventListener('change', updateSummary);
     }
 
     function addPartRow(item) {
