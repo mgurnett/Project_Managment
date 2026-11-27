@@ -545,6 +545,7 @@ class AssemblySaleForm(forms.ModelForm):
         fields = [
             'invoice_number',
             'invoice_date',
+            'is_closeout',
             'status',
             'customer_name',
             'customer_address',
@@ -566,8 +567,9 @@ class AssemblySaleForm(forms.ModelForm):
                 'placeholder': 'Leave blank to auto-generate (e.g. INV-0001)'
             }),
             'invoice_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'is_closeout': forms.CheckboxInput(attrs={'class': 'form-check-input', 'id': 'id_is_closeout'}),
             'customer_name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Customer or Company Name'}),
-            'customer_address': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Street, City, Province/State, Postal Code'}),
+            'customer_address': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Street, City, Province/State, Postal Code (optional for close-out)'}),
             'customer_phone': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '780.901.9315'}),
             'customer_email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'customer@example.com'}),
             'payment_terms': forms.Select(attrs={'class': 'form-select'}),
@@ -579,6 +581,12 @@ class AssemblySaleForm(forms.ModelForm):
             'tracking_number': forms.TextInput(attrs={'class': 'form-control font-monospace', 'placeholder': 'Tracking #'}),
             'shipped_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for f in ('customer_address', 'payment_method', 'payment_terms', 'shipping_status'):
+            if f in self.fields:
+                self.fields[f].required = False
 
     def clean_status(self):
         return self.cleaned_data.get('status') or 'UNPAID'

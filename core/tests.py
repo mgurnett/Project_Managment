@@ -3146,6 +3146,55 @@ class AssemblyBuildFromKitTestCase(TestCase):
         self.assertEqual(self.part.quantity_committed, 6)
         self.assertEqual(self.part.quantity_availible, 4)
 
+    def test_sell_price_zero_not_overridden_by_build_cost_and_closeout_invoice(self):
+        from core.models import AssemblySale
+
+        # Part with $14 build cost in BoM, but explicit $0.00 sell price
+        self.part.price_per = Decimal('7.00')
+        self.part.save(update_fields=['price_per'])
+        cat_950 = Category.objects.get(prefix='950')
+        tester_part = Part.objects.create(
+            part_number='950-099',
+            name='Battery Tester',
+            category=cat_950,
+            quantity_on_hand=1,
+            quantity_availible=1,
+            sale_price=Decimal('0.00'),
+        )
+        tester_bom = BOM.objects.create(
+            name='Battery Tester BoM',
+            target_assembly_part=tester_part,
+            sale_price=Decimal('0.00'),
+        )
+        BOMItem.objects.create(bom=tester_bom, part=self.part, quantity=2)  # $14 build cost
+        self.assertEqual(tester_bom.total_cost, Decimal('14.00'))
+        self.assertEqual(tester_part.sell_price_for_quote, Decimal('0.00'))
+        self.assertEqual(tester_bom.sell_price_for_quote, Decimal('0.00'))
+
+        # Quote page must show $0.00, NOT $14.00
+        res_q = self.client.get(reverse('quote_create') + f'?part={tester_part.pk}')
+        self.assertEqual(res_q.status_code, 200)
+        self.assertContains(res_q, 'value="0.00"')
+
+        # Close-Out Invoice needs no payment method, terms, or address, and is never outstanding/late
+        closeout = AssemblySale.objects.create(
+            is_closeout=True,
+            customer_name='Internal Shop',
+            customer_address='',
+            payment_method='E-Transfer',
+            payment_terms='NET_30',
+            shipping_status='NOT_SHIPPED',
+        )
+        self.assertTrue(closeout.is_closeout)
+        self.assertTrue(closeout.is_paid)
+        self.assertFalse(closeout.is_outstanding)
+        self.assertFalse(closeout.is_late)
+        self.assertEqual(closeout.aging_status, 'CLOSEOUT')
+        self.assertEqual(closeout.payment_method, '')
+        self.assertEqual(closeout.payment_terms, '')
+        self.assertIsNone(closeout.due_date)
+        self.assertEqual(closeout.shipping_status, '')
+
 
 @unittest.skip("Archived for workflow reset")
 class KitPullSheetStockStatusTestCase(TestCase):

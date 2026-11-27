@@ -583,7 +583,16 @@ class Part(models.Model):
     def effective_sell_price(self):
         if self.sale_price is not None:
             return self.sale_price
+        if self.is_assembly_part:
+            return None
         return self.price_per
+
+    @property
+    def sell_price_for_quote(self):
+        """Explicit selling price for Quotes & Invoices (defaults to $0.00, never build cost)."""
+        if self.sale_price is not None:
+            return self.sale_price
+        return Decimal('0.00')
 
     @classmethod
     def generate_next_part_number(cls, category):
@@ -1271,6 +1280,19 @@ class BOM(models.Model):
         if self.sale_price is not None and self.sale_price > 0:
             return self.sale_price
         return self.total_cost
+
+    @property
+    def sell_price_for_quote(self):
+        """Explicit selling price for Quotes & Invoices (never falls back to BoM build cost)."""
+        if self.target_assembly_part_id:
+            try:
+                if self.target_assembly_part and self.target_assembly_part.sale_price is not None:
+                    return self.target_assembly_part.sale_price
+            except Part.DoesNotExist:
+                pass
+        if self.sale_price is not None:
+            return self.sale_price
+        return Decimal('0.00')
 
     def get_exploded_components(self, multiplier=1, visited=None, recursive=True):
         """
@@ -1982,6 +2004,25 @@ class Assembly(models.Model):
     def __str__(self):
         return f"{self.assembly_number} - {self.name}"
 
+    @property
+    def sell_price_for_quote(self):
+        """Explicit selling price for Quotes & Invoices (respects $0.00, never falls back to build cost)."""
+        if self.sale_price is not None:
+            return self.sale_price
+        if self.part_id:
+            try:
+                if self.part and self.part.sale_price is not None:
+                    return self.part.sale_price
+            except Part.DoesNotExist:
+                pass
+        if self.bom_id:
+            try:
+                if self.bom and self.bom.sale_price is not None:
+                    return self.bom.sale_price
+            except BOM.DoesNotExist:
+                pass
+        return Decimal('0.00')
+
     @classmethod
     def generate_next_number(cls, assembly_type='940'):
         prefix = f"{assembly_type}-"
@@ -2394,6 +2435,11 @@ class AssemblySale(models.Model):
         verbose_name="Invoice Status",
         help_text="Unpaid (assembly not built yet / pending payment) or Paid & Closed (assembly built and sold)."
     )
+    is_closeout = models.BooleanField(
+        default=False,
+        verbose_name="Close-Out / No-Charge",
+        help_text="Mark as an internal/promo/write-off close-out (no payment method, terms, or shipping required)."
+    )
     stock_deducted = models.BooleanField(
         default=False,
         verbose_name="Stock Deducted",
@@ -2542,7 +2588,16 @@ class AssemblySale(models.Model):
             self.invoice_number = self.generate_next_invoice_number()
         else:
             self.invoice_number = self.invoice_number.strip()
-        if not self.due_date:
+        if self.is_closeout:
+            self.status = 'PAID'
+            self.payment_method = ''
+            self.payment_terms = ''
+            self.due_date = None
+            self.shipping_status = ''
+            self.shipping_method = ''
+            self.tracking_number = ''
+            self.shipped_date = None
+        elif not self.due_date:
             base_date = self.shipped_date or self.invoice_date
             if hasattr(base_date, 'date'):
                 base_date = base_date.date()
@@ -2559,7 +2614,7 @@ class AssemblySale(models.Model):
 
     @property
     def is_paid(self):
-        return self.status == 'PAID' or bool(self.payment_date and self.status != 'UNPAID')
+        return self.is_closeout or self.status == 'PAID' or bool(self.payment_date and self.status != 'UNPAID')
 
     @property
     def is_outstanding(self):
@@ -2568,6 +2623,8 @@ class AssemblySale(models.Model):
     @property
     def effective_due_date(self):
         from datetime import timedelta
+        if self.is_closeout:
+            return None
         if self.due_date:
             return self.due_date
         base_date = self.shipped_date or self.invoice_date
@@ -2610,6 +2667,8 @@ class AssemblySale(models.Model):
 
     @property
     def aging_status(self):
+        if self.is_closeout:
+            return 'CLOSEOUT'
         if self.is_paid:
             return 'PAID'
         if self.is_late:

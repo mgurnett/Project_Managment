@@ -232,7 +232,14 @@
         </div>
     </div>
 
-    {% if sale.is_paid %}
+    {% if sale.is_closeout %}
+    <div class="paid-stamp-watermark" style="border-color: #475569; color: #475569;">
+        <div class="stamp-title" style="font-size: 38pt;">CLOSE-OUT</div>
+        <div class="stamp-sub" style="border-top-color: #475569;">
+            {{ sale.invoice_date|date:"F j, Y" }} &bull; NO CHARGE / INTERNAL
+        </div>
+    </div>
+    {% elif sale.is_paid %}
     <div class="paid-stamp-watermark">
         <div class="stamp-title">PAID</div>
         <div class="stamp-sub">
@@ -261,6 +268,7 @@
                 <span class="kv-label">Invoice Date:</span>
                 <span class="kv-val">{{ sale.invoice_date|date:"Y-m-d" }}</span>
             </div>
+            {% if not sale.is_closeout %}
             <div class="kv-row">
                 <span class="kv-label">Payment Terms:</span>
                 <span class="kv-val">{{ sale.get_payment_terms_display }}</span>
@@ -287,6 +295,12 @@
             <div class="kv-row">
                 <span class="kv-label">Tracking #:</span>
                 <span class="kv-val mono">{{ sale.tracking_number }}</span>
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="kv-row">
+                <span class="kv-label">Type:</span>
+                <span class="kv-val">Close-Out (No Payment / No Shipping)</span>
             </div>
             {% endif %}
         </div>

@@ -239,8 +239,15 @@
     <!-- Printable Invoice Sheet -->
     <div class="invoice-sheet">
 
-        <!-- PAID STAMP (Rendered when invoice is paid) -->
-        {% if sale.is_paid %}
+        <!-- PAID / CLOSE-OUT STAMP -->
+        {% if sale.is_closeout %}
+            <div class="paid-stamp-watermark" style="border-color: #475569; color: #475569;">
+                <div class="stamp-title" style="font-size: 42pt;">CLOSE-OUT</div>
+                <div class="stamp-subtitle" style="border-top-color: #475569;">
+                    {{ sale.invoice_date|date:"F j, Y" }} &bull; NO CHARGE / INTERNAL
+                </div>
+            </div>
+        {% elif sale.is_paid %}
             <div class="paid-stamp-watermark">
                 <div class="stamp-title">PAID</div>
                 <div class="stamp-subtitle">
@@ -313,6 +320,7 @@
                         <span class="text-muted">Invoice Date:</span>
                         <strong>{{ sale.invoice_date|date:"Y-m-d" }}</strong>
                     </div>
+                    {% if not sale.is_closeout %}
                     <div class="d-flex justify-content-between small mb-1">
                         <span class="text-muted">Payment Terms:</span>
                         <strong>{{ sale.get_payment_terms_display }}</strong>
@@ -349,6 +357,12 @@
                         <span class="text-muted">Payment Date:</span>
                         <strong>{% if sale.payment_date %}{{ sale.payment_date|date:"Y-m-d" }}{% else %}Pending (Unpaid){% endif %}</strong>
                     </div>
+                    {% else %}
+                    <div class="d-flex justify-content-between small">
+                        <span class="text-muted">Type:</span>
+                        <strong class="text-secondary">Close-Out (No Payment / No Shipping)</strong>
+                    </div>
+                    {% endif %}
                     {% if sale.originating_quote %}
                     <div class="d-flex justify-content-between small mt-1 pt-1 border-top">
                         <span class="text-muted">Originating Quote:</span>

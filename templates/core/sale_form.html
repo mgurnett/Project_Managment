@@ -65,6 +65,20 @@
                                 {{ form.invoice_date }}
                             </div>
                             <div class="col-12">
+                                <div class="p-2.5 rounded-3 bg-body-tertiary border">
+                                    <div class="form-check form-switch mb-0">
+                                        {{ form.is_closeout }}
+                                        <label class="form-check-label small fw-bold text-custom" for="id_is_closeout">
+                                            Close-Out / Internal Transfer (No Payment, No Shipping)
+                                        </label>
+                                    </div>
+                                    <div class="form-text small mt-1 mb-0">
+                                        Use for shop/internal use, demos, promos, or $0 close-outs. Skips payment method, payment terms, shipping, and address requirements.
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="paymentShippingFields" class="row g-3 mx-0 px-0">
+                            <div class="col-12">
                                 <label class="form-label small fw-semibold d-flex justify-content-between align-items-center">
                                     <span>Invoice Status <span class="text-danger">*</span></span>
                                     <span class="text-muted fw-normal" style="font-size: 0.75rem;">Controls inventory deduction</span>
@@ -84,7 +98,7 @@
                                 <div class="form-text small">Auto-calculated from terms if blank.</div>
                             </div>
                             <div class="col-6">
-                                <label class="form-label small fw-semibold">Payment Method <span class="text-danger">*</span></label>
+                                <label class="form-label small fw-semibold">Payment Method</label>
                                 {{ form.payment_method }}
                             </div>
                             <div class="col-6">
@@ -113,6 +127,7 @@
                                         {{ form.tracking_number }}
                                     </div>
                                 </div>
+                            </div>
                             </div>
                             <div class="col-12">
                                 <label class="form-label small fw-semibold">Invoice Notes / Terms (Optional)</label>
@@ -157,8 +172,8 @@
                                 <label class="form-label small fw-semibold">Customer / Company Name <span class="text-danger">*</span></label>
                                 {{ form.customer_name }}
                             </div>
-                            <div class="col-12">
-                                <label class="form-label small fw-semibold">Customer Address <span class="text-danger">*</span></label>
+                            <div class="col-12" id="customerAddressWrapper">
+                                <label class="form-label small fw-semibold">Customer Address <span class="text-muted fw-normal small">(optional for close-out)</span></label>
                                 {{ form.customer_address }}
                             </div>
                             <div class="col-12 col-md-6">
@@ -214,9 +229,9 @@
                                                 <option value="{{ asm.pk }}"
                                                         data-number="{{ asm.assembly_number }}"
                                                         data-desc="{{ asm.name }}{% if asm.description %} — {{ asm.description }}{% endif %}"
-                                                        data-price="{{ asm.effective_sale_price|floatformat:2 }}"
+                                                        data-price="{{ asm.sell_price_for_quote|floatformat:2 }}"
                                                         {% if item.bom_id == asm.pk %}selected{% endif %}>
-                                                    {{ asm.assembly_number }} &mdash; {{ asm.name }} ({{ asm.quantity_on_hand }} built &mdash; {% if asm.quantity_on_hand > 0 %}In Stock{% else %}Not Built Yet{% endif %})
+                                                    {{ asm.assembly_number }} &mdash; {{ asm.name }} (${{ asm.sell_price_for_quote|floatformat:2 }})
                                                 </option>
                                             {% endfor %}
                                         </select>
@@ -262,9 +277,9 @@
                                                     <option value="{{ ap.active_bom.pk|default:'' }}"
                                                             data-number="{{ ap.part_number }}"
                                                             data-desc="{{ ap.name|default:ap.description }}"
-                                                            data-price="{% if ap.effective_sell_price is not None %}{{ ap.effective_sell_price|floatformat:2 }}{% elif ap.active_bom %}{{ ap.active_bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}"
+                                                            data-price="{{ ap.sell_price_for_quote|floatformat:2 }}"
                                                             {% if preselected_part and preselected_part.pk == ap.pk %}selected{% endif %}>
-                                                        {{ ap.part_number }} &mdash; {{ ap.name|default:ap.description }} ({% if ap.quantity_on_hand > 0 %}{{ ap.quantity_on_hand }} In Stock{% else %}Build to Order{% endif %})
+                                                        {{ ap.part_number }} &mdash; {{ ap.name|default:ap.description }} (${{ ap.sell_price_for_quote|floatformat:2 }} &bull; {% if ap.quantity_on_hand > 0 %}{{ ap.quantity_on_hand }} In Stock{% else %}Build to Order{% endif %})
                                                     </option>
                                                 {% endfor %}
                                             </optgroup>
@@ -276,9 +291,9 @@
                                                             data-number="{{ ba.assembly_number }}"
                                                             data-serial="{{ ba.serial_number|default:'' }}"
                                                             data-desc="{{ ba.name }}"
-                                                            data-price="{% if ba.sale_price %}{{ ba.sale_price|floatformat:2 }}{% elif ba.bom %}{{ ba.bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}"
+                                                            data-price="{{ ba.sell_price_for_quote|floatformat:2 }}"
                                                             {% if preselected_assembly and preselected_assembly.pk == ba.pk %}selected{% endif %}>
-                                                        {{ ba.assembly_number }} &mdash; {{ ba.name }}{% if ba.serial_number %} [S/N: {{ ba.serial_number }}]{% endif %} (Built)
+                                                        {{ ba.assembly_number }} &mdash; {{ ba.name }}{% if ba.serial_number %} [S/N: {{ ba.serial_number }}]{% endif %} (${{ ba.sell_price_for_quote|floatformat:2 }})
                                                     </option>
                                                 {% endfor %}
                                             </optgroup>
@@ -288,9 +303,9 @@
                                                 <option value="{{ asm.pk }}"
                                                         data-number="{{ asm.assembly_number }}"
                                                         data-desc="{{ asm.name }}{% if asm.description %} — {{ asm.description }}{% endif %}"
-                                                        data-price="{{ asm.effective_sale_price|floatformat:2 }}"
+                                                        data-price="{{ asm.sell_price_for_quote|floatformat:2 }}"
                                                         {% if preselected_bom and preselected_bom.pk == asm.pk %}selected{% endif %}>
-                                                    {{ asm.assembly_number }} &mdash; {{ asm.name }} (${{ asm.effective_sale_price|floatformat:2 }})
+                                                    {{ asm.assembly_number }} &mdash; {{ asm.name }} (${{ asm.sell_price_for_quote|floatformat:2 }})
                                                 </option>
                                             {% endfor %}
                                             </optgroup>
@@ -317,7 +332,7 @@
                                     </td>
                                     <td class="py-2">
                                         <input type="number" name="item_unit_price[]" step="0.01" min="0" class="form-control form-control-sm text-end font-monospace item-price-input"
-                                               value="{% if preselected_part %}{% if preselected_part.effective_sell_price is not None %}{{ preselected_part.effective_sell_price|floatformat:2 }}{% elif preselected_part.active_bom %}{{ preselected_part.active_bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}{% elif preselected_assembly %}{% if preselected_assembly.sale_price %}{{ preselected_assembly.sale_price|floatformat:2 }}{% elif preselected_assembly.bom %}{{ preselected_assembly.bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}{% elif preselected_bom %}{{ preselected_bom.effective_sale_price|floatformat:2 }}{% else %}0.00{% endif %}" required>
+                                               value="{% if preselected_part %}{{ preselected_part.sell_price_for_quote|floatformat:2 }}{% elif preselected_assembly %}{{ preselected_assembly.sell_price_for_quote|floatformat:2 }}{% elif preselected_bom %}{{ preselected_bom.sell_price_for_quote|floatformat:2 }}{% else %}0.00{% endif %}" required>
                                     </td>
                                     <td class="py-2 text-end font-monospace fw-bold item-subtotal-display">
                                         $0.00
@@ -451,6 +466,20 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         recalcTotals();
     });
+
+    const closeoutChk = document.getElementById('id_is_closeout');
+    const payShipBox = document.getElementById('paymentShippingFields');
+    const addrWrap = document.getElementById('customerAddressWrapper');
+    function toggleCloseoutUI() {
+        if (!closeoutChk) return;
+        const on = closeoutChk.checked;
+        if (payShipBox) payShipBox.classList.toggle('d-none', on);
+        if (addrWrap) addrWrap.classList.toggle('d-none', on);
+    }
+    if (closeoutChk) {
+        closeoutChk.addEventListener('change', toggleCloseoutUI);
+        toggleCloseoutUI();
+    }
 });
 </script>
 {% endblock %}

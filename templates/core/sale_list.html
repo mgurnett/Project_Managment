@@ -152,13 +152,7 @@
                             {% endif %}
                         </td>
                         <td class="text-end py-2 font-monospace fw-bold text-success">
-                            {% if asm.sale_price %}
-                                ${{ asm.sale_price|floatformat:2 }}
-                            {% elif asm.bom %}
-                                ${{ asm.bom.effective_sale_price|floatformat:2 }}
-                            {% else %}
-                                $0.00
-                            {% endif %}
+                            ${{ asm.sell_price_for_quote|floatformat:2 }}
                         </td>
                         <td class="text-end pe-4 py-2">
                             <a href="{% url 'sale_create' %}?assembly={{ asm.pk }}" class="btn btn-sm btn-success fw-semibold">
@@ -237,7 +231,11 @@
                             <span class="badge bg-secondary-subtle text-secondary border font-monospace ms-1" style="font-size: 0.7rem;">Rev {{ sale.revision }}</span>
                         </td>
                         <td class="py-3">
-                            {% if sale.is_paid %}
+                            {% if sale.is_closeout %}
+                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle fw-semibold">
+                                    <i class="bi bi-check2-square me-1"></i>CLOSE-OUT
+                                </span>
+                            {% elif sale.is_paid %}
                                 <span class="badge bg-success-subtle text-success border border-success-subtle fw-semibold">
                                     <i class="bi bi-check-circle-fill me-1"></i>PAID
                                 </span>
@@ -254,6 +252,7 @@
                                     <i class="bi bi-hourglass-split me-1"></i>OUTSTANDING
                                 </span>
                             {% endif %}
+                            {% if not sale.is_closeout %}
                             <div class="mt-1">
                                 {% if sale.shipping_status == 'DELIVERED' %}
                                     <span class="badge bg-success-subtle text-success border" style="font-size: 0.68rem;"><i class="bi bi-truck me-1"></i>Delivered</span>
@@ -263,6 +262,7 @@
                                     <span class="badge bg-light text-muted border" style="font-size: 0.68rem;">Not Shipped</span>
                                 {% endif %}
                             </div>
+                            {% endif %}
                         </td>
                         <td class="py-3 small">
                             <div>{{ sale.invoice_date|date:"M d, Y" }}</div>

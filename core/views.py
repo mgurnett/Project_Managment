@@ -4372,7 +4372,7 @@ class AssemblySaleCreateView(CreateView):
                 if not i_desc:
                     i_desc = f"{bom_obj.name}" + (f" — {bom_obj.description}" if bom_obj.description else "")
                 if u_price is None:
-                    u_price = bom_obj.effective_sale_price
+                    u_price = bom_obj.sell_price_for_quote
 
             if u_price is None:
                 u_price = Decimal('0.00')
@@ -5070,7 +5070,7 @@ class QuoteCreateView(CreateView):
                 if not i_desc:
                     i_desc = f"{bom_obj.name}" + (f" — {bom_obj.description}" if bom_obj.description else "")
                 if u_price is None:
-                    u_price = bom_obj.effective_sale_price
+                    u_price = bom_obj.sell_price_for_quote
 
             if u_price is None:
                 u_price = Decimal('0.00')
@@ -5193,7 +5193,7 @@ class QuoteUpdateView(UpdateView):
                 if not i_desc:
                     i_desc = f"{bom_obj.name}" + (f" — {bom_obj.description}" if bom_obj.description else "")
                 if u_price is None:
-                    u_price = bom_obj.effective_sale_price
+                    u_price = bom_obj.sell_price_for_quote
 
             if u_price is None:
                 u_price = Decimal('0.00')
