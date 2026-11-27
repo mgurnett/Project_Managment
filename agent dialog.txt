@@ -1,3 +1,0 @@
-agent dialog.txt
-
-I need to change the address of Granary Watch to 11940 52 St NW, Edmonton, AB T5W 3J6

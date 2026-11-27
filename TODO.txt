@@ -2,7 +2,10 @@
 TODO: 
 
 ==============  Priority HIGH
-TODO: 
+TODO: Remmove Tags (comma-separated) from https://inventory.edmontonflyfishing.com/customers/add/
+on orders besides tracking number, we need tracking link 
+TODO: when we go to pick a kit, we need to set the quantity as I now neeed to make two nodes.
+
 
 
 ==============  Priority Medium
