@@ -3128,7 +3128,7 @@ class AssemblyBuildFromKitTestCase(TestCase):
         self.assertEqual(res_ol.status_code, 200)
         self.assertContains(res_ol, 'https://www.ups.com/track?tracknum=1Z999AA10123456784')
 
-        # 3. Picking kit_quantity=2 creates 2 sequential kits and commits 2x components
+        # 3. Picking kit_quantity=2 creates 2 kits sharing the SAME canonical kit_number and Part (qty=2)
         # self.part has 10 on hand; self.bom requires 3 per kit -> 2 kits commit 6 total (4 available)
         res_pick2 = self.client.post(
             reverse('kit_pick'),
@@ -3136,9 +3136,12 @@ class AssemblyBuildFromKitTestCase(TestCase):
             follow=True,
         )
         self.assertEqual(res_pick2.status_code, 200)
-        picked_kits = list(Kit.objects.filter(bom=self.bom, status='PICKED').order_by('kit_number'))
+        picked_kits = list(Kit.objects.filter(bom=self.bom, status='PICKED').order_by('id'))
         self.assertEqual(len(picked_kits), 2)
-        self.assertNotEqual(picked_kits[0].kit_number, picked_kits[1].kit_number)
+        self.assertEqual(picked_kits[0].kit_number, picked_kits[1].kit_number)
+        self.assertEqual(picked_kits[0].part_id, picked_kits[1].part_id)
+        shared_kit_part = Part.objects.get(pk=picked_kits[0].part_id)
+        self.assertEqual(shared_kit_part.quantity_on_hand, 2)
         self.part.refresh_from_db()
         self.assertEqual(self.part.quantity_committed, 6)
         self.assertEqual(self.part.quantity_availible, 4)

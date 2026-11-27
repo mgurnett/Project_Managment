@@ -1230,6 +1230,26 @@ class BOM(models.Model):
         except Exception:
             pass
 
+    def get_canonical_kit_number(self, kit_category=None):
+        """
+        Returns the canonical 92x-NNN Kit Part # for this BoM so identical kits
+        picked from the same BoM always share the same Kit Part # (e.g. BoM 911-002 /
+        Target Assembly 941-002 -> Kit 921-002).
+        """
+        import re
+        tnum = (self.target_assembly_number or '').strip()
+        if tnum:
+            m = re.match(r'^9[345](\d)-(.+)$', tnum)
+            if m:
+                digit, suffix = m.group(1), m.group(2)
+                prefix = kit_category.prefix if (kit_category and kit_category.prefix and kit_category.prefix.startswith('92')) else f"92{digit}"
+                return f"{prefix}-{suffix}"
+        existing_kit = self.kits.exclude(kit_number='').order_by('id').first()
+        if existing_kit:
+            return existing_kit.kit_number
+        kit_prefix = f"{kit_category.prefix}-" if (kit_category and kit_category.prefix) else "920-"
+        return Kit.generate_next_kit_number(prefix=kit_prefix)
+
     @property
     def total_items_count(self):
         return self.items.count()
@@ -1629,10 +1649,10 @@ class Kit(models.Model):
 
     kit_number = models.CharField(
         max_length=50,
-        unique=True,
+        db_index=True,
         blank=True,
-        verbose_name="Kit Serial / Part # (920 Series)",
-        help_text="920-series kit serial/part number (e.g. 920-001). Leave blank to auto-assign."
+        verbose_name="Kit Part # (920 Series)",
+        help_text="920-series kit part number (e.g. 921-002). Identical kits from the same BoM share the same Kit Part #."
     )
     bom = models.ForeignKey(
         BOM,
@@ -1658,12 +1678,12 @@ class Kit(models.Model):
         default='PICKED',
         verbose_name="Kit Status"
     )
-    part = models.OneToOneField(
+    part = models.ForeignKey(
         Part,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='kit_record',
+        related_name='kit_records',
         verbose_name="Associated Part (920 Series)"
     )
     serial_number = models.CharField(
@@ -1713,10 +1733,10 @@ class Kit(models.Model):
                 defaults={'name': 'Kits', 'description': 'Kits and kitted part sets (920 series)'}
             )
         if not self.kit_number:
-            self.kit_number = self.generate_next_kit_number()
+            self.kit_number = self.bom.get_canonical_kit_number(kit_category=category) if self.bom_id else self.generate_next_kit_number()
 
-        part = self.part or Part.objects.filter(part_number=self.kit_number).first()
-        qty_on_hand = 1 if self.status == 'PICKED' else 0
+        part = Part.objects.filter(part_number=self.kit_number).first()
+        qty_on_hand = Kit.objects.filter(kit_number=self.kit_number, status='PICKED').count()
         part_name = f"Kit: {self.bom.name} (Rev {self.bom_revision})"
         if not part:
             part = Part.objects.create(
@@ -1755,7 +1775,7 @@ class Kit(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.kit_number:
-            self.kit_number = self.generate_next_kit_number()
+            self.kit_number = self.bom.get_canonical_kit_number(kit_category=self.category) if self.bom_id else self.generate_next_kit_number()
         if not self.bom_revision and self.bom_id:
             self.bom_revision = self.bom.revision
         super().save(*args, **kwargs)

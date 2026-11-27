@@ -5843,13 +5843,7 @@ def kit_pick_create(request):
     kit_quantity = max(1, min(50, kit_quantity))
 
     posted_kit_number = (request.POST.get('kit_number') or '').strip()
-    if kit_quantity == 1:
-        kit_number = posted_kit_number or Kit.generate_next_kit_number(prefix=kit_prefix)
-        if Kit.objects.filter(kit_number=kit_number).exists():
-            messages.error(request, f"Kit number '{kit_number}' already exists.")
-            return redirect('kit_list')
-    else:
-        kit_number = None
+    kit_number = posted_kit_number or bom.get_canonical_kit_number(kit_category=kit_category)
 
     interactive_mode = (request.POST.get('interactive_pick') == '1') or bool(request.POST.getlist('item_part_id[]'))
 
@@ -5897,9 +5891,8 @@ def kit_pick_create(request):
     grand_picked = 0
     with transaction.atomic():
         for i in range(kit_quantity):
-            this_kit_num = kit_number if (kit_quantity == 1 and kit_number) else Kit.generate_next_kit_number(prefix=kit_prefix)
             kit = Kit.objects.create(
-                kit_number=this_kit_num,
+                kit_number=kit_number,
                 bom=bom,
                 bom_revision=bom.revision,
                 category=kit_category,

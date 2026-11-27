@@ -286,13 +286,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 : `<i class="bi bi-plus-circle me-1"></i>Pick Kit`;
         }
         if (kitNumInput) {
-            kitNumInput.disabled = (kQty > 1);
-            if (kQty > 1) {
-                kitNumInput.value = '';
-                kitNumInput.placeholder = `Auto (${kQty} sequential #s)`;
-            } else {
-                kitNumInput.placeholder = 'Auto ({{ next_kit_number }})';
-            }
+            kitNumInput.disabled = false;
+            kitNumInput.placeholder = 'Auto (matches BoM)';
         }
     }
     if (kitQtyInput) {
