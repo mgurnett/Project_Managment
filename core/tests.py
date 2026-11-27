@@ -3231,6 +3231,28 @@ class AssemblyBuildFromKitTestCase(TestCase):
         res_back = self.client.get(reverse('assembly_list'))
         self.assertContains(res_back, '942-099')
 
+    def test_delete_kit_after_built_into_assembly(self):
+        # 1. Pick a kit -> cannot be deleted while PICKED
+        self.client.post(reverse('kit_pick'), {'bom': self.bom.pk}, follow=True)
+        kit = Kit.objects.get(bom=self.bom)
+        self.client.post(reverse('kit_delete', args=[kit.pk]), follow=True)
+        self.assertTrue(Kit.objects.filter(pk=kit.pk).exists())
+
+        # 2. Build kit into an Assembly -> now kit CAN be deleted, leaving Assembly & stock intact
+        self.client.post(reverse('assembly_build'), {'kit': kit.pk}, follow=True)
+        kit.refresh_from_db()
+        self.assertEqual(kit.status, 'BUILT')
+        asm = Assembly.objects.get(kit=kit)
+        self.part.refresh_from_db()
+        oh_after_build = self.part.quantity_on_hand
+
+        res_del = self.client.post(reverse('kit_delete', args=[kit.pk]), follow=True)
+        self.assertEqual(res_del.status_code, 200)
+        self.assertFalse(Kit.objects.filter(pk=kit.pk).exists())
+        self.assertTrue(Assembly.objects.filter(pk=asm.pk).exists())
+        self.part.refresh_from_db()
+        self.assertEqual(self.part.quantity_on_hand, oh_after_build)
+
 
 @unittest.skip("Archived for workflow reset")
 class KitPullSheetStockStatusTestCase(TestCase):

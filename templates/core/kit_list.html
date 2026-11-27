@@ -209,7 +209,17 @@
                         </td>
                         <td class="py-3 small text-muted">{{ kit.created_at|date:"M d, Y" }}</td>
                         <td class="text-end pe-4 py-3">
-                            <a href="{% url 'kit_detail' kit.pk %}" class="btn btn-sm btn-outline-secondary">View / Update</a>
+                            <div class="d-inline-flex align-items-center gap-1">
+                                <a href="{% url 'kit_detail' kit.pk %}" class="btn btn-sm btn-outline-secondary">View / Update</a>
+                                {% if kit.status != 'PICKED' %}
+                                    <form method="post" action="{% url 'kit_delete' kit.pk %}" class="d-inline" onsubmit="return confirm('Delete built/cancelled Kit {{ kit.kit_number }}? The built Assembly and component stock will not be affected.');">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete Kit">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </div>
                         </td>
                     </tr>
                     {% empty %}

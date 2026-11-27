@@ -110,6 +110,7 @@ urlpatterns = [
     path('kits/<int:pk>/', views.KitDetailView.as_view(), name='kit_detail'),
     path('kits/<int:pk>/update-items/', views.kit_update_items, name='kit_update_items'),
     path('kits/<int:pk>/cancel/', views.kit_cancel_action, name='kit_cancel'),
+    path('kits/<int:pk>/delete/', views.kit_delete_action, name='kit_delete'),
 
     # Assemblies (930 Sub-Assemblies / 940 Assemblies / 950 Full Systems)
     path('assemblies/', views.AssemblyListView.as_view(), name='assembly_list'),

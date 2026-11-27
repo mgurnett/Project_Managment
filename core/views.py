@@ -6116,6 +6116,43 @@ def kit_cancel_action(request, pk):
     return redirect('kit_detail', pk=kit.pk)
 
 
+def kit_delete_action(request, pk):
+    """
+    POST action to delete a Kit once it has been built into an Assembly (or cancelled).
+    Leaves the built Assembly and component inventory completely intact, and cleans up
+    any orphaned 92x Kit catalog Part if no other kits reference it.
+    """
+    kit = get_object_or_404(Kit.objects.select_related('bom', 'part'), pk=pk)
+    if request.method != 'POST':
+        return redirect('kit_detail', pk=kit.pk)
+
+    if kit.status == 'PICKED':
+        messages.error(
+            request,
+            f"Kit {kit.kit_number} is still Picked / Active. Build it into an Assembly or Return to Stock before deleting."
+        )
+        return redirect('kit_detail', pk=kit.pk)
+
+    kit_num = kit.kit_number
+    part_id = kit.part_id
+    with transaction.atomic():
+        kit.kit_items.all().delete()
+        kit.delete()
+        if part_id:
+            remaining_kits = Kit.objects.filter(part_id=part_id)
+            if remaining_kits.exists():
+                picked_cnt = remaining_kits.filter(status='PICKED').count()
+                Part.objects.filter(pk=part_id).update(
+                    quantity_on_hand=picked_cnt,
+                    quantity_availible=picked_cnt,
+                )
+            elif not BOMItem.objects.filter(part_id=part_id).exists():
+                Part.objects.filter(pk=part_id).delete()
+
+    messages.success(request, f"Deleted Kit {kit_num}.")
+    return redirect('kit_list')
+
+
 # ==============================================================================
 # ASSEMBLIES (930 SUB-ASSEMBLIES / 940 ASSEMBLIES / 950 FULL SYSTEMS)
 # ==============================================================================
